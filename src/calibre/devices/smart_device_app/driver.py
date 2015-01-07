@@ -21,7 +21,7 @@ from calibre import prints
 from calibre.constants import numeric_version, DEBUG, cache_dir
 from calibre.devices.errors import (OpenFailed, OpenFeedback, ControlError, TimeoutError,
                                     InitialConnectionError, PacketError)
-from calibre.devices.interface import DevicePlugin
+from calibre.devices.interface import DevicePlugin, currently_connected_device
 from calibre.devices.usbms.books import Book, CollectionsBookList
 from calibre.devices.usbms.deviceconfig import DeviceConfig
 from calibre.devices.usbms.driver import USBMS
@@ -54,8 +54,6 @@ def synchronous(tlockname):
 
 class ConnectionListener(Thread):
 
-    NOT_SERVICED_COUNT = 6
-
     def __init__(self, driver):
         Thread.__init__(self)
         self.daemon = True
@@ -67,7 +65,6 @@ class ConnectionListener(Thread):
         self.keep_running = False
 
     def run(self):
-        queue_not_serviced_count = 0
         device_socket = None
         get_all_ips(reinitialize=True)
 
@@ -87,20 +84,18 @@ class ConnectionListener(Thread):
                     self.driver._debug("All IP addresses", self.all_ip_addresses)
 
             if not self.driver.connection_queue.empty():
-                queue_not_serviced_count += 1
-                if queue_not_serviced_count >= self.NOT_SERVICED_COUNT:
-                    self.driver._debug('queue not serviced', queue_not_serviced_count)
+                d = currently_connected_device.device
+                if d is not None:
+                    self.driver._debug('queue not serviced', d.get_gui_name())
                     try:
                         sock = self.driver.connection_queue.get_nowait()
                         s = self.driver._json_encode(
-                                        self.driver.opcodes['CALIBRE_BUSY'], {})
+                                        self.driver.opcodes['CALIBRE_BUSY'],
+                                        {'otherDevice': d.get_gui_name()})
                         self.driver._send_byte_string(device_socket, (b'%d' % len(s)) + s)
                         sock.close()
                     except Queue.Empty:
                         pass
-                    queue_not_serviced_count = 0
-            else:
-                queue_not_serviced_count = 0
 
             if getattr(self.driver, 'broadcast_socket', None) is not None:
                 while True:
@@ -194,6 +189,7 @@ class SMART_DEVICE_APP(DeviceConfig, DevicePlugin):
     NEWS_IN_FOLDER              = True
     SUPPORTS_USE_AUTHOR_SORT    = False
     WANTS_UPDATED_THUMBNAILS    = True
+    MANAGES_DEVICE_PRESENCE     = True
 
     # Guess about the max length on windows. This number will be reduced by
     # the length of the path on the client, and by the fudge factor below. We
@@ -226,7 +222,7 @@ class SMART_DEVICE_APP(DeviceConfig, DevicePlugin):
 
     PURGE_CACHE_ENTRIES_DAYS    = 30
 
-    CURRENT_CC_VERSION          = 77
+    CURRENT_CC_VERSION          = 128
 
     ZEROCONF_CLIENT_STRING      = b'calibre wireless device client'
 
@@ -334,7 +330,7 @@ class SMART_DEVICE_APP(DeviceConfig, DevicePlugin):
                 False, '9090',
                 False, '',
                 '',    '',
-                True,  '',
+                False, '',
                 True,   '75',
                 True
     ]
@@ -426,8 +422,9 @@ class SMART_DEVICE_APP(DeviceConfig, DevicePlugin):
         except:
             pass
 
+        dotless_ext = ext[1:] if len(ext) > 0 else ext
         maxlen = (self.MAX_PATH_LEN - (self.PATH_FUDGE_FACTOR +
-                   self.exts_path_lengths.get(ext, self.PATH_FUDGE_FACTOR)))
+                   self.exts_path_lengths.get(dotless_ext, self.PATH_FUDGE_FACTOR)))
 
         special_tag = None
         if mdata.tags:
@@ -456,7 +453,8 @@ class SMART_DEVICE_APP(DeviceConfig, DevicePlugin):
         app_id = str(getattr(mdata, 'application_id', ''))
         id_ = mdata.get('id', fname)
         extra_components = get_components(template, mdata, id_,
-                timefmt=opts.send_timefmt, length=maxlen-len(app_id)-1)
+                timefmt=opts.send_timefmt, length=maxlen-len(app_id)-1,
+                last_has_extension=False)
         if not extra_components:
             extra_components.append(sanitize(fname))
         else:
@@ -495,6 +493,9 @@ class SMART_DEVICE_APP(DeviceConfig, DevicePlugin):
         extra_components = list(map(remove_trailing_periods, extra_components))
         components = shorten_components_to(maxlen, extra_components)
         filepath = posixpath.join(*components)
+        self._debug('lengths', dotless_ext, maxlen,
+                    self.exts_path_lengths.get(dotless_ext, self.PATH_FUDGE_FACTOR),
+                    len(filepath))
         return filepath
 
     def _strip_prefix(self, path):
@@ -521,7 +522,8 @@ class SMART_DEVICE_APP(DeviceConfig, DevicePlugin):
                 res[k]['_series_sort_'] = series
             else:
                 res[k] = v
-        return json.dumps([op, res], encoding='utf-8')
+        from calibre.utils.config import to_json
+        return json.dumps([op, res], encoding='utf-8', default=to_json)
 
     # Network functions
 
@@ -803,18 +805,18 @@ class SMART_DEVICE_APP(DeviceConfig, DevicePlugin):
                 traceback.print_exc()
 
     def _write_metadata_cache(self):
-        from calibre.utils.date import now
         self._debug()
+        from calibre.utils.date import now
+        now_ = now()
         from calibre.utils.config import to_json
-        cache_file_name = os.path.join(cache_dir(),
-                           'wireless_device_' + self.device_uuid +
-                                '_metadata_cache.json')
         try:
             purged = 0
             count = 0
-            with open(cache_file_name, mode='wb') as fd:
+            prefix = os.path.join(cache_dir(),
+                        'wireless_device_' + self.device_uuid + '_metadata_cache')
+            with open(prefix + '.tmp', mode='wb') as fd:
                 for key,book in self.device_book_cache.iteritems():
-                    if (now() - book['last_used']).days > self.PURGE_CACHE_ENTRIES_DAYS:
+                    if (now_ - book['last_used']).days > self.PURGE_CACHE_ENTRIES_DAYS:
                         purged += 1
                         continue
                     json_metadata = defaultdict(dict)
@@ -825,14 +827,12 @@ class SMART_DEVICE_APP(DeviceConfig, DevicePlugin):
                     fd.write(result)
                     fd.write('\n')
                     count += 1
-                self._debug('wrote', count, 'entries, purged', purged, 'entries')
+            self._debug('wrote', count, 'entries, purged', purged, 'entries')
+
+            from calibre.utils.filenames import atomic_rename
+            atomic_rename(fd.name, prefix + '.json')
         except:
             traceback.print_exc()
-            try:
-                if os.path.exists(cache_file_name):
-                    os.remove(cache_file_name)
-            except:
-                traceback.print_exc()
 
     def _make_metadata_cache_key(self, uuid, lpath_or_ext):
         key = None
@@ -916,18 +916,17 @@ class SMART_DEVICE_APP(DeviceConfig, DevicePlugin):
     # The public interface methods.
 
     @synchronous('sync_lock')
-    def is_usb_connected(self, devices_on_system, debug=False, only_presence=False):
+    def detect_managed_devices(self, devices_on_system, force_refresh=False):
         if getattr(self, 'listen_socket', None) is None:
             self.is_connected = False
         if self.is_connected:
             self.noop_counter += 1
-            if (only_presence and
-                    self.noop_counter > self.SEND_NOOP_EVERY_NTH_PROBE and
+            if (self.noop_counter > self.SEND_NOOP_EVERY_NTH_PROBE and
                     (self.noop_counter % self.SEND_NOOP_EVERY_NTH_PROBE) != 1):
                 try:
                     ans = select.select((self.device_socket,), (), (), 0)
                     if len(ans[0]) == 0:
-                        return (True, self)
+                        return self
                     # The socket indicates that something is there. Given the
                     # protocol, this can only be a disconnect notification. Fall
                     # through and actually try to talk to the client.
@@ -944,7 +943,7 @@ class SMART_DEVICE_APP(DeviceConfig, DevicePlugin):
                         self._close_device_socket()
                 except:
                     self._close_device_socket()
-            return (self.is_connected, self)
+            return self if self.is_connected else None
 
         if getattr(self, 'listen_socket', None) is not None:
             try:
@@ -966,8 +965,23 @@ class SMART_DEVICE_APP(DeviceConfig, DevicePlugin):
                     pass
             except Queue.Empty:
                 self.is_connected = False
-            return (self.is_connected, self)
-        return (False, None)
+            return self if self.is_connected else None
+        return None
+
+    @synchronous('sync_lock')
+    def debug_managed_device_detection(self, devices_on_system, output):
+        from functools import partial
+        p = partial(prints, file=output)
+        if self.is_connected:
+            p("A wireless device is connected")
+            return True
+        all_ip_addresses = get_all_ips()
+        if all_ip_addresses:
+            p("All IP addresses", all_ip_addresses)
+        else:
+            p("No IP addresses found")
+        p("No device is connected")
+        return False
 
     @synchronous('sync_lock')
     def open(self, connected_device, library_uuid):
@@ -999,7 +1013,8 @@ class SMART_DEVICE_APP(DeviceConfig, DevicePlugin):
                     'pubdateFormat': tweaks['gui_pubdate_display_format'],
                     'timestampFormat': tweaks['gui_timestamp_display_format'],
                     'lastModifiedFormat': tweaks['gui_last_modified_display_format'],
-                    'calibre_version': numeric_version})
+                    'calibre_version': numeric_version,
+                    'canSupportUpdateBooks': True})
             if opcode != 'OK':
                 # Something wrong with the return. Close the socket
                 # and continue.
@@ -1017,6 +1032,8 @@ class SMART_DEVICE_APP(DeviceConfig, DevicePlugin):
                 self._close_device_socket()
                 return False
 
+            # Set up to recheck the sync columns
+            self.have_checked_sync_columns = False
             client_can_stream_books = result.get('canStreamBooks', False)
             self._debug('Device can stream books', client_can_stream_books)
             client_can_stream_metadata = result.get('canStreamMetadata', False)
@@ -1043,6 +1060,12 @@ class SMART_DEVICE_APP(DeviceConfig, DevicePlugin):
             self._debug('Can send OK to sendbook', self.can_send_ok_to_sendbook)
             self.can_accept_library_info = result.get('canAcceptLibraryInfo', False)
             self._debug('Can accept library info', self.can_accept_library_info)
+            self.will_ask_for_update_books = result.get('willAskForUpdateBooks', False)
+            self._debug('Will ask for update books', self.will_ask_for_update_books)
+            self.set_temp_mark_when_syncing_read = \
+                                    result.get('setTempMarkWhenReadInfoSynced', False)
+            self._debug('Will set temp mark when syncing read',
+                                    self.set_temp_mark_when_syncing_read)
 
             if not self.settings().extra_customization[self.OPT_USE_METADATA_CACHE]:
                 self.client_can_use_metadata_cache = False
@@ -1223,7 +1246,8 @@ class SMART_DEVICE_APP(DeviceConfig, DevicePlugin):
                              'canScan':True,
                              'willUseCachedMetadata': self.client_can_use_metadata_cache,
                              'supportsSync': (bool(self.is_read_sync_col) or
-                                              bool(self.is_read_date_sync_col))})
+                                              bool(self.is_read_date_sync_col)),
+                             'canSupportBookFormatSync': True})
         bl = CollectionsBookList(None, self.PREFIX, self.settings)
         if opcode == 'OK':
             count = result['count']
@@ -1235,6 +1259,8 @@ class SMART_DEVICE_APP(DeviceConfig, DevicePlugin):
                 for i in range(0, count):
                     opcode, result = self._receive_from_client(print_debug_info=False)
                     books_on_device.append(result)
+
+                self._debug('received all books. count=', count)
 
                 books_to_send = []
                 lpaths_on_device = set()
@@ -1248,16 +1274,19 @@ class SMART_DEVICE_APP(DeviceConfig, DevicePlugin):
                     if book:
                         if self.client_cache_uses_lpaths:
                             lpaths_on_device.add(r.get('lpath'))
-                        bl.add_book(book, replace_metadata=True)
+                        bl.add_book_extended(book, replace_metadata=True,
+                                check_for_duplicates=not self.client_cache_uses_lpaths)
                         book.set('_is_read_', r.get('_is_read_', None))
                         book.set('_sync_type_', r.get('_sync_type_', None))
                         book.set('_last_read_date_', r.get('_last_read_date_', None))
+                        book.set('_format_mtime_', r.get('_format_mtime_', None))
                     else:
                         books_to_send.append(r['priKey'])
 
+                self._debug('processed cache. count=', len(books_on_device))
                 count_of_cache_items_deleted = 0
                 if self.client_cache_uses_lpaths:
-                    for lpath in self.known_metadata.keys():
+                    for lpath in tuple(self.known_metadata.iterkeys()):
                         if lpath not in lpaths_on_device:
                             try:
                                 uuid = self.known_metadata[lpath].get('uuid', None)
@@ -1285,17 +1314,22 @@ class SMART_DEVICE_APP(DeviceConfig, DevicePlugin):
                     self._debug('getting book metadata. Done', i, 'of', count)
                 opcode, result = self._receive_from_client(print_debug_info=False)
                 if opcode == 'OK':
-                    if '_series_sort_' in result:
-                        del result['_series_sort_']
-                    book = self.json_codec.raw_to_book(result, SDBook, self.PREFIX)
-                    book.set('_is_read_', result.get('_is_read_', None))
-                    book.set('_sync_type_', result.get('_sync_type_', None))
-                    book.set('_last_read_date_', result.get('_last_read_date_', None))
-                    bl.add_book(book, replace_metadata=True)
-                    if '_new_book_' in result:
-                        book.set('_new_book_', True)
-                    else:
-                        self._set_known_metadata(book)
+                    try:
+                        if '_series_sort_' in result:
+                            del result['_series_sort_']
+                        book = self.json_codec.raw_to_book(result, SDBook, self.PREFIX)
+                        book.set('_is_read_', result.get('_is_read_', None))
+                        book.set('_sync_type_', result.get('_sync_type_', None))
+                        book.set('_last_read_date_', result.get('_last_read_date_', None))
+                        bl.add_book_extended(book, replace_metadata=True,
+                                    check_for_duplicates=not self.client_cache_uses_lpaths)
+                        if '_new_book_' in result:
+                            book.set('_new_book_', True)
+                        else:
+                            self._set_known_metadata(book)
+                    except:
+                        self._debug('exception retrieving metadata for book', result.get('title', 'Unknown'))
+                        traceback.print_exc()
                 else:
                     raise ControlError(desc='book metadata not returned')
 
@@ -1376,6 +1410,9 @@ class SMART_DEVICE_APP(DeviceConfig, DevicePlugin):
                     except:
                         self._debug('failed to set local copy of _last_read_date_')
                         traceback.print_exc()
+        # Write the cache here so that if we are interrupted on disconnect then the
+        # almost-latest info will be available.
+        self._write_metadata_cache()
 
     @synchronous('sync_lock')
     def eject(self):
@@ -1435,6 +1472,9 @@ class SMART_DEVICE_APP(DeviceConfig, DevicePlugin):
             b = booklists[0].add_book(book, replace_metadata=True)
             if b:
                 b._new_book = True
+                from calibre.utils.date import isoformat, now
+                b.set('_format_mtime_', isoformat(now()))
+
         self.report_progress(1.0, _('Adding books to device metadata listing...'))
         self._debug('finished adding metadata')
 
@@ -1529,18 +1569,54 @@ class SMART_DEVICE_APP(DeviceConfig, DevicePlugin):
     def specialize_global_preferences(self, device_prefs):
         device_prefs.set_overrides(manage_device_metadata='on_connect')
 
+    def _show_message(self, message):
+        self._call_client("DISPLAY_MESSAGE",
+                {'messageKind': self.MESSAGE_SHOW_TOAST,
+                 'message': message})
+
+    def _check_if_format_send_needed(self, db, id_, book):
+        if not self.will_ask_for_update_books:
+            return (None, False)
+
+        from calibre.utils.date import parse_date, isoformat
+        try:
+            if not hasattr(book, '_format_mtime_'):
+                return (None, False)
+
+            ext = posixpath.splitext(book.lpath)[1][1:]
+            fmt_metadata = db.new_api.format_metadata(id_, ext)
+            if fmt_metadata:
+                calibre_mtime = fmt_metadata['mtime']
+                if calibre_mtime > self.now:
+                    if not self.have_sent_future_dated_book_message:
+                        self.have_sent_future_dated_book_message = True
+                        self._show_message(_('You have book formats in your library '
+                                             'with dates in the future. See calibre '
+                                             'for details'))
+                    return (None, True)
+
+                cc_mtime = parse_date(book.get('_format_mtime_'), as_utc=False)
+                self._debug(book.title, 'cal_mtime', calibre_mtime, 'cc_mtime', cc_mtime)
+                if cc_mtime < calibre_mtime:
+                    book.set('_format_mtime_', isoformat(self.now))
+                    return (posixpath.basename(book.lpath), False)
+        except:
+            self._debug('exception checking if must send format', book.title)
+            traceback.print_exc()
+        return (None, False)
+
     @synchronous('sync_lock')
-    def synchronize_with_db(self, db, id_, book):
-        from calibre.utils.date import parse_date, is_date_undefined
-        def show_message(message):
-            self._call_client("DISPLAY_MESSAGE",
-                    {'messageKind': self.MESSAGE_SHOW_TOAST,
-                     'message': message})
+    def synchronize_with_db(self, db, id_, book, first_call):
+        from calibre.utils.date import parse_date, is_date_undefined, now
+
+        if first_call:
+            self.have_sent_future_dated_book_message = False
+            self.now = now()
 
         if self.have_bad_sync_columns or not (self.is_read_sync_col or
                                               self.is_read_date_sync_col):
             # Not syncing or sync columns are invalid
-            return None
+            return (None, self._check_if_format_send_needed(db, id_, book))
 
         # Check the validity of the columns once per connection. We do it
         # here because we have access to the db to get field_metadata
@@ -1549,30 +1625,35 @@ class SMART_DEVICE_APP(DeviceConfig, DevicePlugin):
             if self.is_read_sync_col:
                 if self.is_read_sync_col not in fm:
                     self._debug('is_read_sync_col not in field_metadata')
-                    show_message(_("The read sync column %s is "
+                    self._show_message(_("The read sync column %s is "
                              "not in calibre's library")%self.is_read_sync_col)
                     self.have_bad_sync_columns = True
                 elif fm[self.is_read_sync_col]['datatype'] != 'bool':
                     self._debug('is_read_sync_col not bool type')
-                    show_message(_("The read sync column %s is "
+                    self._show_message(_("The read sync column %s is "
                              "not a Yes/No column")%self.is_read_sync_col)
                     self.have_bad_sync_columns = True
 
             if self.is_read_date_sync_col:
                 if self.is_read_date_sync_col not in fm:
                     self._debug('is_read_date_sync_col not in field_metadata')
-                    show_message(_("The read date sync column %s is "
+                    self._show_message(_("The read date sync column %s is "
                              "not in calibre's library")%self.is_read_date_sync_col)
                     self.have_bad_sync_columns = True
                 elif fm[self.is_read_date_sync_col]['datatype'] != 'datetime':
                     self._debug('is_read_date_sync_col not date type')
-                    show_message(_("The read date sync column %s is "
+                    self._show_message(_("The read date sync column %s is "
                              "not a Date column")%self.is_read_date_sync_col)
                     self.have_bad_sync_columns = True
 
             self.have_checked_sync_columns = True
             if self.have_bad_sync_columns:
-                return None
+                return (None, self._check_if_format_send_needed(db, id_, book))
+
+            # if we are marking synced books, clear all the current marks
+            if self.set_temp_mark_when_syncing_read:
+                self._debug('clearing temp marks')
+                db.set_marked_ids(())
 
         sync_type = book.get('_sync_type_', None)
         # We need to check if our attributes are in the book. If they are not
@@ -1624,6 +1705,8 @@ class SMART_DEVICE_APP(DeviceConfig, DevicePlugin):
                                     book.get('title', 'huh?'), 'to', is_read, calibre_val)
                             changed_books = db.new_api.set_field(self.is_read_sync_col,
                                                                  {id_: is_read})
+                            if self.set_temp_mark_when_syncing_read:
+                                db.data.toggle_marked_ids({id_})
                     elif calibre_val is not None:
                         # Calibre value wins. Force the metadata for the
                         # book to be sent to the device even if the mod
@@ -1648,6 +1731,8 @@ class SMART_DEVICE_APP(DeviceConfig, DevicePlugin):
                                 book.get('title', 'huh?'), 'to', is_read_date, calibre_val)
                             changed_books |= db.new_api.set_field(self.is_read_date_sync_col,
                                                                  {id_: is_read_date})
+                            if self.set_temp_mark_when_syncing_read:
+                                db.data.toggle_marked_ids({id_})
                     elif calibre_val is not None:
                         self._debug('special update is_read_date to calibre value',
                                     book.get('title', 'huh?'), 'to', calibre_val)
@@ -1674,6 +1759,8 @@ class SMART_DEVICE_APP(DeviceConfig, DevicePlugin):
                                     'to', is_read, 'was', orig_is_read)
                         changed_books = db.new_api.set_field(self.is_read_sync_col,
                                                                  {id_: is_read})
+                        if self.set_temp_mark_when_syncing_read:
+                            db.data.toggle_marked_ids({id_})
                 except:
                     self._debug('exception standard syncing is_read', self.is_read_sync_col)
                     traceback.print_exc()
@@ -1689,6 +1776,8 @@ class SMART_DEVICE_APP(DeviceConfig, DevicePlugin):
                                     'to', is_read_date, 'was', orig_is_read_date)
                         changed_books |= db.new_api.set_field(self.is_read_date_sync_col,
                                                           {id_: is_read_date})
+                        if self.set_temp_mark_when_syncing_read:
+                            db.data.toggle_marked_ids({id_})
                 except:
                     self._debug('Exception standard syncing is_read_date',
                                 self.is_read_date_sync_col)
@@ -1697,14 +1786,14 @@ class SMART_DEVICE_APP(DeviceConfig, DevicePlugin):
         if changed_books or force_return_changed_books:
             # One of the two values was synced, giving a (perhaps empty) list of
             # changed books. Return that.
-            return changed_books
+            return (changed_books, self._check_if_format_send_needed(db, id_, book))
 
         # Nothing was synced. The user might have changed the value in calibre.
         # If so, that value will be sent to the device in the normal way. Note
         # that because any updated value has already been synced and so will
         # also be sent, the device should put the calibre value into its
         # checkbox (or whatever it uses)
-        return None
+        return (None, self._check_if_format_send_needed(db, id_, book))
 
     @synchronous('sync_lock')
     def startup(self):
@@ -1733,6 +1822,8 @@ class SMART_DEVICE_APP(DeviceConfig, DevicePlugin):
         self.is_read_date_sync_col = None
         self.have_checked_sync_columns = False
         self.have_bad_sync_columns = False
+        self.have_sent_future_dated_book_message = False
+        self.now = None
 
         message = None
         compression_quality_ok = True

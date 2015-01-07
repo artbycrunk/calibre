@@ -26,7 +26,12 @@ def get_rsync_pw():
 
 def is_vm_running(name):
     qname = '"%s"' % name
-    for line in subprocess.check_output('VBoxManage list runningvms'.split()).decode('utf-8').splitlines():
+    try:
+        lines = subprocess.check_output('VBoxManage list runningvms'.split()).decode('utf-8').splitlines()
+    except Exception:
+        time.sleep(1)
+        lines = subprocess.check_output('VBoxManage list runningvms'.split()).decode('utf-8').splitlines()
+    for line in lines:
         if line.startswith(qname):
             return True
     return False
@@ -99,7 +104,7 @@ class VMInstaller(Command):
     SHUTDOWN_CMD = ['sudo', 'shutdown', '-h', 'now']
     IS_64_BIT = False
 
-    BUILD_PREFIX = ['#!/bin/bash', 'export CALIBRE_BUILDBOT=1']
+    BUILD_PREFIX = ['#!/bin/sh', 'export CALIBRE_BUILDBOT=1']
     BUILD_RSYNC  = ['mkdir -p ~/build/{project}', r'cd ~/build/{project}', Rsync.SYNC_CMD]
     BUILD_CLEAN  = ['rm -rf dist/* build/* src/calibre/plugins/*']
     BUILD_BUILD  = ['python setup.py build',]
@@ -152,7 +157,7 @@ class VMInstaller(Command):
         p2.wait()
         rc = p.wait()
         if rc != 0:
-            raise SystemExit(rc)
+            raise SystemExit('VM builder failed with error code: %s' % rc)
         self.download_installer()
 
     def installer(self):
@@ -184,8 +189,7 @@ class VMInstaller(Command):
         subprocess.check_call(['scp',
             self.VM_NAME+':build/calibre/'+installer, 'dist'])
         if not os.path.exists(installer):
-            self.warn('Failed to download installer: '+installer)
-            raise SystemExit(1)
+            raise SystemExit('Failed to download installer: '+installer)
 
     def clean(self):
         installer = self.installer()

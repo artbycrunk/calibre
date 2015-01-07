@@ -19,6 +19,7 @@ from calibre.ebooks.metadata.book.base import Metadata
 from calibre.ebooks.metadata.book.formatter import SafeFormat
 from calibre.library.coloring import (displayable_columns, color_row_key)
 from calibre.gui2 import error_dialog, choose_files, pixmap_to_data
+from calibre.utils.localization import localize_user_manual_link
 
 class ParenPosition:
 
@@ -202,7 +203,8 @@ class TemplateHighlighter(QSyntaxHighlighter):
 class TemplateDialog(QDialog, Ui_TemplateDialog):
 
     def __init__(self, parent, text, mi=None, fm=None, color_field=None,
-                 icon_field_key=None, icon_rule_kind=None, doing_emblem=False):
+                 icon_field_key=None, icon_rule_kind=None, doing_emblem=False,
+                 text_is_placeholder=False):
         QDialog.__init__(self, parent)
         Ui_TemplateDialog.__init__(self)
         self.setupUi(self)
@@ -299,7 +301,10 @@ class TemplateDialog(QDialog, Ui_TemplateDialog):
         self.source_code.setReadOnly(True)
 
         if text is not None:
-            self.textbox.setPlainText(text)
+            if text_is_placeholder:
+                self.textbox.setPlaceholderText(text)
+            else:
+                self.textbox.setPlainText(text)
         self.buttonBox.button(QDialogButtonBox.Ok).setText(_('&OK'))
         self.buttonBox.button(QDialogButtonBox.Cancel).setText(_('&Cancel'))
         self.color_copy_button.clicked.connect(self.color_to_clipboard)
@@ -326,12 +331,12 @@ class TemplateDialog(QDialog, Ui_TemplateDialog):
 
         tt = _('Template language tutorial')
         self.template_tutorial.setText(
-                '<a href="http://manual.calibre-ebook.com/template_lang.html">'
-                '%s</a>'%tt)
+            '<a href="%s">%s</a>' % (
+                localize_user_manual_link('http://manual.calibre-ebook.com/template_lang.html'), tt))
         tt = _('Template function reference')
         self.template_func_reference.setText(
-                '<a href="http://manual.calibre-ebook.com/template_ref.html">'
-                '%s</a>'%tt)
+            '<a href="%s">%s</a>' % (
+                localize_user_manual_link('http://manual.calibre-ebook.com/template_ref.html'), tt))
 
         self.font_size_box.setValue(gprefs['gpm_template_editor_font_size'])
         self.font_size_box.valueChanged.connect(self.font_size_changed)
@@ -449,6 +454,7 @@ class TemplateDialog(QDialog, Ui_TemplateDialog):
 
 if __name__ == '__main__':
     app = QApplication([])
-    d = TemplateDialog(None, '{title}')
+    from calibre.ebooks.metadata.book.base import field_metadata
+    d = TemplateDialog(None, '{title}', fm=field_metadata)
     d.exec_()
     del app

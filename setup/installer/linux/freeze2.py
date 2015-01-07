@@ -22,7 +22,7 @@ sudo apt-get install build-essential module-assistant vim zsh vim-scripts rsync 
     htop nasm unzip libdbus-1-dev cmake libltdl-dev libudev-dev apt-file \
     libdbus-glib-1-dev libcups2-dev "^libxcb.*" libx11-xcb-dev libglu1-mesa-dev \
     libxrender-dev flex bison gperf libasound2-dev libgstreamer0.10-dev \
-    libgstreamer-plugins-base0.10-dev libpulse-dev libgtk2.0-dev libffi-dev
+    libgstreamer-plugins-base0.10-dev libpulse-dev libgtk2.0-dev libffi-dev xcb-proto python-xcbgen dh-autoreconf
 apt-file update
 
 # For recent enough version of debian (>= sid) also install libxkbcommon-dev
@@ -73,12 +73,12 @@ def binary_includes():
         'usb-1.0.so.0', 'mtp.so.9', 'expat.so.1', 'sqlite3.so.0',
         'podofo.so.0.9.1', 'z.so.1', 'bz2.so.1.0', 'poppler.so.46',
         'iconv.so.2', 'xml2.so.2', 'xslt.so.1', 'jpeg.so.8', 'png16.so.16', 'webp.so.5',
-        'exslt.so.0', 'imobiledevice.so.4', 'usbmuxd.so.2', 'plist.so.2',
+        'exslt.so.0', 'imobiledevice.so.5', 'usbmuxd.so.4', 'plist.so.3',
         'MagickCore-6.Q16.so.2', 'MagickWand-6.Q16.so.2', 'ssl.so.1.0.0',
         'crypto.so.1.0.0', 'readline.so.6', 'chm.so.0', 'icudata.so.53',
         'icui18n.so.53', 'icuuc.so.53', 'icuio.so.53', 'python%s.so.1.0' % py_ver,
         'gcrypt.so.20', 'gpg-error.so.0', 'gobject-2.0.so.0', 'glib-2.0.so.0',
-        'gthread-2.0.so.0', 'gmodule-2.0.so.0', 'gio-2.0.so.0',
+        'gthread-2.0.so.0', 'gmodule-2.0.so.0', 'gio-2.0.so.0', 'dbus-glib-1.so.2',
     )] + [
 
     glob.glob('/lib/*/lib' + x)[-1] for x in (

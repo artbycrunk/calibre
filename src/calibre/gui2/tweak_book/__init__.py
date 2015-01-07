@@ -114,7 +114,10 @@ def set_book_locale(lang):
 def verify_link(url, name=None):
     if _current_container is None or name is None:
         return None
-    target = _current_container.href_to_name(url, name)
+    try:
+        target = _current_container.href_to_name(url, name)
+    except ValueError:
+        return False  # Absolute URLs that point to a different drive on windows cause this
     if _current_container.has_name(target):
         return True
     if url.startswith('#'):
@@ -122,3 +125,10 @@ def verify_link(url, name=None):
     if url.partition(':')[0] in {'http', 'https', 'mailto'}:
         return True
     return False
+
+def update_mark_text_action(ed=None):
+    has_mark = False
+    if ed is not None and ed.has_line_numbers:
+        has_mark = bool(ed.selected_text) or not ed.has_marked_text
+    ac = actions['mark-selected-text']
+    ac.setText(ac.default_text if has_mark else _('Unmark marked text'))

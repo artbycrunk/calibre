@@ -2,14 +2,14 @@
 
 .. _customize:
 
-Customizing |app|
+Customizing calibre
 ==================================
 
-|app| has a highly modular design. Various parts of it can be customized. You can learn how to create
-*recipes* to add new sources of online content to |app| in the Section :ref:`news`. Here, you will learn,
-first, how to use environment variables and *tweaks* to customize |app|'s behavior,  and then how to
+calibre has a highly modular design. Various parts of it can be customized. You can learn how to create
+*recipes* to add new sources of online content to calibre in the Section :ref:`news`. Here, you will learn,
+first, how to use environment variables and *tweaks* to customize calibre's behavior,  and then how to
 specify your own static resources like icons and templates to override the defaults and finally how to 
-use *plugins* to add functionality to |app|.
+use *plugins* to add functionality to calibre.
 
 .. contents::
     :depth: 2
@@ -29,16 +29,17 @@ Environment variables
     * ``CALIBRE_DEVELOP_FROM`` - Used to run from a calibre development environment. See :ref:`develop`.
     * ``CALIBRE_OVERRIDE_LANG`` - Used to force the language used by the interface (ISO 639 language code)
     * ``CALIBRE_NO_NATIVE_FILEDIALOGS`` - Causes calibre to not use native file dialogs for selecting files/directories. Set it to 1 to enable.
+    * ``CALIBRE_NO_NATIVE_MENUBAR`` - Causes calibre to not create a native (global) menu on Ubuntu Unity and similar linux desktop environments. The menu is instead placed inside the window, as traditional.
     * ``SYSFS_PATH`` - Use if sysfs is mounted somewhere other than /sys
     * ``http_proxy`` - Used on linux to specify an HTTP proxy
 
 See `How to set environment variables in windows <http://www.computerhope.com/issues/ch000549.htm>`_ or
-`How to set environment variables in OS X <http://blog.dowdandassociates.com/content/howto-set-an-environment-variable-in-mac-os-x-home-slash-dot-macosx-slash-environment-dot-plist/>`_.
+`How to set environment variables in OS X <http://www.dowdandassociates.com/blog/content/howto-set-an-environment-variable-in-mac-os-x-home-slash-dot-macosx-slash-environment-dot-plist/>`_.
 
 Tweaks
 ------------
 
-Tweaks are small changes that you can specify to control various aspects of |app|'s behavior. You can change them by going to Preferences->Advanced->Tweaks.
+Tweaks are small changes that you can specify to control various aspects of calibre's behavior. You can change them by going to Preferences->Advanced->Tweaks.
 The default values for the tweaks are reproduced below
 
 .. literalinclude:: ../resources/default_tweaks.py
@@ -47,22 +48,22 @@ The default values for the tweaks are reproduced below
 Overriding icons, templates, et cetera
 ----------------------------------------
 
-|app| allows you to override the static resources, like icons, javascript and
+calibre allows you to override the static resources, like icons, javascript and
 templates for the metadata jacket, catalogs, etc. with customized versions that
 you like.  All static resources are stored in the resources sub-folder of the
-calibre install location. On Windows, this is usually :file:`C:/Program Files/Calibre2/resources`. 
+calibre install location. On Windows, this is usually :file:`C:\\Program Files\\Calibre2\\resources`. 
 On OS X, :file:`/Applications/calibre.app/Contents/Resources/resources/`. On linux, if
 you are using the binary installer from the calibre website it will be
 :file:`/opt/calibre/resources`. These paths can change depending on where you
-choose to install |app|. 
+choose to install calibre. 
 
 You should not change the files in this resources folder, as your changes will
-get overwritten the next time you update |app|. Instead, go to
+get overwritten the next time you update calibre. Instead, go to
 :guilabel:`Preferences->Advanced->Miscellaneous` and click 
 :guilabel:`Open calibre configuration directory`. In this configuration directory, create a
 sub-folder called resources and place the files you want to override in it.
 Place the files in the appropriate sub folders, for example place images in
-:file:`resources/images`, etc. |app| will automatically use your custom file
+:file:`resources/images`, etc. calibre will automatically use your custom file
 in preference to the built-in one the next time it is started.
 
 For example, if you wanted to change the icon for the :guilabel:`Remove books`
@@ -73,10 +74,16 @@ the configuration directory as :file:`resources/images/trash.png`. All the
 icons used by the calibre user interface are in :file:`resources/images` and
 its sub-folders.
 
-Customizing |app| with plugins
+
+.. note:: 
+    There are several replacement icon sets for calibre created by users
+    over the years. You can find them gathered together in this `forum thread 
+    <http://www.mobileread.com/forums/showthread.php?t=151397>`_.
+
+Customizing calibre with plugins
 --------------------------------
 
-|app| has a very modular design. Almost all functionality in |app| comes in the form of plugins. Plugins are used for conversion, for downloading news (though these are called recipes), for various components of the user interface, to connect to different devices, to process files when adding them to |app| and so on. You can get a complete list of all the built-in plugins in |app| by going to :guilabel:`Preferences->Plugins`.
+calibre has a very modular design. Almost all functionality in calibre comes in the form of plugins. Plugins are used for conversion, for downloading news (though these are called recipes), for various components of the user interface, to connect to different devices, to process files when adding them to calibre and so on. You can get a complete list of all the built-in plugins in calibre by going to :guilabel:`Preferences->Plugins`.
 
-You can write your own plugins to customize and extend the behavior of |app|. The plugin architecture in |app| is very simple, see the tutorial :ref:`pluginstutorial`.
+You can write your own plugins to customize and extend the behavior of calibre. The plugin architecture in calibre is very simple, see the tutorial :ref:`pluginstutorial`.
 

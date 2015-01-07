@@ -69,7 +69,7 @@ def mi_to_html(mi, field_list=None, default_author_link=None, use_roman_numbers=
             continue
         if field == 'sort':
             field = 'title_sort'
-        if metadata['datatype'] == 'bool':
+        if metadata['is_custom'] and metadata['datatype'] in {'bool', 'int', 'float'}:
             isnull = mi.get(field) is None
         else:
             isnull = mi.is_null(field)
@@ -92,13 +92,25 @@ def mi_to_html(mi, field_list=None, default_author_link=None, use_roman_numbers=
                     u'<td class="title">%s</td><td class="rating value" '
                     'style=\'font-family:"%s"\'>%s</td>'%(
                         name, rating_font, u'\u2605'*int(val))))
-        elif metadata['datatype'] == 'composite' and \
-                            metadata['display'].get('contains_html', False):
+        elif metadata['datatype'] == 'composite':
             val = getattr(mi, field)
             if val:
                 val = force_unicode(val)
-                ans.append((field,
-                    row % (name, comments_to_html(val))))
+                if metadata['display'].get('contains_html', False):
+                    ans.append((field, row % (name, comments_to_html(val))))
+                else:
+                    if not metadata['is_multiple']:
+                        val = '<a href="%s" title="%s">%s</a>' % (
+                              search_href(field, val),
+                              _('Click to see books with {0}: {1}').format(metadata['name'], a(val)), p(val))
+                    else:
+                        all_vals = [v.strip()
+                            for v in val.split(metadata['is_multiple']['list_to_ui']) if v.strip()]
+                        links = ['<a href="%s" title="%s">%s</a>' % (
+                            search_href(field, x), _('Click to see books with {0}: {1}').format(
+                                     metadata['name'], a(x)), p(x)) for x in all_vals]
+                        val = metadata['is_multiple']['list_to_ui'].join(links)
+                    ans.append((field, row % (name, val)))
         elif field == 'path':
             if mi.path:
                 path = force_unicode(mi.path, filesystem_encoding)
@@ -198,7 +210,7 @@ def mi_to_html(mi, field_list=None, default_author_link=None, use_roman_numbers=
                 if field == 'tags':
                     all_vals = sorted(all_vals, key=sort_key)
                 links = ['<a href="%s" title="%s">%s</a>' % (
-                    search_href(st, x), _('Click to see books with {0}: {1}').format(metadata['name'], x), x)
+                    search_href(st, x), _('Click to see books with {0}: {1}').format(metadata['name'], a(x)), p(x))
                          for x in all_vals]
                 val = metadata['is_multiple']['list_to_ui'].join(links)
             elif metadata['datatype'] == 'enumeration':

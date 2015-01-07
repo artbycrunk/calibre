@@ -14,7 +14,6 @@ from functools import partial
 from calibre import jsbrowser
 from calibre.ebooks.chardet import strip_encoding_declarations
 from calibre.utils.imghdr import what
-from calibre.web.jsbrowser.browser import Timeout
 
 # remove_comments() {{{
 remove_comments = '''
@@ -53,7 +52,7 @@ def apply_keep_only(browser, keep_only):
     for selector in keep_only:
         keep.extend(x for x in mf.findAllElements(selector))
     if not keep:
-        browser.log.error('Failed to find any elements matching the keep_only selectors: %r' % keep_only)
+        browser.log.error('Failed to find any elements matching the keep_only selectors: %r' % list(keep_only))
         return
     for elem in keep:
         body.appendInside(elem)
@@ -225,6 +224,7 @@ def fetch_page(
         while not load_complete(browser, url, recursion_level):
             browser.run_for_a_time(0.1)
             if time.time() - start_time > browser.default_timeout:
+                from calibre.web.jsbrowser.browser import Timeout
                 raise Timeout('Timed out while waiting for %s to load' % url)
 
     children = links(browser, url, recursion_level)

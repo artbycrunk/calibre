@@ -68,7 +68,7 @@ class KOBO(USBMS):
 
     dbversion = 0
     fwversion = 0
-    supported_dbversion = 105
+    supported_dbversion = 112
     has_kepubs = False
 
     supported_platforms = ['windows', 'osx', 'linux']
@@ -1256,7 +1256,7 @@ class KOBOTOUCH(KOBO):
     description = 'Communicate with the Kobo Touch, Glo, Mini and Aura HD ereaders. Based on the existing Kobo driver by %s.' % (KOBO.author)
 #    icon        = I('devices/kobotouch.jpg')
 
-    supported_dbversion             = 105
+    supported_dbversion             = 112
     min_supported_dbversion         = 53
     min_dbversion_series            = 65
     min_dbversion_externalid        = 65
@@ -1265,11 +1265,12 @@ class KOBOTOUCH(KOBO):
     min_dbversion_activity          = 77
     min_dbversion_keywords          = 82
 
-    max_supported_fwversion         = (3, 8, 1)
+    max_supported_fwversion         = (3, 12, 1)
     min_fwversion_shelves           = (2, 0, 0)
     min_fwversion_images_on_sdcard  = (2, 4, 1)
     min_fwversion_images_tree       = (2, 9, 0)  # Cover images stored in tree under .kobo-images
-    min_aurah2o_fwversion           = (3, 7, 0) # Not used yet
+    min_aurah2o_fwversion           = (3, 7, 0)  # Not used yet
+    min_reviews_fwversion           = (3, 12, 0) # Not used yet
 
     has_kepubs = True
 
@@ -1364,7 +1365,7 @@ class KOBOTOUCH(KOBO):
 
     AURA_PRODUCT_ID     = [0x4203]
     AURA_HD_PRODUCT_ID  = [0x4193]
-    AURA_H2O_PRODUCT_ID = [0x4293]
+    AURA_H2O_PRODUCT_ID = [0x4213]
     GLO_PRODUCT_ID      = [0x4173]
     MINI_PRODUCT_ID     = [0x4183]
     TOUCH_PRODUCT_ID    = [0x4163]
@@ -1882,6 +1883,9 @@ class KOBOTOUCH(KOBO):
                 try:
                     extra_sheet = cssparseFile(extra_css_path)
                     debug_print("KoboTouch:get_extra_css: Using extra CSS in {0} ({1} rules)".format(extra_css_path, len(extra_sheet.cssRules)))
+                    if len(extra_sheet.cssRules) ==0:
+                        debug_print("KoboTouch:get_extra_css: Extra CSS file has no valid rules. CSS will not be modified.")
+                        extra_sheet = None
                 except Exception as e:
                     debug_print("KoboTouch:get_extra_css: Problem parsing extra CSS file {0}".format(extra_css_path))
                     debug_print("KoboTouch:get_extra_css: Exception {0}".format(e))
@@ -1946,6 +1950,7 @@ class KOBOTOUCH(KOBO):
 
         # Currently only modifying CSS, so if no stylesheet, don't do anything
         if not self.extra_sheet:
+            debug_print("KoboTouch:_modify_epub: no CSS file")
             return True
 
         commit_container = False
@@ -2015,6 +2020,11 @@ class KOBOTOUCH(KOBO):
                     cursor = connection.cursor()
                     debug_print('KoboTouch:delete_via_sql: have cursor')
                     t = (ContentID,)
+
+                    # Delete the Bookmarks
+                    debug_print('KoboTouch:delete_via_sql: Delete from Bookmark')
+                    cursor.execute('DELETE FROM Bookmark WHERE VolumeID  = ?', t)
+
                     # Delete from the Bookshelf
                     debug_print('KoboTouch:delete_via_sql: Delete from the Bookshelf')
                     cursor.execute('delete from ShelfContent where ContentID = ?', t)

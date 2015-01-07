@@ -24,6 +24,7 @@ from calibre import (guess_type, prepare_string_for_xml,
 from calibre.ebooks.oeb.transforms.cover import CoverManager
 from calibre.ebooks.oeb.iterator.spine import (SpineItem, create_indexing_data)
 from calibre.ebooks.oeb.iterator.bookmarks import BookmarksMixin
+from calibre.ebooks.oeb.base import urlparse, urlunquote
 
 TITLEPAGE = CoverManager.SVG_TEMPLATE.decode('utf-8').replace(
         '__ar__', 'none').replace('__viewbox__', '0 0 600 800'
@@ -75,7 +76,7 @@ class EbookIterator(BookmarksMixin):
                     return i
 
     def __enter__(self, processed=False, only_input_plugin=False,
-                  run_char_count=True, read_anchor_map=True, view_kepub=False):
+                  run_char_count=True, read_anchor_map=True, view_kepub=False, read_links=True):
         ''' Convert an ebook file into an exploded OEB book suitable for
         display in viewers/preprocessing etc. '''
 
@@ -124,7 +125,7 @@ class EbookIterator(BookmarksMixin):
         ordered = [i for i in self.opf.spine if i.is_linear] + \
                   [i for i in self.opf.spine if not i.is_linear]
         self.spine = []
-        Spiny = partial(SpineItem, read_anchor_map=read_anchor_map,
+        Spiny = partial(SpineItem, read_anchor_map=read_anchor_map, read_links=read_links,
                 run_char_count=run_char_count, from_epub=self.book_format == 'EPUB')
         is_comic = plumber.input_fmt.lower() in {'cbc', 'cbz', 'cbr', 'cb7'}
         for i in ordered:
@@ -143,7 +144,7 @@ class EbookIterator(BookmarksMixin):
 
         cover = self.opf.cover
         if cover and self.ebook_ext in {'lit', 'mobi', 'prc', 'opf', 'fb2',
-                                        'azw', 'azw3', 'docx'}:
+                                        'azw', 'azw3', 'docx', 'htmlz'}:
             cfile = os.path.join(self.base, 'calibre_iterator_cover.html')
             rcpath = os.path.relpath(cover, self.base).replace(os.sep, '/')
             chtml = (TITLEPAGE%prepare_string_for_xml(rcpath, True)).encode('utf-8')
@@ -175,9 +176,29 @@ class EbookIterator(BookmarksMixin):
         if read_anchor_map:
             create_indexing_data(self.spine, self.toc)
 
+        self.verify_links()
+
         self.read_bookmarks()
 
         return self
+
+    def verify_links(self):
+        spine_paths = {s:s for s in self.spine}
+        for item in self.spine:
+            base = os.path.dirname(item)
+            for link in item.all_links:
+                try:
+                    p = urlparse(urlunquote(link))
+                except Exception:
+                    continue
+                if not p.scheme and not p.netloc:
+                    path = os.path.abspath(os.path.join(base, p.path)) if p.path else item
+                    try:
+                        path = spine_paths[path]
+                    except Exception:
+                        continue
+                    if not p.fragment or p.fragment in path.anchor_map:
+                        item.verified_links.add((path, p.fragment))
 
     def __exit__(self, *args):
         self._tdir.__exit__(*args)

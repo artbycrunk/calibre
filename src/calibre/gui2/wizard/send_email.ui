@@ -207,9 +207,9 @@
    <item row="1" column="1">
     <layout class="QVBoxLayout" name="verticalLayout_9">
      <item>
-      <widget class="QToolButton" name="relay_use_gmail">
+      <widget class="QToolButton" name="relay_use_gmx">
        <property name="text">
-        <string>Use Gmail</string>
+        <string>Use GMX</string>
        </property>
        <property name="icon">
         <iconset resource="../../../../resources/images.qrc">

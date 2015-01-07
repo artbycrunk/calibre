@@ -640,7 +640,7 @@ plugins += input_profiles + output_profiles
 # Device driver plugins {{{
 from calibre.devices.hanlin.driver import HANLINV3, HANLINV5, BOOX, SPECTRA
 from calibre.devices.blackberry.driver import BLACKBERRY, PLAYBOOK
-from calibre.devices.cybook.driver import CYBOOK, ORIZON
+from calibre.devices.cybook.driver import CYBOOK, ORIZON, MUSE
 from calibre.devices.eb600.driver import (EB600, COOL_ER, SHINEBOOK, TOLINO,
                 POCKETBOOK360, GER2, ITALICA, ECLICTO, DBOOK, INVESBOOK,
                 BOOQ, ELONEX, POCKETBOOK301, MENTOR, POCKETBOOK602,
@@ -668,9 +668,10 @@ from calibre.devices.edge.driver import EDGE
 from calibre.devices.teclast.driver import (TECLAST_K3, NEWSMY, IPAPYRUS,
         SOVOS, PICO, SUNSTECH_EB700, ARCHOS7O, STASH, WEXLER)
 from calibre.devices.sne.driver import SNE
-from calibre.devices.misc import (PALMPRE, AVANT, SWEEX, PDNOVEL,
-        GEMEI, VELOCITYMICRO, PDNOVEL_KOBO, LUMIREAD, ALURATEK_COLOR,
-        TREKSTOR, EEEREADER, NEXTBOOK, ADAM, MOOVYBOOK, COBY, EX124G, WAYTEQ, WOXTER)
+from calibre.devices.misc import (
+    PALMPRE, AVANT, SWEEX, PDNOVEL, GEMEI, VELOCITYMICRO, PDNOVEL_KOBO,
+    LUMIREAD, ALURATEK_COLOR, TREKSTOR, EEEREADER, NEXTBOOK, ADAM, MOOVYBOOK,
+    COBY, EX124G, WAYTEQ, WOXTER, POCKETBOOK626)
 from calibre.devices.folder_device.driver import FOLDER_DEVICE_FOR_CONFIG
 from calibre.devices.kobo.driver import KOBO, KOBOTOUCH
 from calibre.devices.bambook.driver import BAMBOOK
@@ -683,8 +684,7 @@ plugins += [
     HANLINV3,
     HANLINV5,
     BLACKBERRY, PLAYBOOK,
-    CYBOOK,
-    ORIZON,
+    CYBOOK, ORIZON, MUSE,
     ILIAD,
     IREXDR1000,
     IREXDR800,
@@ -744,7 +744,7 @@ plugins += [
     EEEREADER,
     NEXTBOOK,
     ADAM,
-    MOOVYBOOK, COBY, EX124G, WAYTEQ, WOXTER,
+    MOOVYBOOK, COBY, EX124G, WAYTEQ, WOXTER, POCKETBOOK626,
     ITUNES,
     BOEYE_BEX,
     BOEYE_BDX,
@@ -1232,20 +1232,9 @@ plugins += [LookAndFeel, Behavior, Columns, Toolbar, Search, InputOptions,
         Email, Server, Plugins, Tweaks, Misc, TemplateFunctions,
         MetadataSources, Keyboard, IgnoredDevices]
 
-#}}}
+# }}}
 
 # Store plugins {{{
-class StoreAllegroStore(StoreBase):
-    name = 'Ebooki Allegro'
-    author = u'Tomasz Długosz'
-    description = u'Platforma Grupy Allegro sprzedająca ebooki zabezpieczone znakiem wodnym.'
-    actual_plugin = 'calibre.gui2.store.stores.allegro_plugin:AllegroStore'
-
-    drm_free_only = True
-    headquarters = 'PL'
-    formats = ['EPUB', 'MOBI', 'PDF']
-    affiliate = True
-
 class StoreAmazonKindleStore(StoreBase):
     name = 'Amazon Kindle'
     description = u'Kindle books from Amazon.'
@@ -1339,6 +1328,24 @@ class StoreArchiveOrgStore(StoreBase):
     drm_free_only = True
     headquarters = 'US'
     formats = ['DAISY', 'DJVU', 'EPUB', 'MOBI', 'PDF', 'TXT']
+
+class StoreBubokPublishingStore(StoreBase):
+    name = 'Bubok Spain'
+    description = u'Bubok Publishing is a publisher, library and store of books of authors from all around the world. They have a big amount of books of a lot of topics'  # noqa
+    actual_plugin = 'calibre.gui2.store.stores.bubok_publishing_plugin:BubokPublishingStore'
+
+    drm_free_only = True
+    headquarters = 'ES'
+    formats = ['EPUB', 'PDF']
+
+class StoreBubokPortugalStore(StoreBase):
+    name = 'Bubok Portugal'
+    description = u'Bubok Publishing Portugal is a publisher, library and store of books of authors from Portugal. They have a big amount of books of a lot of topics'  # noqa
+    actual_plugin = 'calibre.gui2.store.stores.bubok_portugal_plugin:BubokPortugalStore'
+
+    drm_free_only = True
+    headquarters = 'PT'
+    formats = ['EPUB', 'PDF']
 
 class StoreBaenWebScriptionStore(StoreBase):
     name = 'Baen Ebooks'
@@ -1712,8 +1719,9 @@ class XinXiiStore(StoreBase):
     formats = ['EPUB', 'PDF']
 
 plugins += [
-    StoreAllegroStore,
     StoreArchiveOrgStore,
+    StoreBubokPublishingStore,
+    StoreBubokPortugalStore,
     StoreAmazonKindleStore,
     StoreAmazonCAKindleStore,
     StoreAmazonDEKindleStore,

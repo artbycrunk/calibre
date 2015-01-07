@@ -46,7 +46,7 @@ set_env_vars(const char **ENV_VARS, const char **ENV_VAR_VALS, const char* exe_p
 }
 
 void initialize_interpreter(const char **ENV_VARS, const char **ENV_VAR_VALS,
-        char *PROGRAM, const char *MODULE, const char *FUNCTION, const char *PYVER,
+        char *PROGRAM, const char *MODULE, const char *FUNCTION, const char *PYVER, int IS_GUI,
         const char* exe_path, const char *rpath, int argc, const char **argv) {
     PyObject *pargv, *v;
     int i;
@@ -55,6 +55,7 @@ void initialize_interpreter(const char **ENV_VARS, const char **ENV_VAR_VALS,
     Py_DontWriteBytecodeFlag = 1;
     Py_IgnoreEnvironmentFlag = 1;
     Py_NoUserSiteDirectory = 1;
+    Py_HashRandomizationFlag = 1;
 
     //Py_VerboseFlag = 1;
     //Py_DebugFlag = 1;
@@ -82,6 +83,7 @@ void initialize_interpreter(const char **ENV_VARS, const char **ENV_VAR_VALS,
     PySys_SetObject("calibre_basename", PyBytes_FromString(PROGRAM));
     PySys_SetObject("calibre_module", PyBytes_FromString(MODULE));
     PySys_SetObject("calibre_function", PyBytes_FromString(FUNCTION));
+    PySys_SetObject("calibre_is_gui_app", ((IS_GUI) ? Py_True : Py_False));
     PySys_SetObject("resourcepath", PyBytes_FromString(rpath));
     snprintf(path, 3000, "%s/site-packages", pyhome);
     PySys_SetObject("site_packages", PyBytes_FromString(pyhome));
@@ -153,15 +155,14 @@ EXPORT
 int
 run(const char **ENV_VARS, const char **ENV_VAR_VALS, char *PROGRAM,
         const char *MODULE, const char *FUNCTION, const char *PYVER,
-        int argc, const char **argv, const char **envp) {
-    char *pathPtr = NULL;
+        int IS_GUI, int argc, const char **argv, const char **envp) {
+    char *pathPtr = NULL, *t = NULL;
     char buf[3*PATH_MAX];
     int ret = 0, i;
     PyObject *site, *mainf, *res;
-
-    
     uint32_t buf_size = PATH_MAX+1;
     char *ebuf = calloc(buf_size, sizeof(char));
+
     ret = _NSGetExecutablePath(ebuf, &buf_size);
     if (ret == -1) {
         free(ebuf);
@@ -173,19 +174,24 @@ run(const char **ENV_VARS, const char **ENV_VAR_VALS, char *PROGRAM,
     if (pathPtr == NULL) {
         return report_error(strerror(errno));
     }
-    char *t;
     for (i = 0; i < 3; i++) {
         t = rindex(pathPtr, '/');
         if (t == NULL) return report_error("Failed to determine bundle path.");
         *t = '\0';
     }
-
-        
+    if (strstr(pathPtr, "/calibre.app/Contents/") != NULL) {
+        // We are one of the duplicate executables created to workaround codesign's limitations
+        for (i = 0; i < 2; i++) {
+            t = rindex(pathPtr, '/');
+            if (t == NULL) return report_error("Failed to resolve bundle path in dummy executable");
+            *t = '\0';
+        }
+    }
 
     char rpath[PATH_MAX+1], exe_path[PATH_MAX+1];
     snprintf(exe_path, PATH_MAX+1, "%s/Contents", pathPtr);
     snprintf(rpath, PATH_MAX+1, "%s/Resources", exe_path);
-    initialize_interpreter(ENV_VARS, ENV_VAR_VALS, PROGRAM, MODULE, FUNCTION, PYVER,
+    initialize_interpreter(ENV_VARS, ENV_VAR_VALS, PROGRAM, MODULE, FUNCTION, PYVER, IS_GUI,
             exe_path, rpath, argc, argv);
 
     site = PyImport_ImportModule("site");

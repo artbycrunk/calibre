@@ -92,7 +92,7 @@ class DevicePlugin(Plugin):
     #: A driver with this set to true is responsible for detection of devices,
     #: managing a blacklist of devices, a list of ejected devices and so forth.
     #: calibre will periodically call the detect_managed_devices() method and
-    #: is it returns a detected device, calibre will call open(). open() will
+    #: if it returns a detected device, calibre will call open(). open() will
     #: be called every time a device is returned even is previous calls to open()
     #: failed, therefore the driver must maintain its own blacklist of failed
     #: devices. Similarly, when ejecting, calibre will call eject() and then
@@ -726,26 +726,42 @@ class DevicePlugin(Plugin):
         '''
         return False
 
-    def synchronize_with_db(self, db, book_id, book_metadata):
+    def synchronize_with_db(self, db, book_id, book_metadata, first_call):
         '''
         Called during book matching when a book on the device is matched with
         a book in calibre's db. The method is responsible for syncronizing
         data from the device to calibre's db (if needed).
 
-        The method must return a set of calibre book ids changed if calibre's
-        database was changed, None if the database was not changed. If the
-        method returns an empty set then the metadata for the book on the
-        device is updated with calibre's metadata and given back to the device,
-        but no GUI refresh of that book is done. This is useful when the calire
-        data is correct but must be sent to the device.
+        The method must return a two-value tuple. The first value is a set of
+        calibre book ids changed if calibre's database was changed or None if the
+        database was not changed. If the first value is an empty set then the
+        metadata for the book on the device is updated with calibre's metadata
+        and given back to the device, but no GUI refresh of that book is done.
+        This is useful when the calibre data is correct but must be sent to the
+        device.
+
+        The second value is itself a 2-value tuple. The first value in the tuple
+        specifies whether a book format should be sent to the device. The intent
+        is to permit verifying that the book on the device is the same as the
+        book in calibre. This value must be None if no book is to be sent,
+        otherwise return the base file name on the device (a string like
+        foobar.epub). Be sure to include the extension in the name. The device
+        subsystem will construct a send_books job for all books with not- None
+        returned values. Note: other than to later retrieve the extension, the
+        name is ignored in cases where the device uses a template to generate
+        the file name, which most do. The second value in the returned tuple
+        indicated whether the format is future-dated. Return True if it is,
+        otherwise return False. Calibre will display a dialog to the user
+        listing all future dated books.
 
         Extremely important: this method is called on the GUI thread. It must
         be threadsafe with respect to the device manager's thread.
 
         book_id: the calibre id for the book in the database.
         book_metadata: the Metadata object for the book coming from the device.
+        first_call: True if this is the first call during a sync, False otherwise
         '''
-        return None
+        return (None, (None, False))
 
 class BookList(list):
     '''
@@ -801,3 +817,20 @@ class BookList(list):
         '''
         raise NotImplementedError()
 
+class CurrentlyConnectedDevice(object):
+
+    def __init__(self):
+        self._device = None
+
+    @property
+    def device(self):
+        return self._device
+
+# A device driver can check if a device is currently connected to calibre using
+# the following code::
+#   from calibre.device.interface import currently_connected_device
+#   if currently_connected_device.device is None:
+#      # no device connected
+# The device attribute will be either None or the device driver object
+# (DevicePlugin instance) for the currently connected device.
+currently_connected_device = CurrentlyConnectedDevice()

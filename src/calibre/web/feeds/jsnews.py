@@ -30,6 +30,18 @@ def image_data_to_url(data, base='cover'):
     ans.name = 'cover.' + ext
     return ans
 
+css_select_cache = {}
+
+def CSSSelect(expr):
+    try:
+        return css_select_cache[expr]
+    except KeyError:
+        from cssselect import HTMLTranslator
+        from lxml.etree import XPath
+        ans = css_select_cache[expr] = XPath(HTMLTranslator().css_to_xpath(expr))
+        return ans
+
+
 class JavascriptRecipe(BasicNewsRecipe):
 
     '''
@@ -146,6 +158,7 @@ class JavascriptRecipe(BasicNewsRecipe):
         Should return a dictionary with keys 'index', 'cover' and 'masthead'.
         'cover' and 'masthead' are optional, if not present, they will be auto-generated.
         The index must be in the same format as described in :meth:`parse_index`.
+        The cover and masthead must be the downloaded image data as a bytestring.
         '''
         raise NotImplementedError('You must implement this method in your recipe')
 

@@ -93,7 +93,7 @@ class BasicNewsRecipe(Recipe):
     #: By default: Day_Name, Day_Number Month_Name Year
     timefmt                = ' [%a, %d %b %Y]'
 
-    #: List of feeds to download
+    #: List of feeds to download.
     #: Can be either ``[url1, url2, ...]`` or ``[('title1', url1), ('title2', url2),...]``
     feeds = None
 
@@ -102,7 +102,7 @@ class BasicNewsRecipe(Recipe):
 
     #: Convenient flag to disable loading of stylesheets for websites
     #: that have overly complex stylesheets unsuitable for conversion
-    #: to ebooks formats
+    #: to ebooks formats.
     #: If True stylesheets are not downloaded and processed
     no_stylesheets         = False
 
@@ -110,7 +110,7 @@ class BasicNewsRecipe(Recipe):
     remove_javascript      = True
 
     #: If True the GUI will ask the user for a username and password
-    #: to use while downloading
+    #: to use while downloading.
     #: If set to "optional" the use of a username and password becomes optional
     needs_subscription     = False
 
@@ -144,7 +144,7 @@ class BasicNewsRecipe(Recipe):
     #: manually (though manual cleanup will always be superior).
     auto_cleanup = False
 
-    #: Specify elements that the auto cleanup algorithm should never remove
+    #: Specify elements that the auto cleanup algorithm should never remove.
     #: The syntax is a XPath expression. For example::
     #:
     #:   auto_cleanup_keep = '//div[@id="article-image"]' will keep all divs with
@@ -157,7 +157,7 @@ class BasicNewsRecipe(Recipe):
     #:
     auto_cleanup_keep = None
 
-    #: Specify any extra :term:`CSS` that should be added to downloaded :term:`HTML` files
+    #: Specify any extra :term:`CSS` that should be added to downloaded :term:`HTML` files.
     #: It will be inserted into `<style>` tags, just before the closing
     #: `</head>` tag thereby overriding all :term:`CSS` except that which is
     #: declared using the style attribute on individual :term:`HTML` tags.
@@ -174,7 +174,7 @@ class BasicNewsRecipe(Recipe):
     #: the ignore_duplicate_articles option.
     remove_empty_feeds = False
 
-    #: List of regular expressions that determines which links to follow
+    #: List of regular expressions that determines which links to follow.
     #: If empty, it is ignored. Used only if is_link_wanted is
     #: not implemented. For example::
     #:
@@ -186,7 +186,7 @@ class BasicNewsRecipe(Recipe):
     #: :attr:`BasicNewsRecipe.filter_regexps` should be defined.
     match_regexps         = []
 
-    #: List of regular expressions that determines which links to ignore
+    #: List of regular expressions that determines which links to ignore.
     #: If empty it is ignored. Used only if is_link_wanted is not
     #: implemented. For example::
     #:
@@ -249,7 +249,7 @@ class BasicNewsRecipe(Recipe):
     #: tags before the first element with `id="content"`.
     remove_tags_before    = None
 
-    #: List of attributes to remove from all tags
+    #: List of attributes to remove from all tags.
     #: For example::
     #:
     #:   remove_attributes = ['style', 'font']
@@ -276,7 +276,7 @@ class BasicNewsRecipe(Recipe):
     #:         lambda match: '</body>'),
     #:     ]
     #:
-    #: will remove everythong from `<!--Article ends here-->` to `</body>`.
+    #: will remove everything from `<!--Article ends here-->` to `</body>`.
     preprocess_regexps    = []
 
     #: The CSS that is used to style the templates, i.e., the navigation bars and
@@ -319,18 +319,23 @@ class BasicNewsRecipe(Recipe):
     #: #ffffff instead
     cover_margins = (0, 0, '#ffffff')
 
-    #: Set to a non empty string to disable this recipe
+    #: Set to a non empty string to disable this recipe.
     #: The string will be used as the disabled message
     recipe_disabled = None
 
     #: Ignore duplicates of articles that are present in more than one section.
     #: A duplicate article is an article that has the same title and/or URL.
-    #: To ignore articles with the same title, set this to:
-    #: ignore_duplicate_articles = {'title'}
-    #: To use URLs instead, set it to:
-    #: ignore_duplicate_articles = {'url'}
-    #: To match on title or URL, set it to:
-    #: ignore_duplicate_articles = {'title', 'url'}
+    #: To ignore articles with the same title, set this to::
+    #:
+    #:   ignore_duplicate_articles = {'title'}
+    #:
+    #: To use URLs instead, set it to::
+    #:
+    #:   ignore_duplicate_articles = {'url'}
+    #:
+    #: To match on title or URL, set it to::
+    #:
+    #:   ignore_duplicate_articles = {'title', 'url'}
     ignore_duplicate_articles = None
 
     #: If you set this True, then calibre will use javascript to login to the
@@ -546,11 +551,11 @@ class BasicNewsRecipe(Recipe):
         Override in a subclass to customize extraction of the :term:`URL` that points
         to the content for each article. Return the
         article URL. It is called with `article`, an object representing a parsed article
-        from a feed. See `feedparser <http://packages.python.org/feedparser/>`_.
+        from a feed. See `feedparser <https://pythonhosted.org/feedparser/>`_.
         By default it looks for the original link (for feeds syndicated via a
         service like feedburner or pheedo) and if found,
         returns that or else returns
-        `article.link <http://packages.python.org/feedparser/reference-entry-link.html>`_.
+        `article.link <https://pythonhosted.org/feedparser/reference-entry-link.html>`_.
         '''
         for key in article.keys():
             if key.endswith('_origlink'):
@@ -574,7 +579,7 @@ class BasicNewsRecipe(Recipe):
         an ad page, return the HTML of the real page. Otherwise return
         None.
 
-        `soup`: A `BeautifulSoup <http://www.crummy.com/software/BeautifulSoup/documentation.html>`_
+        `soup`: A `BeautifulSoup <http://www.crummy.com/software/BeautifulSoup/bs3/documentation.html>`_
         instance containing the downloaded :term:`HTML`.
         '''
         return None
@@ -610,7 +615,7 @@ class BasicNewsRecipe(Recipe):
         It can be used to do arbitrarily powerful pre-processing on the :term:`HTML`.
         It should return `soup` after processing it.
 
-        `soup`: A `BeautifulSoup <http://www.crummy.com/software/BeautifulSoup/documentation.html>`_
+        `soup`: A `BeautifulSoup <http://www.crummy.com/software/BeautifulSoup/bs3/documentation.html>`_
         instance containing the downloaded :term:`HTML`.
         '''
         return soup
@@ -622,7 +627,7 @@ class BasicNewsRecipe(Recipe):
         It can be used to do arbitrarily powerful post-processing on the :term:`HTML`.
         It should return `soup` after processing it.
 
-        :param soup: A `BeautifulSoup <http://www.crummy.com/software/BeautifulSoup/documentation.html>`_  instance containing the downloaded :term:`HTML`.
+        :param soup: A `BeautifulSoup <http://www.crummy.com/software/BeautifulSoup/bs3/documentation.html>`_  instance containing the downloaded :term:`HTML`.
         :param first_fetch: True if this is the first page of an article.
 
         '''
@@ -638,7 +643,7 @@ class BasicNewsRecipe(Recipe):
     def index_to_soup(self, url_or_raw, raw=False, as_tree=False):
         '''
         Convenience method that takes an URL to the index page and returns
-        a `BeautifulSoup <http://www.crummy.com/software/BeautifulSoup/documentation.html>`_
+        a `BeautifulSoup <http://www.crummy.com/software/BeautifulSoup/bs3/documentation.html>`_
         of it.
 
         `url_or_raw`: Either a URL or the downloaded index page as a string
@@ -1351,14 +1356,14 @@ class BasicNewsRecipe(Recipe):
 
     def default_cover(self, cover_file):
         '''
-        Create a generic cover for recipes that dont have a cover
+        Create a generic cover for recipes that don't have a cover
         '''
         try:
-            from calibre.ebooks import calibre_cover
+            from calibre.ebooks.covers import create_cover
             title = self.title if isinstance(self.title, unicode) else \
                     self.title.decode(preferred_encoding, 'replace')
-            date = strftime(self.timefmt)
-            img_data = calibre_cover(title, date)
+            date = strftime(self.timefmt).replace('[', '').replace(']', '')
+            img_data = create_cover(title, [date])
             cover_file.write(img_data)
             cover_file.flush()
         except:
@@ -1619,14 +1624,14 @@ class BasicNewsRecipe(Recipe):
     def tag_to_string(self, tag, use_alt=True, normalize_whitespace=True):
         '''
         Convenience method to take a
-        `BeautifulSoup <http://www.crummy.com/software/BeautifulSoup/documentation.html>`_
+        `BeautifulSoup <http://www.crummy.com/software/BeautifulSoup/bs3/documentation.html>`_
         `Tag` and extract the text from it recursively, including any CDATA sections
         and alt tag attributes. Return a possibly empty unicode string.
 
         `use_alt`: If `True` try to use the alt attribute for tags that don't
         have any textual content
 
-        `tag`: `BeautifulSoup <http://www.crummy.com/software/BeautifulSoup/documentation.html>`_
+        `tag`: `BeautifulSoup <http://www.crummy.com/software/BeautifulSoup/bs3/documentation.html>`_
         `Tag`
         '''
         if tag is None:

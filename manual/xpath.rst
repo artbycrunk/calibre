@@ -6,7 +6,7 @@ XPath Tutorial
 In this tutorial, you will be given a gentle introduction to 
 `XPath <http://en.wikipedia.org/wiki/XPath>`_, a query language that can be 
 used to select arbitrary parts of `HTML <http://en.wikipedia.org/wiki/HTML>`_
-documents in |app|. XPath is a widely
+documents in calibre. XPath is a widely
 used standard, and googling it will yield a ton of information. This tutorial, 
 however, focuses on using XPath for ebook related tasks like finding chapter 
 headings in an unstructured HTML document.
@@ -39,7 +39,7 @@ the prefix::
 This will match only ``<p>A very short ebook to demonstrate the use of XPath.</p>`` 
 in the :ref:`sample_ebook` but not any of the other ``<p>`` tags. The ``h:`` prefix
 in the above examples is needed to match XHTML tags. This is because internally,
-|app| represents all content as XHTML. In XHTML tags have a *namespace*, and
+calibre represents all content as XHTML. In XHTML tags have a *namespace*, and
 ``h:`` is the namespace prefix for HTML tags.
 
 Now suppose you want to select both ``<h1>`` and ``<h2>`` tags. To do that,
@@ -107,5 +107,5 @@ XPath built-in functions
         ``re:test(src, pattern, flags)`` returns `true` if the string `src` matches the
         regular expression `pattern`. A particularly useful flag is ``i``, it makes matching
         case insensitive. A good primer on the syntax for regular expressions can be found
-        at `regexp syntax <http://docs.python.org/lib/re-syntax.html>`_
+        at `regexp syntax <https://docs.python.org/2.7/library/re.html>`_
 

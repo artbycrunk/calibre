@@ -2,7 +2,8 @@ __license__   = 'GPL v3'
 __copyright__ = '2008, Kovid Goyal <kovid at kovidgoyal.net>'
 """ The GUI """
 import os, sys, Queue, threading, glob
-from threading import RLock
+from contextlib import contextmanager
+from threading import RLock, Lock
 from urllib import unquote
 from PyQt5.Qt import (
     QFileInfo, QObject, QBuffer, Qt, QStyle, QByteArray, QTranslator,
@@ -25,17 +26,22 @@ from calibre.utils.filenames import expanduser
 gprefs = JSONConfig('gui')
 defs = gprefs.defaults
 
-if isosx:
-    defs['action-layout-menubar'] = (
+native_menubar_defaults = {
+    'action-layout-menubar': (
         'Add Books', 'Edit Metadata', 'Convert Books',
         'Choose Library', 'Save To Disk', 'Preferences',
         'Help',
-        )
-    defs['action-layout-menubar-device'] = (
+        ),
+    'action-layout-menubar-device': (
         'Add Books', 'Edit Metadata', 'Convert Books',
         'Location Manager', 'Send To Device',
         'Save To Disk', 'Preferences', 'Help',
         )
+}
+
+if isosx:
+    defs['action-layout-menubar'] = native_menubar_defaults['action-layout-menubar']
+    defs['action-layout-menubar-device'] = native_menubar_defaults['action-layout-menubar-device']
     defs['action-layout-toolbar'] = (
         'Add Books', 'Edit Metadata', None, 'Convert Books', 'View', None,
         'Choose Library', 'Donate', None, 'Fetch News', 'Store', 'Save To Disk',
@@ -117,7 +123,7 @@ defs['cover_grid_width'] = 0
 defs['cover_grid_height'] = 0
 defs['cover_grid_spacing'] = 0
 defs['cover_grid_color'] = (80, 80, 80)
-defs['cover_grid_cache_size'] = 100
+defs['cover_grid_cache_size_multiple'] = 5
 defs['cover_grid_disk_cache_size'] = 2500
 defs['cover_grid_show_title'] = False
 defs['cover_grid_texture'] = None
@@ -197,6 +203,8 @@ def _config():  # {{{
         help='Search history for the main GUI')
     c.add_opt('viewer_search_history', default=[],
         help='Search history for the ebook viewer')
+    c.add_opt('viewer_toc_search_history', default=[],
+        help='Search history for the ToC in the ebook viewer')
     c.add_opt('lrf_viewer_search_history', default=[],
         help='Search history for the LRF viewer')
     c.add_opt('scheduler_search_history', default=[],
@@ -322,7 +330,7 @@ def question_dialog(parent, title, msg, det_msg='', show_copy_button=False,
         # Set skip_dialog_msg to a message displayed to the user
         skip_dialog_name=None, skip_dialog_msg=_('Show this confirmation again'),
         skip_dialog_skipped_value=True, skip_dialog_skip_precheck=True,
-        # Override icon (QIcon to be used as the icon for this dialog)
+        # Override icon (QIcon to be used as the icon for this dialog or string for I())
         override_icon=None,
         # Change the text/icons of the yes and no buttons.
         # The icons must be QIcon objects or strings for I()
@@ -344,6 +352,7 @@ def question_dialog(parent, title, msg, det_msg='', show_copy_button=False,
         tc.setVisible(True)
         tc.setText(skip_dialog_msg)
         tc.setChecked(bool(skip_dialog_skip_precheck))
+        d.resize_needed.emit()
 
     ret = d.exec_() == d.Accepted
 
@@ -670,7 +679,7 @@ class FileDialog(QObject):
             initial_dir = select_initial_dir(initial_dir)
         self.selected_files = []
         use_native_dialog = 'CALIBRE_NO_NATIVE_FILEDIALOGS' not in os.environ
-        with SanitizeLibraryPath():
+        with sanitize_env_vars():
             opts = QFileDialog.Option()
             if not use_native_dialog:
                 opts |= QFileDialog.DontUseNativeDialog
@@ -850,10 +859,15 @@ gui_thread = None
 
 qt_app = None
 
+builtin_fonts_loaded = False
+
 def load_builtin_fonts():
-    global _rating_font
+    global _rating_font, builtin_fonts_loaded
     # Load the builtin fonts and any fonts added to calibre by the user to
     # Qt
+    if builtin_fonts_loaded:
+        return
+    builtin_fonts_loaded = True
     for ff in glob.glob(P('fonts/liberation/*.?tf')) + \
             [P('fonts/calibreSymbols.otf')] + \
             glob.glob(os.path.join(config_dir, 'fonts', '*.?tf')):
@@ -883,9 +897,12 @@ class Application(QApplication):
             if not args:
                 args = sys.argv[:1]
             args.extend(['-platformpluginpath', sys.extensions_location, '-platform', 'headless'])
+        self.headless = headless
         qargs = [i.encode('utf-8') if isinstance(i, unicode) else i for i in args]
         self.pi = plugins['progress_indicator'][0]
         QApplication.__init__(self, qargs)
+        if islinux or isbsd:
+            self.setAttribute(Qt.AA_DontUseNativeMenuBar, 'CALIBRE_NO_NATIVE_MENUBAR' in os.environ)
         self.setup_styles(force_calibre_style)
         f = QFont(QApplication.font())
         if (f.family(), f.pointSize()) == ('Sans Serif', 9):  # Hard coded Qt settings, no user preference detected
@@ -938,6 +955,19 @@ class Application(QApplication):
             for role in (p.Highlight, p.HighlightedText, p.Base, p.AlternateBase):
                 p.setColor(p.Inactive, role, p.color(p.Active, role))
             self.setPalette(p)
+
+            # Prevent text copied to the clipboard from being lost on quit due to
+            # Qt 5 bug: https://bugreports.qt-project.org/browse/QTBUG-41125
+            self.aboutToQuit.connect(self.flush_clipboard)
+
+    def flush_clipboard(self):
+        try:
+            if self.clipboard().ownsClipboard():
+                import ctypes
+                ctypes.WinDLL('ole32.dll').OleFlushClipboard()
+        except Exception:
+            import traceback
+            traceback.print_exc()
 
     def load_builtin_fonts(self, scan_for_fonts=False):
         if scan_for_fonts:
@@ -1040,32 +1070,51 @@ class Application(QApplication):
         if colors != self.color_prefs.get('custom_colors_for_color_dialog', None):
             self.color_prefs.set('custom_colors_for_color_dialog', colors)
 
-_store_app = None
-
-class SanitizeLibraryPath(object):
-    '''Remove the bundled calibre libraries from LD_LIBRARY_PATH on linux. This
-    is needed to prevent library conflicts when launching external utilities.'''
-
-    env_vars = {'LD_LIBRARY_PATH':'/lib', 'QT_PLUGIN_PATH':'/lib/qt_plugins'}
-
     def __enter__(self):
-        self.originals = {x:os.environ.get(x, '') for x in self.env_vars}
-        self.changed = {x:False for x in self.env_vars}
-        if isfrozen and islinux:
-            for var, suffix in self.env_vars.iteritems():
-                paths = [x for x in self.originals[var].split(os.pathsep) if x]
-                npaths = [x for x in paths if x != sys.frozen_path + suffix]
-                if len(npaths) < len(paths):
-                    if npaths:
-                        os.environ[var] = os.pathsep.join(npaths)
-                    else:
-                        del os.environ[var]
-                    self.changed[var] = True
+        self.setQuitOnLastWindowClosed(False)
 
     def __exit__(self, *args):
-        for var, orig in self.originals.iteritems():
-            if self.changed[var]:
-                os.environ[var] = orig
+        self.setQuitOnLastWindowClosed(True)
+
+_store_app = None
+
+@contextmanager
+def sanitize_env_vars():
+    '''Unset various environment variables that calibre uses. This
+    is needed to prevent library conflicts when launching external utilities.'''
+
+    if islinux and isfrozen:
+        env_vars = {'LD_LIBRARY_PATH':'/lib', 'QT_PLUGIN_PATH':'/lib/qt_plugins', 'MAGICK_CODER_MODULE_PATH':None, 'MAGICK_CODER_FILTER_PATH':None}
+    elif iswindows:
+        env_vars = {k:None for k in 'MAGICK_HOME MAGICK_CONFIGURE_PATH MAGICK_CODER_MODULE_PATH MAGICK_FILTER_MODULE_PATH QT_PLUGIN_PATH'.split()}
+    elif isosx:
+        env_vars = {k:None for k in
+                    'FONTCONFIG_FILE FONTCONFIG_PATH MAGICK_CONFIGURE_PATH MAGICK_CODER_MODULE_PATH MAGICK_FILTER_MODULE_PATH QT_PLUGIN_PATH'.split()}
+    else:
+        env_vars = {}
+
+    originals = {x:os.environ.get(x, '') for x in env_vars}
+    changed = {x:False for x in env_vars}
+    for var, suffix in env_vars.iteritems():
+        paths = [x for x in originals[var].split(os.pathsep) if x]
+        npaths = [] if suffix is None else [x for x in paths if x != (sys.frozen_path + suffix)]
+        if len(npaths) < len(paths):
+            if npaths:
+                os.environ[var] = os.pathsep.join(npaths)
+            else:
+                del os.environ[var]
+            changed[var] = True
+
+    try:
+        yield
+    finally:
+        for var, orig in originals.iteritems():
+            if changed[var]:
+                if orig:
+                    os.environ[var] = orig
+                elif var in os.environ:
+                    del os.environ[var]
+SanitizeLibraryPath = sanitize_env_vars  # For old plugins
 
 def open_url(qurl):
     # Qt 5 requires QApplication to be constructed before trying to use
@@ -1073,7 +1122,7 @@ def open_url(qurl):
     ensure_app()
     if isinstance(qurl, basestring):
         qurl = QUrl(qurl)
-    with SanitizeLibraryPath():
+    with sanitize_env_vars():
         QDesktopServices.openUrl(qurl)
 
 def get_current_db():
@@ -1091,18 +1140,39 @@ def get_current_db():
 
 def open_local_file(path):
     if iswindows:
-        os.startfile(os.path.normpath(path))
+        with sanitize_env_vars():
+            os.startfile(os.path.normpath(path))
     else:
         url = QUrl.fromLocalFile(path)
         open_url(url)
 
+_ea_lock = Lock()
+
 def ensure_app():
     global _store_app
-    if _store_app is None and QApplication.instance() is None:
-        args = sys.argv[:1]
-        if islinux or isbsd:
-            args += ['-platformpluginpath', sys.extensions_location, '-platform', 'headless']
-        _store_app = QApplication(args)
+    with _ea_lock:
+        if _store_app is None and QApplication.instance() is None:
+            args = sys.argv[:1]
+            headless = islinux or isbsd
+            if headless:
+                args += ['-platformpluginpath', sys.extensions_location, '-platform', 'headless']
+            _store_app = QApplication(args)
+            _store_app.headless = headless
+            import traceback
+            # This is needed because as of PyQt 5.4 if sys.execpthook ==
+            # sys.__excepthook__ PyQt will abort the application on an
+            # unhandled python exception in a slot or virtual method. Since ensure_app()
+            # is used in worker processes for background work like rendering html
+            # or running a headless browser, we circumvent this as I really
+            # dont feel like going through all the code and making sure no
+            # unhandled exceptions ever occur. All the actual GUI apps already
+            # override sys.except_hook with a proper error handler.
+            def eh(t, v, tb):
+                try:
+                    traceback.print_exception(t, v, tb, file=sys.stderr)
+                except:
+                    pass
+            sys.excepthook = eh
 
 def must_use_qt():
     ''' This function should be called if you want to use Qt for some non-GUI
@@ -1211,6 +1281,13 @@ _df = os.environ.get('CALIBRE_DEVELOP_FROM', None)
 if _df and os.path.exists(_df):
     build_forms(_df, check_for_migration=True)
 
+def event_type_name(ev_or_etype):
+    from PyQt5.QtCore import QEvent
+    etype = ev_or_etype.type() if isinstance(ev_or_etype, QEvent) else ev_or_etype
+    for name, num in vars(QEvent).iteritems():
+        if num == etype:
+            return name
+    return 'UnknownEventType'
 
 if islinux or isbsd:
     def workaround_broken_under_mouse(ch):

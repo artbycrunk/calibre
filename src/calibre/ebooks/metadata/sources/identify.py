@@ -152,7 +152,7 @@ class ISBNMerge(object):
                 key=attrgetter('relevance_in_source'))
         # Only use results that are from sources that have not also returned a
         # result with an ISBN
-        results = [r for r in results if r.identify_plugin not in isbn_sources]
+        results = [r for r in results if r.identify_plugin not in isbn_sources or not r.identify_plugin.prefer_results_with_isbn]
         if results:
             # Pick only the most relevant result from each source
             seen = set()
@@ -461,7 +461,10 @@ def identify(log, abort,  # {{{
                 longest, lp = time_spent, plugin.name
         for r in presults:
             log('\n\n---')
-            log(unicode(r))
+            try:
+                log(unicode(r))
+            except TypeError:
+                log(repr(r))
         if plog:
             log(plog)
         log('\n'+'*'*80)

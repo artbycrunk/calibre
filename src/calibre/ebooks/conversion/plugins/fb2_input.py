@@ -9,8 +9,8 @@ import os, re
 from calibre.customize.conversion import InputFormatPlugin, OptionRecommendation
 from calibre import guess_type
 
-FB2NS = 'http://www.gribuser.ru/xml/fictionbook/2.0'
-
+FB2NS  = 'http://www.gribuser.ru/xml/fictionbook/2.0'
+FB21NS = 'http://www.gribuser.ru/xml/fictionbook/2.1'
 
 class FB2Input(InputFormatPlugin):
 
@@ -36,11 +36,11 @@ class FB2Input(InputFormatPlugin):
     def convert(self, stream, options, file_ext, log,
                 accelerators):
         from lxml import etree
+        from calibre.ebooks.metadata.fb2 import ensure_namespace
         from calibre.ebooks.metadata.opf2 import OPFCreator
         from calibre.ebooks.metadata.meta import get_metadata
         from calibre.ebooks.oeb.base import XLINK_NS, XHTML_NS, RECOVER_PARSER
         from calibre.ebooks.chardet import xml_to_unicode
-        NAMESPACES = {'f':FB2NS, 'l':XLINK_NS}
         self.log = log
         log.debug('Parsing XML...')
         raw = stream.read().replace('\0', '')
@@ -58,6 +58,13 @@ class FB2Input(InputFormatPlugin):
                         parser=RECOVER_PARSER)
         if doc is None:
             raise ValueError('The FB2 file is not valid XML')
+        doc = ensure_namespace(doc)
+        try:
+            fb_ns = doc.nsmap[doc.prefix]
+        except Exception:
+            fb_ns = FB2NS
+
+        NAMESPACES = {'f':fb_ns, 'l':XLINK_NS}
         stylesheets = doc.xpath('//*[local-name() = "stylesheet" and @type="text/css"]')
         css = ''
         for s in stylesheets:
@@ -78,6 +85,7 @@ class FB2Input(InputFormatPlugin):
         self.extract_embedded_content(doc)
         log.debug('Converting XML to HTML...')
         ss = open(P('templates/fb2.xsl'), 'rb').read()
+        ss = ss.replace("__FB_NS__", fb_ns)
         if options.no_inline_fb2_toc:
             log('Disabling generation of inline FB2 TOC')
             ss = re.compile(r'<!-- BUILD TOC -->.*<!-- END BUILD TOC -->',

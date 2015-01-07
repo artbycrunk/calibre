@@ -6,7 +6,7 @@ meaning as possible.
 import os, errno, time
 from math import ceil
 
-from calibre import sanitize_file_name, isbytestring, force_unicode
+from calibre import sanitize_file_name, isbytestring, force_unicode, prints
 from calibre.constants import (preferred_encoding, iswindows,
         filesystem_encoding)
 from calibre.utils.localization import get_udc
@@ -52,7 +52,7 @@ def shorten_component(s, by_what):
         return s
     return s[:l] + s[-l:]
 
-def shorten_components_to(length, components, more_to_take=0):
+def shorten_components_to(length, components, more_to_take=0, last_has_extension=True):
     filepath = os.sep.join(components)
     extra = len(filepath) - (length - more_to_take)
     if extra < 1:
@@ -68,7 +68,7 @@ def shorten_components_to(length, components, more_to_take=0):
         if delta > len(x):
             r = x[0] if x is components[-1] else ''
         else:
-            if x is components[-1]:
+            if last_has_extension and x is components[-1]:
                 b, e = os.path.splitext(x)
                 if e == '.':
                     e = ''
@@ -209,7 +209,7 @@ def windows_get_fileid(path):
     if isbytestring(path):
         path = path.decode(filesystem_encoding)
     try:
-        h = win32file.CreateFile(path, 0, 0, None, win32file.OPEN_EXISTING,
+        h = win32file.CreateFileW(path, 0, 0, None, win32file.OPEN_EXISTING,
                 win32file.FILE_FLAG_BACKUP_SEMANTICS, 0)
         try:
             data = win32file.GetFileInformationByHandle(h)
@@ -261,7 +261,9 @@ def windows_get_size(path):
     not in the directory entry (which could be out of date). So we open the
     file, and get the actual size. '''
     import win32file
-    h = win32file.CreateFile(
+    if isbytestring(path):
+        path = path.decode(filesystem_encoding)
+    h = win32file.CreateFileW(
         path, 0, win32file.FILE_SHARE_READ | win32file.FILE_SHARE_WRITE | win32file.FILE_SHARE_DELETE,
         None, win32file.OPEN_EXISTING, 0, None)
     try:
@@ -297,7 +299,9 @@ def windows_hardlink(src, dest):
 def windows_nlinks(path):
     import win32file
     dwFlagsAndAttributes = win32file.FILE_FLAG_BACKUP_SEMANTICS if os.path.isdir(path) else 0
-    handle = win32file.CreateFile(path, win32file.GENERIC_READ, win32file.FILE_SHARE_READ, None, win32file.OPEN_EXISTING, dwFlagsAndAttributes, None)
+    if isbytestring(path):
+        path = path.decode(filesystem_encoding)
+    handle = win32file.CreateFileW(path, win32file.GENERIC_READ, win32file.FILE_SHARE_READ, None, win32file.OPEN_EXISTING, dwFlagsAndAttributes, None)
     try:
         return win32file.GetFileInformationByHandle(handle)[7]
     finally:
@@ -343,7 +347,7 @@ class WindowsAtomicFolderMove(object):
                 pass
 
             try:
-                h = win32file.CreateFile(f, win32file.GENERIC_READ,
+                h = win32file.CreateFileW(f, win32file.GENERIC_READ,
                         win32file.FILE_SHARE_DELETE, None,
                         win32file.OPEN_EXISTING, win32file.FILE_FLAG_SEQUENTIAL_SCAN, 0)
             except error as e:
@@ -368,9 +372,11 @@ class WindowsAtomicFolderMove(object):
                             _('File is open in another process'))
                     err.filename = f
                     raise err
+                prints('CreateFile failed for: %r' % f)
                 raise
             except:
                 self.close_handles()
+                prints('CreateFile failed for: %r' % f)
                 raise
             self.handle_map[f] = h
 
@@ -504,3 +510,20 @@ if iswindows:
         return userhome + path[i:]
 else:
     expanduser = os.path.expanduser
+
+def format_permissions(st_mode):
+    import stat
+    for func, letter in (x.split(':') for x in 'REG:- DIR:d BLK:b CHR:c FIFO:p LNK:l SOCK:s'.split()):
+        if getattr(stat, 'S_IS' + func)(st_mode):
+            break
+    else:
+        letter = '?'
+    rwx = ('---', '--x', '-w-', '-wx', 'r--', 'r-x', 'rw-', 'rwx')
+    ans = [letter] + list(rwx[(st_mode >> 6) & 7]) + list(rwx[(st_mode >> 3) & 7]) + list(rwx[(st_mode & 7)])
+    if st_mode & stat.S_ISUID:
+        ans[3] = 's' if (st_mode & stat.S_IXUSR) else 'S'
+    if st_mode & stat.S_ISGID:
+        ans[6] = 's' if (st_mode & stat.S_IXGRP) else 'l'
+    if st_mode & stat.S_ISVTX:
+        ans[9] = 't' if (st_mode & stat.S_IXUSR) else 'T'
+    return ''.join(ans)

@@ -121,7 +121,7 @@ def get_default_library_path():
     return x
 
 
-def get_library_path(parent=None):
+def get_library_path(gui_runner):
     library_path = prefs['library_path']
     if library_path is None:  # Need to migrate to new database layout
         base = os.path.expanduser('~')
@@ -130,9 +130,7 @@ def get_library_path(parent=None):
             if not base or not os.path.exists(base):
                 from PyQt5.Qt import QDir
                 base = unicode(QDir.homePath()).replace('/', os.sep)
-        candidate = choose_dir(None, 'choose calibre library',
-                _('Choose a location for your calibre e-book library'),
-                default_dir=base)
+        candidate = gui_runner.choose_dir(base)
         if not candidate:
             candidate = os.path.join(base, 'Calibre Library')
         library_path = os.path.abspath(candidate)
@@ -140,13 +138,11 @@ def get_library_path(parent=None):
         try:
             os.makedirs(library_path)
         except:
-            error_dialog(parent, _('Failed to create library'),
+            gui_runner.show_error(_('Failed to create library'),
                     _('Failed to create calibre library at: %r.\n'
                       'You will be asked to choose a new library location.')%library_path,
-                    det_msg=traceback.format_exc(), show=True)
-            library_path = choose_dir(parent, 'choose calibre library',
-                _('Choose a location for your new calibre e-book library'),
-                default_dir=get_default_library_path())
+                    det_msg=traceback.format_exc())
+            library_path = gui_runner.choose_dir(get_default_library_path())
     return library_path
 
 def repair_library(library_path):
@@ -201,6 +197,23 @@ class GuiRunner(QObject):
             add_filesystem_book(event)
         self.app.file_event_hook = add_filesystem_book
 
+    def hide_splash_screen(self):
+        if self.splash_screen is not None:
+            with self.app:
+                self.splash_screen.hide()
+        self.splash_screen = None
+
+    def choose_dir(self, initial_dir):
+        self.hide_splash_screen()
+        return choose_dir(None, 'choose calibre library',
+                _('Choose a location for your new calibre e-book library'),
+                default_dir=initial_dir)
+
+    def show_error(self, title, msg, det_msg=''):
+        self.hide_splash_screen()
+        with self.app:
+            error_dialog(self.main, title, msg, det_msg=det_msg, show=True)
+
     def initialization_failed(self):
         print 'Catastrophic failure initializing GUI, bailing out...'
         QCoreApplication.exit(1)
@@ -211,14 +224,11 @@ class GuiRunner(QObject):
 
         if db is None and tb is not None:
             # DB Repair failed
-            error_dialog(None, _('Repairing failed'),
-                    _('The database repair failed. Starting with '
-                        'a new empty library.'),
-                    det_msg=tb, show=True)
+            self.show_error(_('Repairing failed'), _(
+                'The database repair failed. Starting with a new empty library.'),
+                            det_msg=tb)
         if db is None:
-            candidate = choose_dir(None, 'choose calibre library',
-                _('Choose a location for your new calibre e-book library'),
-                default_dir=get_default_library_path())
+            candidate = self.choose_dir(get_default_library_path())
             if not candidate:
                 self.initialization_failed()
 
@@ -226,19 +236,18 @@ class GuiRunner(QObject):
                 self.library_path = candidate
                 db = LibraryDatabase(candidate)
             except:
-                error_dialog(None, _('Bad database location'),
-                    _('Bad database location %r. calibre will now quit.'
-                     )%self.library_path,
-                    det_msg=traceback.format_exc(), show=True)
+                self.show_error(_('Bad database location'), _(
+                    'Bad database location %r. calibre will now quit.')%self.library_path,
+                    det_msg=traceback.format_exc())
                 self.initialization_failed()
 
         try:
             self.start_gui(db)
         except Exception:
-            error_dialog(self.main, _('Startup error'),
-                         _('There was an error during {0} startup.'
-                           ' Parts of {0} may not function. Click Show details to learn more.').format(__appname__),
-                         det_msg=traceback.format_exc(), show=True)
+            self.show_error(_('Startup error'), _(
+                'There was an error during {0} startup. Parts of {0} may not function.'
+                ' Click Show details to learn more.').format(__appname__),
+                         det_msg=traceback.format_exc())
 
     def initialize_db(self):
         from calibre.db.legacy import LibraryDatabase
@@ -246,22 +255,24 @@ class GuiRunner(QObject):
         try:
             db = LibraryDatabase(self.library_path)
         except apsw.Error:
-            repair = question_dialog(None, _('Corrupted database'),
-                    _('The library database at %s appears to be corrupted. Do '
-                    'you want calibre to try and rebuild it automatically? '
-                    'The rebuild may not be completely successful. '
-                    'If you say No, a new empty calibre library will be created.')
-                    % force_unicode(self.library_path, filesystem_encoding),
-                    det_msg=traceback.format_exc()
-                    )
+            self.hide_splash_screen()
+            with self.app:
+                repair = question_dialog(None, _('Corrupted database'),
+                        _('The library database at %s appears to be corrupted. Do '
+                        'you want calibre to try and rebuild it automatically? '
+                        'The rebuild may not be completely successful. '
+                        'If you say No, a new empty calibre library will be created.')
+                        % force_unicode(self.library_path, filesystem_encoding),
+                        det_msg=traceback.format_exc()
+                        )
             if repair:
                 if repair_library(self.library_path):
                     db = LibraryDatabase(self.library_path)
         except:
-            error_dialog(None, _('Bad database location'),
+            self.show_error(_('Bad database location'),
                     _('Bad database location %r. Will start with '
                     ' a new, empty calibre library')%self.library_path,
-                    det_msg=traceback.format_exc(), show=True)
+                    det_msg=traceback.format_exc())
 
         self.initialize_db_stage2(db, None)
 
@@ -273,7 +284,7 @@ class GuiRunner(QObject):
         if gprefs['show_splash_screen']:
             self.show_splash_screen()
 
-        self.library_path = get_library_path(parent=None)
+        self.library_path = get_library_path(self)
         if not self.library_path:
             self.initialization_failed()
 
@@ -283,8 +294,8 @@ def get_debug_executable():
     e = sys.executable if getattr(sys, 'frozen', False) else sys.argv[0]
     if hasattr(sys, 'frameworks_dir'):
         base = os.path.dirname(sys.frameworks_dir)
-        if 'console.app' not in base:
-            base = os.path.join(base, 'console.app', 'Contents')
+        if 'calibre-debug.app' not in base:
+            base = os.path.join(base, 'calibre-debug.app', 'Contents')
         exe = os.path.basename(e)
         if '-debug' not in exe:
             exe += '-debug'
@@ -311,6 +322,9 @@ def run_in_debug_mode(logpath=None):
             stderr=subprocess.STDOUT, stdin=open(os.devnull, 'r'),
             creationflags=creationflags)
 
+def shellquote(s):
+    return "'" + s.replace("'", "'\\''") + "'"
+
 def run_gui(opts, args, listener, app, gui_debug=None):
     initialize_file_icon_provider()
     app.load_builtin_fonts(scan_for_fonts=True)
@@ -319,7 +333,10 @@ def run_gui(opts, args, listener, app, gui_debug=None):
         wizard().exec_()
         dynamic.set('welcome_wizard_was_run', True)
     from calibre.gui2.ui import Main
-    actions = tuple(Main.create_application_menubar())
+    if isosx:
+        actions = tuple(Main.create_application_menubar())
+    else:
+        actions = tuple(Main.get_menubar_actions())
     runner = GuiRunner(opts, args, actions, listener, app, gui_debug=gui_debug)
     ret = app.exec_()
     if getattr(runner.main, 'run_wizard_b4_shutdown', False):
@@ -327,18 +344,20 @@ def run_gui(opts, args, listener, app, gui_debug=None):
         wizard().exec_()
     if getattr(runner.main, 'restart_after_quit', False):
         e = sys.executable if getattr(sys, 'frozen', False) else sys.argv[0]
-        if getattr(runner.main, 'debug_on_restart', False):
+        if getattr(runner.main, 'debug_on_restart', False) or gui_debug is not None:
             run_in_debug_mode()
         else:
             import subprocess
-            print 'Restarting with:', e, sys.argv
             if hasattr(sys, 'frameworks_dir'):
-                app = os.path.dirname(os.path.dirname(sys.frameworks_dir))
-                subprocess.Popen('sleep 3s; open '+app, shell=True)
+                app = os.path.dirname(os.path.dirname(os.path.realpath(sys.frameworks_dir)))
+                prints('Restarting with:', app)
+                subprocess.Popen('sleep 3s; open ' + shellquote(app), shell=True)
             else:
                 if iswindows and hasattr(winutil, 'prepare_for_restart'):
                     winutil.prepare_for_restart()
-                subprocess.Popen([e] + sys.argv[1:])
+                args = ['-g'] if os.path.splitext(e)[0].endswith('-debug') else []
+                prints('Restarting with:', ' '.join([e] + args))
+                subprocess.Popen([e] + args)
     else:
         if iswindows:
             try:
@@ -359,23 +378,30 @@ def run_gui(opts, args, listener, app, gui_debug=None):
         open_local_file(debugfile)
     return ret
 
+singleinstance_name = 'calibre_GUI'
+
 def cant_start(msg=_('If you are sure it is not running')+', ',
-        what=None):
+               det_msg=_('Timed out waiting for response from running calibre'),
+               listener_failed=False):
     base = '<p>%s</p><p>%s %s'
     where = __appname__ + ' '+_('may be running in the system tray, in the')+' '
     if isosx:
         where += _('upper right region of the screen.')
     else:
         where += _('lower right region of the screen.')
-    if what is None:
-        if iswindows or islinux:
-            what = _('try rebooting your computer.')
+    if iswindows or islinux:
+        what = _('try rebooting your computer.')
+    else:
+        if listener_failed:
+            path = gui_socket_address()
         else:
-            what = _('try deleting the file')+': '+ gui_socket_address()
+            from calibre.utils.lock import singleinstance_path
+            path = singleinstance_path(singleinstance_name)
+        what = _('try deleting the file: "%s"') % path
 
     info = base%(where, msg, what)
     error_dialog(None, _('Cannot Start ')+__appname__,
-        '<p>'+(_('%s is already running.')%__appname__)+'</p>'+info, show=True)
+        '<p>'+(_('%s is already running.')%__appname__)+'</p>'+info, det_msg=det_msg, show=True)
 
     raise SystemExit(1)
 
@@ -384,11 +410,7 @@ def build_pipe(print_error=True):
     t.start()
     t.join(3.0)
     if t.is_alive():
-        if iswindows:
-            cant_start()
-        else:
-            f = os.path.expanduser('~/.calibre_calibre GUI.lock')
-            cant_start(what=_('try deleting the file')+': '+f)
+        cant_start()
         raise SystemExit(1)
     return t
 
@@ -402,7 +424,7 @@ def shutdown_other(rc=None):
     rc.conn.send('shutdown:')
     prints(_('Shutdown command sent, waiting for shutdown...'))
     for i in xrange(50):
-        if singleinstance('calibre GUI'):
+        if singleinstance(singleinstance_name):
             return
         time.sleep(0.1)
     prints(_('Failed to shutdown running calibre instance'))
@@ -437,8 +459,14 @@ def main(args=sys.argv):
         app, opts, args = init_qt(args)
     except AbortInit:
         return 1
-    from calibre.utils.lock import singleinstance
-    si = singleinstance('calibre GUI')
+    try:
+        from calibre.utils.lock import singleinstance
+        si = singleinstance(singleinstance_name)
+    except Exception:
+        error_dialog(None, _('Cannot start calibre'), _(
+            'Failed to start calibre, single instance locking failed. Click "Show Details" for more information'),
+                     det_msg=traceback.format_exc(), show=True)
+        return 1
     if si and opts.shutdown_running_calibre:
         return 0
     if si:
@@ -446,13 +474,13 @@ def main(args=sys.argv):
             listener = create_listener()
         except socket.error:
             if iswindows or islinux:
-                cant_start()
+                cant_start(det_msg=traceback.format_exc(), listener_failed=True)
             if os.path.exists(gui_socket_address()):
                 os.remove(gui_socket_address())
             try:
                 listener = create_listener()
             except socket.error:
-                cant_start()
+                cant_start(det_msg=traceback.format_exc(), listener_failed=True)
             else:
                 return run_gui(opts, args, listener, app,
                         gui_debug=gui_debug)

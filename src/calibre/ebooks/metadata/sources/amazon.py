@@ -45,7 +45,7 @@ class Worker(Thread):  # Get details {{{
         self.tostring = tostring
 
         months = {
-                'de': {
+            'de': {
             1: ['jän', 'januar'],
             2: ['februar'],
             3: ['märz'],
@@ -55,7 +55,7 @@ class Worker(Thread):  # Get details {{{
             10: ['okt', 'oktober'],
             12: ['dez', 'dezember']
             },
-                'it': {
+            'it': {
             1: ['enn'],
             2: ['febbr'],
             5: ['magg'],
@@ -66,7 +66,7 @@ class Worker(Thread):  # Get details {{{
             10: ['ott'],
             12: ['dic'],
             },
-                'fr': {
+            'fr': {
             1: ['janv'],
             2: ['févr'],
             3: ['mars'],
@@ -539,26 +539,54 @@ class Worker(Thread):  # Get details {{{
         return ans
 
     def parse_cover(self, root, raw=b""):
-        imgs = root.xpath('//img[(@id="prodImage" or @id="original-main-image" or @id="main-image") and @src]')
+        # Look for the image URL in javascript, using the first image in the
+        # image gallery as the cover
+        imgpat = re.compile(r"""'imageGalleryData'\s*:\s*(\[\s*{.+])""")
+        for script in root.xpath('//script'):
+            m = imgpat.search(script.text or '')
+            if m is not None:
+                import json
+                try:
+                    return json.loads(m.group(1))[0]['mainUrl']
+                except Exception:
+                    continue
+
+        def clean_img_src(src):
+            parts = src.split('/')
+            if len(parts) > 3:
+                bn = parts[-1]
+                sparts = bn.split('_')
+                if len(sparts) > 2:
+                    bn = re.sub(r'\.\.jpg$', '.jpg', (sparts[0] + sparts[-1]))
+                    return ('/'.join(parts[:-1]))+'/'+bn
+
+        imgpat2 = re.compile(r'var imageSrc = "([^"]+)"')
+        for script in root.xpath('//script'):
+            m = imgpat2.search(script.text or '')
+            if m is not None:
+                src = m.group(1)
+                url = clean_img_src(src)
+                if url:
+                    return url
+
+        imgs = root.xpath('//img[(@id="prodImage" or @id="original-main-image" or @id="main-image" or @id="main-image-nonjs") and @src]')
         if not imgs:
             imgs = root.xpath('//div[@class="main-image-inner-wrapper"]/img[@src]')
             if not imgs:
                 imgs = root.xpath('//div[@id="main-image-container"]//img[@src]')
-        if imgs:
-            src = imgs[0].get('src')
+        for img in imgs:
+            src = img.get('src')
+            if 'data:' in src:
+                continue
             if 'loading-' in src:
                 js_img = re.search(br'"largeImage":"(http://[^"]+)",',raw)
                 if js_img:
                     src = js_img.group(1).decode('utf-8')
             if ('/no-image-avail' not in src and 'loading-' not in src and '/no-img-sm' not in src):
                 self.log('Found image: %s' % src)
-                parts = src.split('/')
-                if len(parts) > 3:
-                    bn = parts[-1]
-                    sparts = bn.split('_')
-                    if len(sparts) > 2:
-                        bn = re.sub(r'\.\.jpg$', '.jpg', (sparts[0] + sparts[-1]))
-                        return ('/'.join(parts[:-1]))+'/'+bn
+                url = clean_img_src(src)
+                if url:
+                    return url
 
     def parse_new_details(self, root, mi, non_hero):
         table = non_hero.xpath('descendant::table')[0]
@@ -637,10 +665,11 @@ class Amazon(Source):
 
     capabilities = frozenset(['identify', 'cover'])
     touched_fields = frozenset(['title', 'authors', 'identifier:amazon',
-        'identifier:isbn', 'rating', 'comments', 'publisher', 'pubdate',
+        'rating', 'comments', 'publisher', 'pubdate',
         'languages', 'series'])
     has_html_comments = True
     supports_gzip_transfer_encoding = True
+    prefer_results_with_isbn = False
 
     AMAZON_DOMAINS = {
             'com': _('US'),
@@ -851,19 +880,29 @@ class Amazon(Source):
                     return False
             return True
 
-        for div in root.xpath(r'//div[starts-with(@id, "result_")]'):
-            links = div.xpath(r'descendant::a[@class="title" and @href]')
-            if not links:
-                # New amazon markup
-                links = div.xpath('descendant::h3/a[@href]')
-            for a in links:
-                title = tostring(a, method='text', encoding=unicode)
-                if title_ok(title):
-                    url = a.get('href')
-                    if url.startswith('/'):
-                        url = 'http://www.amazon.%s%s' % (self.get_website_domain(domain), url)
-                    matches.append(url)
-                break
+        for a in root.xpath(r'//li[starts-with(@id, "result_")]//a[@href and contains(@class, "s-access-detail-page")]'):
+            title = tostring(a, method='text', encoding=unicode)
+            if title_ok(title):
+                url = a.get('href')
+                if url.startswith('/'):
+                    url = 'http://www.amazon.%s%s' % (self.get_website_domain(domain), url)
+                matches.append(url)
+
+        if not matches:
+            # Previous generation of results page markup
+            for div in root.xpath(r'//div[starts-with(@id, "result_")]'):
+                links = div.xpath(r'descendant::a[@class="title" and @href]')
+                if not links:
+                    # New amazon markup
+                    links = div.xpath('descendant::h3/a[@href]')
+                for a in links:
+                    title = tostring(a, method='text', encoding=unicode)
+                    if title_ok(title):
+                        url = a.get('href')
+                        if url.startswith('/'):
+                            url = 'http://www.amazon.%s%s' % (self.get_website_domain(domain), url)
+                        matches.append(url)
+                    break
 
         if not matches:
             # This can happen for some user agents that Amazon thinks are
@@ -1043,7 +1082,7 @@ if __name__ == '__main__':  # tests {{{
                 {'identifiers':{'amazon':'0756407117'}},
                 [title_test(
                 "Throne of the Crescent Moon"),
-                comments_test('Makhslood'), comments_test('Publishers Weekly'),
+                comments_test('Makhslood'), comments_test('Dhamsawaat'),
                 ]
             ),
 
@@ -1059,7 +1098,7 @@ if __name__ == '__main__':  # tests {{{
             (  # # in title
                 {'title':'Expert C# 2008 Business Objects',
                     'authors':['Lhotka']},
-                [title_test('Expert C# 2008 Business Objects', exact=True),
+                [title_test('Expert C# 2008 Business Objects'),
                     authors_test(['Rockford Lhotka'])
                     ]
             ),
@@ -1085,8 +1124,8 @@ if __name__ == '__main__':  # tests {{{
             ),
 
             (  # A newer book
-                {'identifiers':{'isbn': '9780316044981'}},
-                [title_test('The Heroes', exact=True),
+                {'identifiers':{'amazon': 'B004JHY6OG'}},
+                [title_test('The Heroes', exact=False),
                     authors_test(['Joe Abercrombie'])]
 
             ),
@@ -1097,7 +1136,7 @@ if __name__ == '__main__':  # tests {{{
             (
                 {'identifiers':{'isbn': '3548283519'}},
                 [title_test('Wer Wind Sät: Der Fünfte Fall Für Bodenstein Und Kirchhoff',
-                    exact=True), authors_test(['Nele Neuhaus'])
+                    exact=False), authors_test(['Nele Neuhaus'])
                  ]
 
             ),
@@ -1175,5 +1214,3 @@ if __name__ == '__main__':  # tests {{{
     # do_test('de')
 
 # }}}
-
-

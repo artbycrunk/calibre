@@ -6,6 +6,7 @@ __docformat__ = 'restructuredtext en'
 
 from calibre.gui2.convert.pdf_output_ui import Ui_Form
 from calibre.gui2.convert import Widget
+from calibre.utils.localization import localize_user_manual_link
 
 paper_size_model = None
 orientation_model = None
@@ -26,6 +27,11 @@ class PluginWidget(Widget, Ui_Form):
             'pdf_footer_template', 'pdf_header_template', 'pdf_add_toc', 'toc_title',
         ])
         self.db, self.book_id = db, book_id
+        try:
+            self.hf_label.setText(self.hf_label.text() % localize_user_manual_link(
+                'http://manual.calibre-ebook.com/conversion.html#converting-to-pdf'))
+        except TypeError:
+            pass  # link already localized
 
         for x in get_option('paper_size').option.choices:
             self.opt_paper_size.addItem(x)
@@ -35,4 +41,6 @@ class PluginWidget(Widget, Ui_Form):
             self.opt_pdf_standard_font.addItem(x)
 
         self.initialize_options(get_option, get_help, db, book_id)
+        self.layout().setFieldGrowthPolicy(self.layout().ExpandingFieldsGrow)
+        self.template_box.layout().setFieldGrowthPolicy(self.layout().AllNonFixedFieldsGrow)
 

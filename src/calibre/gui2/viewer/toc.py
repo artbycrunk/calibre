@@ -8,18 +8,24 @@ __copyright__ = '2012, Kovid Goyal <kovid@kovidgoyal.net>'
 __docformat__ = 'restructuredtext en'
 
 import re
-from PyQt5.Qt import (QStandardItem, QStandardItemModel, Qt, QFont,
-        QTreeView)
+from PyQt5.Qt import (
+    QStandardItem, QStandardItemModel, Qt, QFont, QTreeView, QWidget,
+    QHBoxLayout, QToolButton, QIcon, QModelIndex, pyqtSignal)
 
 from calibre.ebooks.metadata.toc import TOC as MTOC
+from calibre.gui2 import error_dialog
+from calibre.gui2.search_box import SearchBox2
+from calibre.utils.icu import primary_contains
 
 class TOCView(QTreeView):
 
+    searched = pyqtSignal(object)
+
     def __init__(self, *args):
         QTreeView.__init__(self, *args)
-        self.setCursor(Qt.PointingHandCursor)
         self.setMinimumWidth(80)
         self.header().close()
+        self.setMouseTracking(True)
         self.setStyleSheet('''
                 QTreeView {
                     background-color: palette(window);
@@ -40,6 +46,42 @@ class TOCView(QTreeView):
                 }
         ''')
 
+    def mouseMoveEvent(self, ev):
+        if self.indexAt(ev.pos()).isValid():
+            self.setCursor(Qt.PointingHandCursor)
+        else:
+            self.unsetCursor()
+        return QTreeView.mouseMoveEvent(self, ev)
+
+class TOCSearch(QWidget):
+
+    def __init__(self, toc_view, parent=None):
+        QWidget.__init__(self, parent)
+        self.toc_view = toc_view
+        self.l = l = QHBoxLayout(self)
+        self.search = s = SearchBox2(self)
+        self.search.setMinimumContentsLength(15)
+        self.search.initialize('viewer_toc_search_history', help_text=_('Search Table of Contents'))
+        self.search.setToolTip(_('Search for text in the Table of Contents'))
+        s.search.connect(self.do_search)
+        self.go = b = QToolButton(self)
+        b.setIcon(QIcon(I('search.png')))
+        b.clicked.connect(s.do_search)
+        b.setToolTip(_('Find next match'))
+        l.addWidget(s), l.addWidget(b)
+
+    def do_search(self, text):
+        if not text or not text.strip():
+            return
+        index = self.toc_view.model().search(text)
+        if index.isValid():
+            self.toc_view.searched.emit(index)
+        else:
+            error_dialog(self.toc_view, _('No matches found'), _(
+                'There are no Table of Contents entries matching: %s') % text, show=True)
+        self.search.search_done(True)
+
+
 class TOCItem(QStandardItem):
 
     def __init__(self, spine, toc, depth, all_items, parent=None):
@@ -52,12 +94,13 @@ class TOCItem(QStandardItem):
         self.abspath = toc.abspath if toc.href else None
         self.fragment = toc.fragment
         all_items.append(self)
-        self.bold_font = QFont(self.font())
-        self.bold_font.setBold(True)
+        self.emphasis_font = QFont(self.font())
+        self.emphasis_font.setBold(True), self.emphasis_font.setItalic(True)
         self.normal_font = self.font()
         for t in toc:
             self.appendRow(TOCItem(spine, t, depth+1, all_items, parent=self))
         self.setFlags(Qt.ItemIsEnabled)
+        self.is_current_search_result = False
         spos = 0
         for i, si in enumerate(spine):
             if si == self.abspath:
@@ -147,7 +190,7 @@ class TOCItem(QStandardItem):
         changed = is_being_viewed != self.is_being_viewed
         self.is_being_viewed = is_being_viewed
         if changed:
-            self.setFont(self.bold_font if is_being_viewed else self.normal_font)
+            self.setFont(self.emphasis_font if is_being_viewed else self.normal_font)
 
     def update_indexing_state_paged(self, spine_index, viewport_rect,
             anchor_map):
@@ -192,7 +235,15 @@ class TOCItem(QStandardItem):
         changed = is_being_viewed != self.is_being_viewed
         self.is_being_viewed = is_being_viewed
         if changed:
-            self.setFont(self.bold_font if is_being_viewed else self.normal_font)
+            self.setFont(self.emphasis_font if is_being_viewed else self.normal_font)
+
+    def set_current_search_result(self, yes):
+        if yes and not self.is_current_search_result:
+            self.setText(self.text() + ' ◄')
+            self.is_current_search_result = True
+        elif not yes and self.is_current_search_result:
+            self.setText(self.text()[:-2])
+            self.is_current_search_result = False
 
     def __repr__(self):
         return 'TOC Item: %s %s#%s'%(self.title, self.abspath, self.fragment)
@@ -204,6 +255,7 @@ class TOC(QStandardItemModel):
 
     def __init__(self, spine, toc=None):
         QStandardItemModel.__init__(self)
+        self.current_query = {'text':'', 'index':-1, 'items':()}
         if toc is None:
             toc = MTOC()
         self.all_items = depth_first = []
@@ -262,5 +314,22 @@ class TOC(QStandardItemModel):
             if item is current_entry:
                 found = True
 
+    def find_items(self, query):
+        for item in self.all_items:
+            if primary_contains(query, item.text()):
+                yield item
 
-
+    def search(self, query):
+        cq = self.current_query
+        if cq['items'] and -1 < cq['index'] < len(cq['items']):
+            cq['items'][cq['index']].set_current_search_result(False)
+        if cq['text'] != query:
+            items = tuple(self.find_items(query))
+            cq.update({'text':query, 'items':items, 'index':-1})
+        if len(cq['items']) > 0:
+            cq['index'] = (cq['index'] + 1) % len(cq['items'])
+            item = cq['items'][cq['index']]
+            item.set_current_search_result(True)
+            index = self.indexFromItem(item)
+            return index
+        return QModelIndex()

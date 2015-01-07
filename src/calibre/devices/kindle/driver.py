@@ -323,21 +323,40 @@ class KINDLE2(KINDLE):
             ' store the page count of books, you can have calibre use that'
             ' information, instead of calculating a page count. Specify the'
             ' name of the custom column here, for example, #pages.'),
+        _('Custom column name to retrieve calculation method from') + ':::' + _(
+            'If you have a custom column in your library that you use to'
+            ' store the preferred method for calculating the number of pages'
+            ' for a book, you can have calibre use that method instead of the'
+            ' default one selected above.  Specify the name of the custom'
+            ' column here, for example, #pagemethod. The custom column should have the '
+            ' values: fast, accurate or pagebreak.'),
+        _('Overwrite existing apnx on device') + ':::' + _(
+            'Uncheck this option to allow an apnx file existing on the device'
+            ' to have priority over the version which calibre would send.'
+            ' Since apnx files are usually deleted when a book is removed from'
+            ' the Kindle, this is mostly useful when resending a book to the'
+            ' device which is already on the device (e.g. after making a'
+            ' modification.)'),
 
     ]
     EXTRA_CUSTOMIZATION_DEFAULT = [
         True,
         'fast',
         '',
+        '',
+        True,
     ]
     OPT_APNX                 = 0
     OPT_APNX_METHOD          = 1
     OPT_APNX_CUST_COL        = 2
+    OPT_APNX_METHOD_COL      = 3
+    OPT_APNX_OVERWRITE       = 4
     EXTRA_CUSTOMIZATION_CHOICES = {OPT_APNX_METHOD:{'fast', 'accurate', 'pagebreak'}}
 
     # x330 on the PaperWhite
-    THUMBNAIL_HEIGHT         = 330
     # x262 on the Touch. Doesn't choke on x330, though.
+    # x470 on the Voyage, checked that it works on PW, dont have Touch anymore
+    THUMBNAIL_HEIGHT         = 470
 
     @classmethod
     def migrate_extra_customization(cls, vals):
@@ -456,13 +475,25 @@ class KINDLE2(KINDLE):
 
         apnx_path = '%s.apnx' % os.path.join(path, filename)
         apnx_builder = APNXBuilder()
-        try:
-            method = opts.extra_customization[self.OPT_APNX_METHOD]
-            apnx_builder.write_apnx(filepath, apnx_path, method=method, page_count=custom_page_count)
-        except:
-            print 'Failed to generate APNX'
-            import traceback
-            traceback.print_exc()
+        # ## Check to see if there is an existing apnx file on Kindle we should keep.
+        if opts.extra_customization[self.OPT_APNX_OVERWRITE] or not os.path.exists(apnx_path):
+            try:
+                method = opts.extra_customization[self.OPT_APNX_METHOD]
+                cust_col_name = opts.extra_customization[self.OPT_APNX_METHOD_COL]
+                if cust_col_name:
+                    try:
+                        temp = unicode(metadata.get(cust_col_name)).lower()
+                        if temp in self.EXTRA_CUSTOMIZATION_CHOICES[self.OPT_APNX_METHOD]:
+                            method = temp
+                        else:
+                            print ("Invalid method choice for this book (%r), ignoring." % temp)
+                    except:
+                        print 'Could not retrieve override method choice, using default.'
+                apnx_builder.write_apnx(filepath, apnx_path, method=method, page_count=custom_page_count)
+            except:
+                print 'Failed to generate APNX'
+                import traceback
+                traceback.print_exc()
 
 
 class KINDLE_DX(KINDLE2):

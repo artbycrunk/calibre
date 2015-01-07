@@ -3,13 +3,13 @@
 Editing E-books 
 ========================
 
-|app| has an integrated e-book editor that can be used to edit books in the
+calibre has an integrated e-book editor that can be used to edit books in the
 EPUB and AZW3 (Kindle) formats. The editor shows you the HTML and CSS that is
 used internally inside the book files, with a live preview that updates as you
 make changes. It also contains various automated tools to perform common
 cleanup and fixing tasks.
 
-You can use this editor by right clicking on any book in |app| and selecting
+You can use this editor by right clicking on any book in calibre and selecting
 :guilabel:`Edit book`.
 
 .. image:: images/edit-book.png
@@ -26,7 +26,7 @@ Basic workflow
 ---------------
 
 .. note::
-    A video tour of the |app| editor is available `here
+    A video tour of the calibre editor is available `here
     <http://calibre-ebook.com/demo#tutorials>`_.
 
 When you first open a book with the Edit book tool, you will be presented with
@@ -94,7 +94,7 @@ Renaming files
 You can rename an individual file by right clicking it and selecting
 :guilabel:`Rename`. Renaming a file automatically updates all links and
 references to it throughout the book. So all you have to do is provide the new
-name, |app| will take care of the rest.
+name, calibre will take care of the rest.
 
 You can also bulk rename many files at once. This is useful
 if you want the files to have some simple name pattern. For example you might
@@ -115,7 +115,7 @@ when viewing the book in a typical ebook reader.
 To merge multiple files together, select them by holding the Ctrl key and
 clicking on them (make sure you only select files of one type, either all HTML
 files or all CSS files and so on). Then right click and select merge. That's
-all, |app| will merge the files, automatically taking care of migrating all
+all, calibre will merge the files, automatically taking care of migrating all
 links and references to the merged files. Note that merging files can sometimes
 cause text styling to change, since the individual files could have used
 different stylesheets.
@@ -138,12 +138,12 @@ designate some other image as the cover, you can do so by right clicking on the
 file and choosing :guilabel:`Mark as cover`.
 
 In addition, EPUB files has the concept of a *titlepage*. A title page is a
-HTML file that acts as the title page/cover for th book. You can mark an HTML
+HTML file that acts as the title page/cover for the book. You can mark an HTML
 file as the titlepage when editing EPUBs by right-clicking. Be careful that the
 file you mark contains only the cover information. If it contains other
 content, such as the first chapter, then that content will be lost if the user
-ever converts the EPUB file in |app| to another format. This is because when
-converting, |app| assumes that the marked title page contains only the cover
+ever converts the EPUB file in calibre to another format. This is because when
+converting, calibre assumes that the marked title page contains only the cover
 and no other content.
 
 Deleting files
@@ -182,7 +182,7 @@ files into book.
 Replacing files
 ^^^^^^^^^^^^^^^^
 
-You can easily replace existing files int he book, by right clicking on the
+You can easily replace existing files in the book, by right clicking on the
 file and choosing replace. This will automatically update all links and
 references, in case the replacement file has a different name than the file
 being replaced.
@@ -191,7 +191,7 @@ Linking stylesheets to HTML files efficiently
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 As a convenience, you can select multiple HTML files in the Files Browser,
-right click and choose Link stylesheets to have |app| automatically insert the
+right click and choose Link stylesheets to have calibre automatically insert the
 <link> tags for those stylesheets into all the selected HTML files.
 
 .. raw:: html epub
@@ -246,6 +246,13 @@ Searches`. This will present you with a list of search and replace expressions
 that you can apply. You can even select multiple entries in the list by holding
 down the Ctrl Key while clicking so as to run multiple search and replace
 expressions in a single operation.
+
+Function mode
+^^^^^^^^^^^^^^^^^^^^^
+
+Function mode allows you to write arbitrarily powerful python functions that
+are run on every Find/replace. You can do pretty much any text manipulation you
+like in function mode. For more information, see :doc:`function_mode`.
 
 Automated tools
 -------------------
@@ -304,11 +311,11 @@ Some of the checks performed are:
 
     * Malformed HTML markup. Any HTML markup that does not parse as well-formed
       XML is reported. Correcting it will ensure that your markup works as
-      intended in all contexts. |app| can also auto-fix these errors, but
+      intended in all contexts. calibre can also auto-fix these errors, but
       auto-fixing can sometimes have unexpected effects, so use with care. As
       always, a checkpoint is created before auto-fixing so you can easily
       revert all changes. Auto-fixing works by parsing the markup using the
-      HTML 5 algorithm, which is highly fault tolerant and then converting to
+      HTML5 algorithm, which is highly fault tolerant and then converting to
       well formed XML.
 
     * Malformed or unknown CSS styles. Any CSS that is not valid or that has
@@ -383,7 +390,7 @@ Fix HTML
 This tool simply converts HTML that cannot be parsed as XML into well-formed
 XML. It is very common in ebooks to have non-well-formed XML, so this tool
 simply automates the process of fixing such HTML. The tool works by parsing the
-HTML using the HTML 5 algorithm (the algorithm used in all modern browsers) and
+HTML using the HTML5 algorithm (the algorithm used in all modern browsers) and
 then converting the result into XML. Be aware that auto-fixing can sometimes
 have counter-intuitive results. If you prefer, you can use the Check Book tool
 discussed above to find and manually correct problems in the HTML. Accessed via
@@ -417,7 +424,7 @@ Insert inline Table of Contents
 
 Normally in ebooks, the Table of Contents is separate from the main text and is
 typically accessed via a special Table of Contents button/menu in the ebook
-reading device. You can also have |app| automatically generate an *inline*
+reading device. You can also have calibre automatically generate an *inline*
 Table of Contents that becomes part of the text of the book. It is
 generated based on the currently defined Table of Contents. 
 
@@ -647,7 +654,7 @@ Because there are a lot of characters, you can define your own :guilabel:`Favori
 characters, that will be shown first. Simply right click on a character to mark
 it as favorite. You can also right click on a character in favorites to remove
 it from favorites. Finally, you can re-arrange the order of characters in
-favorites by clicking the :guilabel:`Re-arrange favorties` button and then drag
+favorites by clicking the :guilabel:`Re-arrange favorites` button and then drag
 and dropping the characters in favorites around.
 
 You can also directly type in special characters using the keyboard. To do
@@ -693,3 +700,63 @@ particularly useful to directly create EPUB files from your own hand-edited
 HTML files. You can do this via :guilabel:`File->Import an HTML or DOCX file as
 a new book`.
 
+.. toctree::
+    :hidden:
+
+    function_mode
+
+Special features in the code editor
+---------------------------------------
+
+The calibre HTML editor is very powerful. It has many features that make
+editing of HTML (and CSS) easier.
+
+Syntax highlighting
+^^^^^^^^^^^^^^^^^^^^^
+
+The HTML editor has very sophisticated syntax highlighting. Features include:
+
+    * The text inside bold, italic and heading tags is made bold/italic
+    * As you move your cursor through the HTML, the matching HTML tags are
+      highlighted
+    * Invalid HTML is highlighted with a red underline
+    * Spelling errors in the text inside HTML tags and attributes such as title
+      are highlighted. The spell checking is language aware, based on the value
+      of the lang attribute of the current tag and the overall book language.
+    * CSS embedded inside ``<style>`` tags is highlighted
+    * Special characters that can be hard to distinguish such as non-breaking
+      spaces, different types of hyphens, etc. are highlighted.
+    * Links to other files in ``<a>`` tags, ``<img>`` and ``<link>`` tags all
+      have the filenames highlighted. If the filename they point to does not
+      exist, the filename is marked with a red underline.
+
+Context sensitive help
+^^^^^^^^^^^^^^^^^^^^^^^^
+
+You can right click on an HTML tag name or a CSS property name to get help for that tag or property.
+
+You can also hold down the Ctrl key and click on any filename inside a link tag
+to open that file in the editor automatically.
+
+Auto-complete
+^^^^^^^^^^^^^^^^
+
+When editing an ebook, one of the most tedious tasks is creating links to other
+files inside the book, or to CSS stylesheets, or images. You have to figure out
+the correct filename and relative path to the file. The editor has
+auto-complete to make that easier. 
+
+As you type a filename, the editor automatically pops up suggestions. Simply
+use the Tab key to select the correct file name. The editor even offers
+suggestions for links pointing to an anchor inside another HTML file. After you
+type the ``#`` character, the editor will show you a list of all anchors in the
+target file, with a small snippet of text to help you choose the right anchor.
+
+Note that unlike most other completion systems, the editor's completion system
+uses subsequence matching. This means that you can type just two or three
+letters from anywhere in the filename to complete the filename. For example,
+say you want the filename ``../images/arrow1.png``, you can simply type ``ia1``
+and press Tab to complete the filename. When searching for matches, the
+completion system prioritizes letters that are at the start of a word, or
+immediately after a path separator. Once you get used to this system, you will
+find it saves you a lot of time and effort.

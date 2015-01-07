@@ -62,8 +62,13 @@ class Coffee(Command):  # {{{
                 '*.coffee')):
                 bn = os.path.basename(f).rpartition('.')[0]
                 arcname = src.replace('/', '.') + '.' + bn + '.js'
-                with open(f, 'rb') as fs:
-                    src_files[arcname] = (f, hashlib.sha1(fs.read()).hexdigest())
+                try:
+                    with open(f, 'rb') as fs:
+                        src_files[arcname] = (f, hashlib.sha1(fs.read()).hexdigest())
+                except EnvironmentError:
+                    time.sleep(0.1)
+                    with open(f, 'rb') as fs:
+                        src_files[arcname] = (f, hashlib.sha1(fs.read()).hexdigest())
 
         existing = {}
         dest = self.j(self.RESOURCES, 'compiled_coffeescript.zip')
@@ -308,6 +313,28 @@ class Resources(Command):  # {{{
         import json
         json.dump(function_dict, open(dest, 'wb'), indent=4)
 
+        self.info('\tCreating editor-functions.json')
+        dest = self.j(self.RESOURCES, 'editor-functions.json')
+        function_dict = {}
+        from calibre.gui2.tweak_book.function_replace import builtin_functions
+        for func in builtin_functions():
+            try:
+                src = ''.join(inspect.getsourcelines(func)[0][1:])
+            except Exception:
+                continue
+            src = src.replace('def ' + func.func_name, 'def replace')
+            imports = ['from %s import %s' % (x.__module__, x.__name__) for x in func.imports]
+            if imports:
+                src = '\n'.join(imports) + '\n\n' + src
+            function_dict[func.name] = src
+        json.dump(function_dict, open(dest, 'wb'), indent=4)
+        self.info('\tCreating user-manual-translation-stats.json')
+        d = {}
+        for lc, stats in json.load(open(self.j(self.d(self.SRC), 'manual', 'locale', 'completed.json'))).iteritems():
+            total = sum(stats.itervalues())
+            d[lc] = stats['translated'] / float(total)
+        json.dump(d, open(self.j(self.RESOURCES, 'user-manual-translation-stats.json'), 'wb'), indent=4)
+
     def clean(self):
         for x in ('scripts', 'ebook-convert-complete'):
             x = self.j(self.RESOURCES, x+'.pickle')
@@ -317,7 +344,7 @@ class Resources(Command):  # {{{
         kakasi.clean()
         coffee.clean()
         for x in ('builtin_recipes.xml', 'builtin_recipes.zip',
-                'template-functions.json'):
+                'template-functions.json', 'user-manual-translation-stats.json'):
             x = self.j(self.RESOURCES, x)
             if os.path.exists(x):
                 os.remove(x)

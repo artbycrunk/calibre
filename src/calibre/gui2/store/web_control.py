@@ -15,6 +15,7 @@ from PyQt5.QtWebKitWidgets import QWebView, QWebPage
 from calibre import USER_AGENT, get_proxies
 from calibre.ebooks import BOOK_EXTENSIONS
 from calibre.gui2 import choose_save_file
+from calibre.gui2.ebook_download import show_download_info
 from calibre.ptempfile import PersistentTemporaryFile
 from calibre.utils.filenames import ascii_filename
 from calibre.web import get_download_filename
@@ -25,6 +26,7 @@ class NPWebView(QWebView):
         QWebView.__init__(self, *args)
         self.gui = None
         self.tags = ''
+        self.create_browser = None
 
         self._page = NPWebPage()
         self.setPage(self._page)
@@ -89,9 +91,10 @@ class NPWebView(QWebView):
                     return
             name = choose_save_file(self, 'web-store-download-unknown', _('File is not a supported ebook type. Save to disk?'), initial_filename=filename)
             if name:
-                self.gui.download_ebook(url, cf, name, name, False)
+                self.gui.download_ebook(url, cf, name, name, False, create_browser=self.create_browser)
         else:
-            self.gui.download_ebook(url, cf, filename, tags=self.tags)
+            show_download_info(filename, self)
+            self.gui.download_ebook(url, cf, filename, tags=self.tags, create_browser=self.create_browser)
 
     def ignore_ssl_errors(self, reply, errors):
         reply.ignoreSslErrors(errors)

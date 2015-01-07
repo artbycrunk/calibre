@@ -27,6 +27,7 @@ from calibre.gui2.viewer.image_popup import ImagePopup
 from calibre.gui2.viewer.table_popup import TablePopup
 from calibre.gui2.viewer.inspector import WebInspector
 from calibre.gui2.viewer.gestures import GestureHandler
+from calibre.gui2.viewer.footnote import Footnotes
 from calibre.ebooks.oeb.display.webview import load_html
 from calibre.constants import isxp, iswindows, DEBUG
 # }}}
@@ -41,6 +42,21 @@ def apply_settings(settings, opts):
     settings.setFontFamily(QWebSettings.SansSerifFont, opts.sans_family)
     settings.setFontFamily(QWebSettings.FixedFont, opts.mono_family)
     settings.setAttribute(QWebSettings.ZoomTextOnly, True)
+
+def apply_basic_settings(settings):
+    # Security
+    settings.setAttribute(QWebSettings.JavaEnabled, False)
+    settings.setAttribute(QWebSettings.PluginsEnabled, False)
+    settings.setAttribute(QWebSettings.JavascriptCanOpenWindows, False)
+    settings.setAttribute(QWebSettings.JavascriptCanAccessClipboard, False)
+    # PrivateBrowsing disables console messages
+    # settings.setAttribute(QWebSettings.PrivateBrowsingEnabled, True)
+    settings.setAttribute(QWebSettings.NotificationsEnabled, False)
+    settings.setThirdPartyCookiePolicy(QWebSettings.AlwaysBlockThirdPartyCookies)
+
+    # Miscellaneous
+    settings.setAttribute(QWebSettings.LinksIncludedInFocusChain, True)
+    settings.setAttribute(QWebSettings.DeveloperExtrasEnabled, True)
 
 
 class Document(QWebPage):  # {{{
@@ -104,15 +120,7 @@ class Document(QWebPage):  # {{{
         opts = config().parse()
         self.set_font_settings(opts)
 
-        # Security
-        settings.setAttribute(QWebSettings.JavaEnabled, False)
-        settings.setAttribute(QWebSettings.PluginsEnabled, False)
-        settings.setAttribute(QWebSettings.JavascriptCanOpenWindows, False)
-        settings.setAttribute(QWebSettings.JavascriptCanAccessClipboard, False)
-
-        # Miscellaneous
-        settings.setAttribute(QWebSettings.LinksIncludedInFocusChain, True)
-        settings.setAttribute(QWebSettings.DeveloperExtrasEnabled, True)
+        apply_basic_settings(settings)
         self.set_user_stylesheet(opts)
         self.misc_config(opts)
 
@@ -157,6 +165,7 @@ class Document(QWebPage):  # {{{
         self.enable_page_flip = self.page_flip_duration > 0.1
         self.font_magnification_step = opts.font_magnification_step
         self.wheel_flips_pages = opts.wheel_flips_pages
+        self.tap_flips_pages = opts.tap_flips_pages
         self.line_scrolling_stops_on_pagebreaks = opts.line_scrolling_stops_on_pagebreaks
         screen_width = QApplication.desktop().screenGeometry().width()
         # Leave some space for the scrollbar and some border
@@ -506,6 +515,8 @@ class DocumentView(QWebView):  # {{{
         self.to_bottom = False
         self.document = Document(self.shortcuts, parent=self,
                 debug_javascript=debug_javascript)
+        self.footnotes = Footnotes(self)
+        self.document.settings_changed.connect(self.footnotes.clone_settings)
         self.setPage(self.document)
         self.inspector = WebInspector(self, self.document)
         self.manager = None
@@ -1305,12 +1316,28 @@ class DocumentView(QWebView):  # {{{
         return QWebView.event(self, ev)
 
     def mouseReleaseEvent(self, ev):
+        r = self.document.mainFrame().hitTestContent(ev.pos())
+        a, url = r.linkElement(), r.linkUrl()
+        if url.isValid() and not a.isNull() and self.manager is not None:
+            fd = self.footnotes.get_footnote_data(a, url)
+            if fd:
+                self.footnotes.show_footnote(fd)
+                self.manager.show_footnote_view()
+                ev.accept()
+                return
         opos = self.document.ypos
+        if self.manager is not None:
+            prev_pos = self.manager.update_page_number()
         ret = QWebView.mouseReleaseEvent(self, ev)
         if self.manager is not None and opos != self.document.ypos:
-            self.manager.internal_link_clicked(opos)
             self.manager.scrolled(self.scroll_fraction)
+            self.manager.internal_link_clicked(prev_pos)
         return ret
+
+    def follow_footnote_link(self):
+        qurl =  self.footnotes.showing_url
+        if qurl and qurl.isValid():
+            self.link_clicked(qurl)
 
 # }}}
 

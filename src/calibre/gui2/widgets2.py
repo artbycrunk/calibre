@@ -6,8 +6,11 @@ from __future__ import (unicode_literals, division, absolute_import,
 __license__ = 'GPL v3'
 __copyright__ = '2013, Kovid Goyal <kovid at kovidgoyal.net>'
 
-from PyQt5.Qt import QPushButton, QPixmap, QIcon, QColor, Qt, QColorDialog, pyqtSignal
+from PyQt5.Qt import (
+    QPushButton, QPixmap, QIcon, QColor, Qt, QColorDialog, pyqtSignal,
+    QKeySequence, QToolButton, QDialog, QDialogButtonBox)
 
+from calibre.gui2 import gprefs
 from calibre.gui2.complete2 import LineEdit, EditWithComplete
 from calibre.gui2.widgets import history
 
@@ -98,4 +101,71 @@ class ColorButton(QPushButton):
         col = QColorDialog.getColor(QColor(self._color or Qt.white), self, _('Choose a color'))
         if col.isValid():
             self.color = unicode(col.name())
+
+
+def access_key(k):
+    'Return shortcut text suitable for adding to a menu item'
+    if QKeySequence.keyBindings(k):
+        return '\t' + QKeySequence(k).toString(QKeySequence.NativeText)
+    return ''
+
+def populate_standard_spinbox_context_menu(spinbox, menu, add_clear=False):
+    m = menu
+    le = spinbox.lineEdit()
+    m.addAction(_('Cu&t') + access_key(QKeySequence.Cut), le.cut).setEnabled(not le.isReadOnly() and le.hasSelectedText())
+    m.addAction(_('&Copy') + access_key(QKeySequence.Copy), le.copy).setEnabled(le.hasSelectedText())
+    m.addAction(_('&Paste') + access_key(QKeySequence.Paste), le.paste).setEnabled(not le.isReadOnly())
+    m.addAction(_('Delete') + access_key(QKeySequence.Delete), le.del_).setEnabled(not le.isReadOnly() and le.hasSelectedText())
+    m.addSeparator()
+    m.addAction(_('Select &All') + access_key(QKeySequence.SelectAll), spinbox.selectAll)
+    m.addSeparator()
+    m.addAction(_('&Step up'), spinbox.stepUp)
+    m.addAction(_('Step &down'), spinbox.stepDown)
+    m.setAttribute(Qt.WA_DeleteOnClose)
+
+class RightClickButton(QToolButton):
+
+    def mousePressEvent(self, ev):
+        if ev.button() == Qt.RightButton and self.menu() is not None:
+            self.showMenu()
+            ev.accept()
+            return
+        return QToolButton.mousePressEvent(self, ev)
+
+class Dialog(QDialog):
+
+    def __init__(self, title, name, parent=None, prefs=gprefs):
+        QDialog.__init__(self, parent)
+        self.prefs_for_persistence = prefs
+        self.setWindowTitle(title)
+        self.name = name
+        self.bb = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        self.bb.accepted.connect(self.accept)
+        self.bb.rejected.connect(self.reject)
+
+        self.setup_ui()
+
+        self.resize(self.sizeHint())
+        geom = self.prefs_for_persistence.get(name + '-geometry', None)
+        if geom is not None:
+            self.restoreGeometry(geom)
+        if hasattr(self, 'splitter'):
+            state = self.prefs_for_persistence.get(name + '-splitter-state', None)
+            if state is not None:
+                self.splitter.restoreState(state)
+
+    def accept(self):
+        self.prefs_for_persistence.set(self.name + '-geometry', bytearray(self.saveGeometry()))
+        if hasattr(self, 'splitter'):
+            self.prefs_for_persistence.set(self.name + '-splitter-state', bytearray(self.splitter.saveState()))
+        QDialog.accept(self)
+
+    def reject(self):
+        self.prefs_for_persistence.set(self.name + '-geometry', bytearray(self.saveGeometry()))
+        if hasattr(self, 'splitter'):
+            self.prefs_for_persistence.set(self.name + '-splitter-state', bytearray(self.splitter.saveState()))
+        QDialog.reject(self)
+
+    def setup_ui(self):
+        raise NotImplementedError('You must implement this method in Dialog subclasses')
 

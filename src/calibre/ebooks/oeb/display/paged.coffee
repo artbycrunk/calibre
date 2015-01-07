@@ -12,6 +12,26 @@ runscripts = (parent) ->
     for script in parent.getElementsByTagName('script')
         eval(script.text || script.textContent || script.innerHTML || '')
 
+first_child = (parent) ->
+    c = parent.firstChild
+    count = 0
+    while c?.nodeType != 1 and count < 20
+        c = c?.nextSibling
+        count += 1
+    if c?.nodeType == 1
+        return c
+    return null
+
+has_start_text = (elem) ->
+    # Returns true if elem has some non-whitespace text before its first child
+    # element
+    for c in elem.childNodes
+        if c.nodeType not in [Node.TEXT_NODE, Node.COMMENT_NODE, Node.PROCESSING_INSTRUCTION_NODE]
+            break
+        if c.nodeType == Node.TEXT_NODE and c.nodeValue != null and /\S/.test(c.nodeValue)
+            return true
+    return false
+
 class PagedDisplay
     # This class is a namespace to expose functions via the
     # window.paged_display object. The most important functions are:
@@ -132,9 +152,9 @@ class PagedDisplay
 
         fgcolor = body_style.getPropertyValue('color')
 
-        bs.setProperty('-webkit-column-gap', (2*sm)+'px')
-        bs.setProperty('-webkit-column-width', col_width+'px')
-        bs.setProperty('-webkit-column-rule-color', fgcolor)
+        bs.setProperty('-webkit-column-gap', 2*sm + 'px')
+        bs.setProperty('-webkit-column-width', col_width + 'px')
+        bs.setProperty('-webkit-column-rule', '0px inset blue')
 
         # Without this, webkit bleeds the margin of the first block(s) of body
         # above the columns, which causes them to effectively be added to the
@@ -144,13 +164,21 @@ class PagedDisplay
         # Otherwise, you could end up with an effective negative margin, I dont
         # understand exactly why, but see:
         # https://bugs.launchpad.net/calibre/+bug/1082640 for an example
-        c = document.body.firstChild
-        count = 0
-        while c?.nodeType != 1 and count < 20
-            c = c?.nextSibling
-            count += 1
-        if c?.nodeType == 1
+        c = first_child(document.body)
+        if c != null
             c.style.setProperty('-webkit-margin-before', '0')
+            # Remove page breaks on the first few elements to prevent blank pages
+            # at the start of a chapter
+            c.style.setProperty('-webkit-column-break-before', 'avoid')
+            if c.tagName?.toLowerCase() == 'div'
+                c2 = first_child(c)
+                if c2 != null and not has_start_text(c)
+                    # Common pattern of all content being enclosed in a wrapper
+                    # <div>, see for example: https://bugs.launchpad.net/bugs/1366074
+                    # In this case, we also modify the first child of the div
+                    # as long as there was no text before it.
+                    c2.style.setProperty('-webkit-column-break-before', 'avoid')
+
 
         this.effective_margin_top = this.margin_top
         this.effective_margin_bottom = this.margin_bottom
@@ -202,6 +230,14 @@ class PagedDisplay
             this.is_full_screen_layout = (only_img or has_svg) and single_screen and document.body.scrollWidth > body_width and document.body.scrollWidth < 2 * body_width
             if is_single_page
                 this.is_full_screen_layout = true
+
+        ncols = document.body.scrollWidth / this.page_width
+        if ncols != Math.floor(ncols) and not this.is_full_screen_layout
+            # In Qt 5 WebKit will sometimes adjust the individual column widths for
+            # better text layout. This is allowed as per the CSS spec, so the
+            # only way to ensure fixed column widths is to make sure the body
+            # width is an exact multiple of the column widths
+            bs.setProperty('width', Math.floor(ncols) * this.page_width - 2 * sm)
 
         this.in_paged_mode = true
         this.current_margin_side = sm

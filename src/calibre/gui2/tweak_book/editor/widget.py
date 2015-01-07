@@ -16,7 +16,9 @@ from PyQt5.Qt import (
 from calibre import prints
 from calibre.constants import DEBUG
 from calibre.ebooks.chardet import replace_encoding_declarations
-from calibre.gui2.tweak_book import actions, current_container, tprefs, dictionaries, editor_toolbar_actions, editor_name, editors
+from calibre.gui2.tweak_book import (
+    actions, current_container, tprefs, dictionaries, editor_toolbar_actions,
+    editor_name, editors, update_mark_text_action)
 from calibre.gui2 import error_dialog, open_url, workaround_broken_under_mouse
 from calibre.gui2.tweak_book.editor import SPELL_PROPERTY, LINK_PROPERTY, TAG_NAME_PROPERTY, CSS_PROPERTY
 from calibre.gui2.tweak_book.editor.help import help_url
@@ -171,6 +173,7 @@ class Editor(QMainWindow):
 
     def change_document_name(self, newname):
         self.editor.change_document_name(newname)
+        self.editor.completion_doc_name = newname
 
     def get_raw_data(self):
         # The EPUB spec requires NFC normalization, see section 1.3.6 of
@@ -217,6 +220,13 @@ class Editor(QMainWindow):
         mru.insert(0, name)
         tprefs['insert_tag_mru'] = mru
         self._build_insert_tag_button_menu()
+
+    def set_request_completion(self, callback=None, doc_name=None):
+        self.editor.request_completion = callback
+        self.editor.completion_doc_name = doc_name
+
+    def handle_completion_result(self, result):
+        return self.editor.handle_completion_result(result)
 
     def undo(self):
         self.editor.undo()
@@ -365,6 +375,7 @@ class Editor(QMainWindow):
         self.editor.smart_highlighting_updated.disconnect()
         self.editor.setPlainText('')
         self.editor.smarts = None
+        self.editor.request_completion = None
 
     def _modification_state_changed(self):
         self.is_synced_to_container = self.is_modified
@@ -441,8 +452,9 @@ class Editor(QMainWindow):
         a = m.addAction
         c = self.editor.cursorForPosition(pos)
         origc = QTextCursor(c)
+        current_cursor = self.editor.textCursor()
         r = origr = self.editor.syntax_range_for_cursor(c)
-        if (r is None or not r.format.property(SPELL_PROPERTY)) and c.positionInBlock() > 0:
+        if (r is None or not r.format.property(SPELL_PROPERTY)) and c.positionInBlock() > 0 and not current_cursor.hasSelection():
             c.setPosition(c.position() - 1)
             r = self.editor.syntax_range_for_cursor(c)
 
@@ -458,11 +470,16 @@ class Editor(QMainWindow):
                 fc = self.editor.textCursor()
                 if fc.position() < c.position():
                     self.editor.find_spell_word([word], locale.langcode, center_on_cursor=False)
+            spell_cursor = self.editor.textCursor()
+            if current_cursor.hasSelection():
+                # Restore the current cursor so that any selection is preserved
+                # for the change case actions
+                self.editor.setTextCursor(current_cursor)
             if found:
                 suggestions = dictionaries.suggestions(word, locale)[:7]
                 if suggestions:
                     for suggestion in suggestions:
-                        ac = m.addAction(suggestion, partial(self.editor.simple_replace, suggestion))
+                        ac = m.addAction(suggestion, partial(self.editor.simple_replace, suggestion, cursor=spell_cursor))
                         f = ac.font()
                         f.setBold(True), ac.setFont(f)
                     m.addSeparator()
@@ -503,7 +520,9 @@ class Editor(QMainWindow):
                 a(ac)
         m.addSeparator()
         m.addAction(_('&Select all'), self.editor.select_all)
-        m.addAction(actions['mark-selected-text'])
+        if self.selected_text or self.has_marked_text:
+            update_mark_text_action(self)
+            m.addAction(actions['mark-selected-text'])
         if self.syntax != 'css' and actions['editor-cut'].isEnabled():
             cm = QMenu(_('Change &case'), m)
             for ac in 'upper lower swap title capitalize'.split():
@@ -529,7 +548,7 @@ class Editor(QMainWindow):
             dictionaries.add_to_user_dictionary(dic, word, locale)
         self.word_ignored.emit(word, locale)
 
-def launch_editor(path_to_edit, path_is_raw=False, syntax='html'):
+def launch_editor(path_to_edit, path_is_raw=False, syntax='html', callback=None):
     from calibre.gui2.tweak_book import dictionaries
     from calibre.gui2.tweak_book.main import option_parser
     from calibre.gui2.tweak_book.ui import Main
@@ -552,6 +571,8 @@ def launch_editor(path_to_edit, path_is_raw=False, syntax='html'):
             syntax = 'css'
     t = Editor(syntax)
     t.data = raw
+    if callback is not None:
+        callback(t)
     t.show()
     app.exec_()
 

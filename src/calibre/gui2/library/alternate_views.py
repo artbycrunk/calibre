@@ -6,7 +6,7 @@ from __future__ import (unicode_literals, division, absolute_import,
 __license__ = 'GPL v3'
 __copyright__ = '2013, Kovid Goyal <kovid at kovidgoyal.net>'
 
-import itertools, operator, os
+import itertools, operator, os, math
 from types import MethodType
 from threading import Event, Thread
 from Queue import LifoQueue
@@ -329,7 +329,7 @@ class CoverDelegate(QStyledItemDelegate):
         self.animation.setEasingCurve(QEasingCurve.OutInCirc)
         self.animation.setDuration(500)
         self.set_dimensions()
-        self.cover_cache = CoverCache(limit=gprefs['cover_grid_cache_size'])
+        self.cover_cache = CoverCache()
         self.render_queue = LifoQueue()
         self.animating = None
         self.highlight_color = QColor(Qt.white)
@@ -635,6 +635,9 @@ class GridView(QListView):
         self.update_timer.setInterval(200)
         self.update_timer.timeout.connect(self.update_viewport)
         self.update_timer.setSingleShot(True)
+        self.resize_timer = t = QTimer(self)
+        t.setInterval(200), t.setSingleShot(True)
+        t.timeout.connect(self.update_memory_cover_cache_size)
 
     @property
     def first_visible_row(self):
@@ -719,14 +722,30 @@ class GridView(QListView):
             self.delegate.calculate_spacing()
             self.setSpacing(self.delegate.spacing)
         self.set_color()
-        self.delegate.cover_cache.set_limit(gprefs['cover_grid_cache_size'])
         if size_changed:
             self.thumbnail_cache.set_thumbnail_size(self.delegate.cover_size.width(), self.delegate.cover_size.height())
         cs = gprefs['cover_grid_disk_cache_size']
         if (cs*(1024**2)) != self.thumbnail_cache.max_size:
             self.thumbnail_cache.set_size(cs)
+        self.update_memory_cover_cache_size()
+
+    def resizeEvent(self, ev):
+        self.resize_timer.start()
+        return QListView.resizeEvent(self, ev)
+
+    def update_memory_cover_cache_size(self):
+        try:
+            sz = self.delegate.item_size
+        except AttributeError:
+            return
+        rows, cols = self.width() // sz.width(), self.height() // sz.height()
+        num = (rows + 1) * (cols + 1)
+        limit = max(100, num * max(2, gprefs['cover_grid_cache_size_multiple']))
+        if limit != self.delegate.cover_cache.limit:
+            self.delegate.cover_cache.set_limit(limit)
 
     def shown(self):
+        self.update_memory_cover_cache_size()
         if self.render_thread is None:
             self.thumbnail_cache.set_database(self.gui.current_db)
             self.render_thread = Thread(target=self.render_covers)
@@ -929,6 +948,7 @@ class GridView(QListView):
 
     def restore_current_book_state(self, state):
         book_id = state
+        self.setFocus(Qt.OtherFocusReason)
         try:
             row = self.model().db.data.id_to_index(book_id)
         except (IndexError, ValueError, KeyError, TypeError, AttributeError):
@@ -960,5 +980,20 @@ class GridView(QListView):
         if event and event.type() == event.KeyPress and event.key() in (Qt.Key_Home, Qt.Key_End) and event.modifiers() & Qt.CTRL:
             return QItemSelectionModel.ClearAndSelect | QItemSelectionModel.Rows
         return super(GridView, self).selectionCommand(index, event)
+
+    def wheelEvent(self, ev):
+        if ev.phase() != Qt.ScrollUpdate:
+            return
+        number_of_pixels = ev.pixelDelta()
+        number_of_degrees = ev.angleDelta() / 8
+        b = self.verticalScrollBar()
+        if number_of_pixels.isNull():
+            dy = number_of_degrees.y() / 15.0
+            # Scroll by approximately half a row
+            dy = int(math.ceil((dy) * b.singleStep() / 2.0))
+        else:
+            dy = number_of_pixels.y()
+        if abs(dy) > 0:
+            b.setValue(b.value() - dy)
 
 # }}}

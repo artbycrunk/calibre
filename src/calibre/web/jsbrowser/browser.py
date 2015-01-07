@@ -11,11 +11,12 @@ import os, pprint, time, uuid, re
 from cookielib import Cookie
 from threading import current_thread
 
-from PyQt5.Qt import (QObject, QNetworkAccessManager, QNetworkDiskCache,
-        QNetworkProxy, QNetworkProxyFactory, QEventLoop, QUrl, pyqtSignal,
-        QDialog, QVBoxLayout, QSize, QNetworkCookieJar, Qt, pyqtSlot, QPixmap)
 from PyQt5.QtWebKit import QWebSettings, QWebElement
 from PyQt5.QtWebKitWidgets import QWebPage, QWebView
+from PyQt5.Qt import (
+    QObject, QNetworkAccessManager, QNetworkDiskCache, QCoreApplication,
+    QNetworkProxy, QNetworkProxyFactory, QEventLoop, QUrl, pyqtSignal,
+    QDialog, QVBoxLayout, QSize, QNetworkCookieJar, Qt, pyqtSlot, QPixmap)
 
 from calibre import USER_AGENT, prints, get_proxies, get_proxy_info, prepare_string_for_xml
 from calibre.constants import ispy3, cache_dir
@@ -488,7 +489,7 @@ class Browser(QObject, FormsMixin):
         self.current_form = None
         self.page.load_url(url)
         if selector is not None:
-            self.wait_for_element(selector, timeout=timeout, url=url)
+            self.wait_for_element(selector, timeout=timeout)
         else:
             self.wait_till_dom_ready(timeout=timeout, url=url)
 
@@ -681,6 +682,8 @@ class Browser(QObject, FormsMixin):
         '''
         Show the currently loaded web page in a window. Useful for debugging.
         '''
+        if getattr(QCoreApplication.instance(), 'headless', False):
+            raise RuntimeError('Cannot show browser when running in a headless Qt application')
         view = BrowserView(self.page)
         view.exec_()
 

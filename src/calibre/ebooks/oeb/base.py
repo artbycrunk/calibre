@@ -20,6 +20,7 @@ from calibre.ebooks.conversion.preprocess import CSSPreProcessor
 from calibre import (isbytestring, as_unicode, get_types_map)
 from calibre.ebooks.oeb.parse_utils import (barename, XHTML_NS, RECOVER_PARSER,
         namespace, XHTML, parse_html, NotHTML)
+from calibre.utils.cleantext import clean_xml_chars
 
 XML_NS       = 'http://www.w3.org/XML/1998/namespace'
 OEB_DOC_NS   = 'http://openebook.org/namespaces/oeb-document/1.0/'
@@ -238,7 +239,7 @@ def rewrite_links(root, link_repl_func, resolve_base_href=False):
             repl = stylesheet.cssText
             if isbytestring(repl):
                 repl = repl.decode('utf-8')
-            el.text = '\n'+ repl + '\n'
+            el.text = '\n'+ clean_xml_chars(repl) + '\n'
 
         if 'style' in el.attrib:
             text = el.attrib['style']
@@ -348,8 +349,13 @@ def xml2text(elem):
 
 def serialize(data, media_type, pretty_print=False):
     if isinstance(data, etree._Element):
+        is_oeb_doc = media_type in OEB_DOCS
+        if is_oeb_doc:
+            for style in data.iterfind('.//{http://www.w3.org/1999/xhtml}style'):
+                if style.text and re.search(r'[<>&]', style.text) is not None:
+                    style.text = etree.CDATA(style.text)
         ans = xml2str(data, pretty_print=pretty_print)
-        if media_type in OEB_DOCS:
+        if is_oeb_doc:
             # Convert self closing div|span|a|video|audio|iframe|etc tags
             # to normally closed ones, as they are interpreted
             # incorrectly by some browser based renderers

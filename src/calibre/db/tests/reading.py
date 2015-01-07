@@ -495,10 +495,11 @@ class ReadingTest(BaseTest):
 
         ae = self.assertEqual
 
-        def test(hit, result, *args):
+        def test(hit, result, *args, **kw):
             c.cc
+            num = kw.get('num', 2)
             ae(cache.search(*args), result)
-            ae(c.counts, (1, 0) if hit else (0, 1))
+            ae(c.counts, (num, 0) if hit else (0, num))
             c.cc
 
         test(False, {3}, 'Unknown')
@@ -512,9 +513,9 @@ class ReadingTest(BaseTest):
         for i in range(6):
             test(False, set(), 'nomatch_%s' % i)
         test(False, {3}, 'Unknown')  # cached search expired
-        test(False, {3}, '', 'unknown')
-        test(True, {3}, '', 'unknown')
-        test(True, {3}, 'Unknown', 'unknown')
+        test(False, {3}, '', 'unknown', num=1)
+        test(True, {3}, '', 'unknown', num=1)
+        test(True, {3}, 'Unknown', 'unknown', num=1)
         cache._search_api.MAX_CACHE_UPDATE = 100
         test(False, {2, 3}, 'title:=xxx or title:"=Title One"')
         cache.set_field('publisher', {3:'ppppp', 2:'other'})
@@ -527,7 +528,7 @@ class ReadingTest(BaseTest):
         from calibre.ebooks.metadata.book.base import STANDARD_METADATA_FIELDS
         cache = self.init_cache()
         for book_id in cache.all_book_ids():
-            mi = cache.get_metadata(book_id, get_user_categories=False)
+            mi = cache.get_metadata(book_id, get_user_categories=True)
             pmi = cache.get_proxy_metadata(book_id)
             self.assertSetEqual(set(mi.custom_field_keys()), set(pmi.custom_field_keys()))
 
@@ -627,3 +628,18 @@ class ReadingTest(BaseTest):
         self.assertEqual('FMT2', cache.field_for('#ccf', 1))
     # }}}
 
+    def test_find_identical_books(self):  # {{{
+        ' Test find_identical_books '
+        from calibre.ebooks.metadata.book.base import Metadata
+        from calibre.db.utils import find_identical_books
+        # 'find_identical_books': [(,), (Metadata('unknown'),), (Metadata('xxxx'),)],
+        cache = self.init_cache(self.library_path)
+        data = cache.data_for_find_identical_books()
+        for mi, books in (
+                (Metadata('title one', ['author one']), {2}),
+                (Metadata(_('Unknown')), {3}),
+                (Metadata('title two', ['author one']), {1}),
+        ):
+            self.assertEqual(books, cache.find_identical_books(mi))
+            self.assertEqual(books, find_identical_books(mi, data))
+    # }}}

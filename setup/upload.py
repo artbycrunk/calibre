@@ -5,7 +5,7 @@ __license__   = 'GPL v3'
 __copyright__ = '2009, Kovid Goyal <kovid@kovidgoyal.net>'
 __docformat__ = 'restructuredtext en'
 
-import os, subprocess, hashlib, shutil, glob, stat, sys, time
+import os, subprocess, hashlib, shutil, glob, stat, sys, time, shlex
 from subprocess import check_call
 from tempfile import NamedTemporaryFile, mkdtemp, gettempdir
 from zipfile import ZipFile
@@ -25,11 +25,12 @@ STAGING_HOST = 'download.calibre-ebook.com'
 STAGING_USER = 'root'
 STAGING_DIR = '/root/staging'
 
-def installers():
+def installers(include_source=True):
     installers = list(map(installer_name, ('dmg', 'msi', 'txz')))
     installers.append(installer_name('txz', is64bit=True))
     installers.append(installer_name('msi', is64bit=True))
-    installers.insert(0, 'dist/%s-%s.tar.xz'%(__appname__, __version__))
+    if include_source:
+        installers.insert(0, 'dist/%s-%s.tar.xz'%(__appname__, __version__))
     installers.append('dist/%s-portable-installer-%s.exe'%(__appname__, __version__))
     return installers
 
@@ -60,6 +61,8 @@ def upload_signatures():
             f.write(fingerprint)
     check_call('scp %s/*.sha512 divok:%s/signatures/' % (tdir, DOWNLOADS),
             shell=True)
+    check_call(shlex.split('scp %s/*.sha512 code:/srv/code/signatures/' % tdir))
+    check_call(shlex.split('ssh code chown -R nobody:nobody /srv/code/signatures'))
     shutil.rmtree(tdir)
 
 class ReUpload(Command):  # {{{
@@ -95,6 +98,13 @@ def get_google_data():
         'project':'calibre-ebook'
     }
 
+def get_github_data():
+    with open(os.path.expanduser('~/work/env/private/github'), 'rb') as f:
+        un, pw = f.read().strip().split(':')
+    return {
+        'username':un, 'password':pw
+    }
+
 def get_sourceforge_data():
     return {'username':'kovidgoyal', 'project':'calibre'}
 
@@ -108,6 +118,9 @@ def gc_cmdline(ver, gdata):
                 gdata['gc_password'], '--path-map-server',
                 gdata['path_map_server'], '--path-map-location',
                 gdata['path_map_location']]
+
+def gh_cmdline(ver, data):
+    return [__appname__, ver, 'fmap', 'github', __appname__, data['username'], data['password']]
 
 def sf_cmdline(ver, sdata):
     return [__appname__, ver, 'fmap', 'sourceforge', sdata['project'],
@@ -151,6 +164,7 @@ class UploadInstallers(Command):  # {{{
                 upload_signatures()
             self.upload_to_sourceforge()
             self.upload_to_dbs()
+            self.upload_to_github(opts.replace)
             # self.upload_to_google(opts.replace)
         finally:
             shutil.rmtree(tdir, ignore_errors=True)
@@ -188,6 +202,13 @@ class UploadInstallers(Command):  # {{{
     def upload_to_google(self, replace):
         gdata = get_google_data()
         args = gc_cmdline(__version__, gdata)
+        if replace:
+            args = ['--replace'] + args
+        run_remote_upload(args)
+
+    def upload_to_github(self, replace):
+        data = get_github_data()
+        args = gh_cmdline(__version__, data)
         if replace:
             args = ['--replace'] + args
         run_remote_upload(args)

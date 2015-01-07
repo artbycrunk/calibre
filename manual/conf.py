@@ -18,14 +18,14 @@ sys.path.append(os.path.abspath('.'))
 import init_calibre
 init_calibre
 from calibre.constants import __appname__, __version__
+import calibre.utils.localization as l  # Ensure calibre translations are installed
+del l
 import custom
 custom
 # General configuration
 # ---------------------
 
-needs_sphinx = '1.0'
-
-rst_prolog = '.. |app| replace:: %s' % __appname__
+needs_sphinx = '1.2'
 
 # Add any Sphinx extension module names here, as strings. They can be extensions
 # coming with Sphinx (named 'sphinx.addons.*') or your custom ones.
@@ -40,12 +40,21 @@ source_suffix = '.rst'
 # The master toctree document.
 master_doc = 'index' if tags.has('online') else 'simple_index'  # noqa
 # kill the warning about index/simple_index not being in a toctree
-exclude_patterns = ['simple_index.rst'] if master_doc == 'index' else ['index']
+exclude_patterns = ['simple_index.rst'] if master_doc == 'index' else ['index.rst']
+if tags.has('gettext'):  # noqa
+    # Do not exclude simple_index as its string must be translated. This will
+    # generate a warning about simple_index not being in a toctree, just ignore
+    # it.
+    exclude_patterns = []
 
 # The language
 language = os.environ.get('CALIBRE_OVERRIDE_LANG', 'en')
 # ignore generated files in languages other than the language we are building for
-exclude_patterns += ['generated/' + x for x in os.listdir('generated') if x != language]
+ge = {'generated/' + x for x in os.listdir('generated')} | {
+    'generated/' + x for x in os.environ.get('ALL_USER_MANUAL_LANGUAGES', '').split()}
+ge.discard('generated/' + language)
+exclude_patterns += list(ge)
+del ge
 
 # General substitutions.
 project = __appname__
@@ -69,6 +78,15 @@ today_fmt = '%B %d, %Y'
 unused_docs = ['global', 'cli/global']
 
 locale_dirs = ['locale/']
+title = '%s User Manual' % __appname__
+if language not in {'en', 'eng'}:
+    import gettext
+    try:
+        t = gettext.translation('simple_index', locale_dirs[0], [language])
+    except IOError:
+        pass
+    else:
+        title = t.ugettext(title)
 
 # If true, '()' will be appended to :func: etc. cross-reference text.
 # add_function_parentheses = True
@@ -116,9 +134,22 @@ html_last_updated_fmt = '%b %d, %Y'
 html_use_smartypants = True
 
 # Overall title of the documentation
-html_title       = 'calibre User Manual'
+html_title       = title
 html_short_title = 'Start'
 html_logo        = 'resources/logo.png'
+
+from calibre.utils.localization import get_language
+html_context = {}
+html_context['other_languages'] = [
+    (lc, get_language(lc)) for lc in os.environ.get('ALL_USER_MANUAL_LANGUAGES', '').split() if lc != language]
+def sort_languages(x):
+    from calibre.utils.icu import sort_key
+    lc, name = x
+    if lc == language:
+        return ''
+    return sort_key(unicode(name))
+html_context['other_languages'].sort(key=sort_languages)
+del sort_languages, get_language
 
 epub_author      = 'Kovid Goyal'
 epub_publisher   = 'Kovid Goyal'
@@ -160,8 +191,7 @@ latex_font_size = '10pt'
 
 # Grouping the document tree into LaTeX files. List of tuples
 # (source start file, target name, title, author, document class [howto/manual]).
-latex_documents = [('index', 'calibre.tex', 'calibre User Manual',
-    'Kovid Goyal', 'manual', False)]
+latex_documents = [(master_doc, 'calibre.tex', title, 'Kovid Goyal', 'manual', False)]
 
 # Additional stuff for the LaTeX preamble.
 # latex_preamble = ''
@@ -176,6 +206,7 @@ latex_logo = 'resources/logo.png'
 latex_show_pagerefs = True
 latex_show_urls = 'footnote'
 latex_elements = {
-'papersize':'letterpaper',
-'fontenc':r'\usepackage[T2A,T1]{fontenc}'
+    'papersize':'letterpaper',
+    'fontenc':r'\usepackage[T2A,T1]{fontenc}',
+    'preamble': r'\renewcommand{\pageautorefname}{%s}' % _('page'),
 }

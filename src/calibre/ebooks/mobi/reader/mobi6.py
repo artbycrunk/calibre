@@ -8,12 +8,6 @@ __docformat__ = 'restructuredtext en'
 
 import shutil, os, re, struct, textwrap, cStringIO
 
-try:
-    from PIL import Image as PILImage
-    PILImage
-except ImportError:
-    import Image as PILImage
-
 from lxml import html, etree
 
 from calibre import (xml_entity_to_unicode, entity_to_unicode)
@@ -27,6 +21,8 @@ from calibre.ebooks.metadata import MetaInformation
 from calibre.ebooks.metadata.opf2 import OPFCreator, OPF
 from calibre.ebooks.metadata.toc import TOC
 from calibre.ebooks.mobi.reader.headers import BookHeader
+from calibre.utils.magick.draw import save_cover_data_to
+from calibre.utils.imghdr import what
 
 class TopazError(ValueError):
     pass
@@ -513,6 +509,11 @@ class MobiReader(object):
                     'div' and 'filepos-id' in attrib):
                 pagebreak_anchors.append(tag)
 
+            if 'color' in attrib:
+                styles.append('color: ' + attrib.pop('color'))
+            if 'bgcolor' in attrib:
+                styles.append('background-color: ' + attrib.pop('bgcolor'))
+
             if 'filepos-id' in attrib:
                 attrib['id'] = attrib.pop('filepos-id')
                 if 'name' in attrib and attrib['name'] != attrib['id']:
@@ -524,7 +525,7 @@ class MobiReader(object):
                 except ValueError:
                     pass
             if (tag.tag == 'a' and attrib.get('id', '').startswith('filepos')
-                    and not tag.text and (tag.tail is None or not
+                    and not tag.text and len(tag) == 0 and (tag.tail is None or not
                         tag.tail.strip()) and getattr(tag.getnext(), 'tag',
                             None) in BLOCK_TAGS):
                 # This is an empty anchor immediately before a block tag, move
@@ -846,16 +847,15 @@ class MobiReader(object):
                 # This record is a known non image type, not need to try to
                 # load the image
                 continue
-            buf = cStringIO.StringIO(data)
-            try:
-                im = PILImage.open(buf)
-                im = im.convert('RGB')
-            except IOError:
-                continue
 
             path = os.path.join(output_dir, '%05d.jpg' % image_index)
+            try:
+                if what(None, data) not in {'jpg', 'jpeg', 'gif', 'png', 'bmp', 'webp'}:
+                    continue
+                save_cover_data_to(data, path, minify_to=(10000, 10000))
+            except Exception:
+                continue
             self.image_names.append(os.path.basename(path))
-            im.save(open(path, 'wb'), format='JPEG')
 
 def test_mbp_regex():
     for raw, m in {

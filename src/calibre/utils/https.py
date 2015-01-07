@@ -6,11 +6,14 @@ from __future__ import (unicode_literals, division, absolute_import,
 __license__ = 'GPL v3'
 __copyright__ = '2014, Kovid Goyal <kovid at kovidgoyal.net>'
 
-import ssl, socket, re
+import ssl, socket, re, sys
 from contextlib import closing
 
 from calibre import get_proxies
 from calibre.constants import ispy3
+# On OS X PROTOCOL_TLSv1_2 is not available because the SSL library shipped
+# with OS X is too old
+has_ssl_verify = sys.version_info[:3] > (2, 7, 8)
 
 class HTTPError(ValueError):
 
@@ -24,18 +27,17 @@ class HTTPError(ValueError):
 if ispy3:
     from urllib.parse import urlparse
     import http.client as httplib
-    class HTTPSConnection(httplib.HTTPSConnection):
-
-        def __init__(self, ssl_version, *args, **kwargs):
-            context = kwargs['context'] = ssl.SSLContext(ssl_version)
-            cf = kwargs.pop('cert_file')
-            context.load_verify_locations(cf)
-            context.verify_mode = ssl.CERT_REQUIRED
-            httplib.HTTPSConnection.__init__(self, *args, **kwargs)
 else:
     import httplib
     from urlparse import urlsplit as urlparse
 
+if has_ssl_verify:
+    class HTTPSConnection(httplib.HTTPSConnection):
+
+        def __init__(self, ssl_version, *args, **kwargs):
+            kwargs['context'] = ssl.create_default_context(cafile=kwargs.pop('cert_file'))
+            httplib.HTTPSConnection.__init__(self, *args, **kwargs)
+else:
     # Check certificate hostname {{{
     # Implementation taken from python 3
     class CertificateError(ValueError):
@@ -151,7 +153,7 @@ else:
             getattr(ssl, 'match_hostname', match_hostname)(self.sock.getpeercert(), self.host)
 
 def get_https_resource_securely(
-    url, cacerts='calibre-ebook-root-CA.crt', timeout=60, max_redirects=5, ssl_version=None):
+    url, cacerts='calibre-ebook-root-CA.crt', timeout=60, max_redirects=5, ssl_version=None, headers=None):
     '''
     Download the resource pointed to by url using https securely (verify server
     certificate).  Ensures that redirects, if any, are also downloaded
@@ -159,7 +161,10 @@ def get_https_resource_securely(
     server's certificates.
     '''
     if ssl_version is None:
-        ssl_version = ssl.PROTOCOL_TLSv1
+        try:
+            ssl_version = ssl.PROTOCOL_TLSv1_2
+        except AttributeError:
+            ssl_version = ssl.PROTOCOL_TLSv1  # old python
     cacerts = P(cacerts, allow_user_override=False)
     p = urlparse(url)
     if p.scheme != 'https':
@@ -189,7 +194,7 @@ def get_https_resource_securely(
         path = p.path or '/'
         if p.query:
             path += '?' + p.query
-        c.request('GET', path)
+        c.request('GET', path, headers=headers or {})
         response = c.getresponse()
         if response.status in (httplib.MOVED_PERMANENTLY, httplib.FOUND, httplib.SEE_OTHER):
             if max_redirects <= 0:

@@ -560,12 +560,13 @@ class OPF(object):  # {{{
                                 formatter=json.loads, renderer=dump_dict)
 
     def __init__(self, stream, basedir=os.getcwdu(), unquote_urls=True,
-            populate_spine=True):
+            populate_spine=True, try_to_guess_cover=True):
         if not hasattr(stream, 'read'):
             stream = open(stream, 'rb')
         raw = stream.read()
         if not raw:
             raise ValueError('Empty file: '+getattr(stream, 'name', 'stream'))
+        self.try_to_guess_cover = try_to_guess_cover
         self.basedir  = self.base_dir = basedir
         self.path_to_html_toc = self.html_toc_fragment = None
         raw, self.encoding = xml_to_unicode(raw, strip_encoding_pats=True,
@@ -1186,7 +1187,8 @@ class OPF(object):  # {{{
                         if item.type and item.type.lower() == t:
                             return item.path
             try:
-                return self.guess_cover()
+                if self.try_to_guess_cover:
+                    return self.guess_cover()
             except:
                 pass
 
@@ -1249,19 +1251,48 @@ class OPF(object):  # {{{
             raw = '<?xml version="1.0"  encoding="%s"?>\n'%encoding.upper()+raw
         return raw
 
-    def smart_update(self, mi, replace_metadata=False):
+    def smart_update(self, mi, replace_metadata=False, apply_null=False):
         for attr in ('title', 'authors', 'author_sort', 'title_sort',
                      'publisher', 'series', 'series_index', 'rating',
                      'isbn', 'tags', 'category', 'comments', 'book_producer',
                      'pubdate', 'user_categories', 'author_link_map'):
             val = getattr(mi, attr, None)
-            if val is not None and val != [] and val != (None, None):
+            is_null = val is None or val in ((), [], (None, None), {})
+            if is_null:
+                if apply_null and attr in {'series', 'tags', 'isbn', 'comments', 'publisher'}:
+                    setattr(self, attr, ([] if attr == 'tags' else None))
+            else:
                 setattr(self, attr, val)
         langs = getattr(mi, 'languages', [])
-        if langs and langs != ['und']:
-            self.languages = langs
+        if langs == ['und']:
+            langs = []
+        if apply_null or langs:
+            self.languages = langs or []
         temp = self.to_book_metadata()
         temp.smart_update(mi, replace_metadata=replace_metadata)
+        if not replace_metadata and callable(getattr(temp, 'custom_field_keys', None)):
+            # We have to replace non-null fields regardless of the value of
+            # replace_metadata to match the behavior of the builtin fields
+            # above.
+            for x in temp.custom_field_keys():
+                meta = temp.get_user_metadata(x, make_copy=True)
+                if meta is None:
+                    continue
+                if meta['datatype'] == 'text' and meta['is_multiple']:
+                    val = mi.get(x, [])
+                    if val or apply_null:
+                        temp.set(x, val)
+                elif meta['datatype'] in {'int', 'float', 'bool'}:
+                    missing = object()
+                    val = mi.get(x, missing)
+                    if val is missing:
+                        if apply_null:
+                            temp.set(x, None)
+                    elif apply_null or val is not None:
+                        temp.set(x, val)
+                elif apply_null and mi.is_null(x) and not temp.is_null(x):
+                    temp.set(x, None)
+
         self._user_metadata_ = temp.get_all_user_metadata(True)
 
 # }}}

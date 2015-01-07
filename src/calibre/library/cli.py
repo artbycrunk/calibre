@@ -90,17 +90,21 @@ def do_list(db, fields, afields, sort_by, ascending, search_text, line_width, se
         return ans
     if for_machine:
         import json
+        record_keys = {field_name(field):field for field in fields}
         for record in data:
-            for key in set(record) - set(fields):
+            for key in set(record) - set(record_keys):
                 del record[key]
+            for key in tuple(record):
+                if record_keys[key] != key:  # A custom column, use the column label as the key rather than the column id number
+                    record[record_keys[key]] = record.pop(key)
             for key, val in tuple(record.iteritems()):
                 if hasattr(val, 'isoformat'):
                     record[key] = isoformat(val, as_utc=True)
                 elif val is None:
                     del record[key]
         return json.dumps(data, indent=2, sort_keys=True)
-    fields = list(map(field_name, fields))
 
+    fields = list(map(field_name, fields))
     for f in data:
         fmts = [x for x in f['formats'] if x is not None]
         f['formats'] = u'[%s]'%u', '.join(fmts)
@@ -181,7 +185,7 @@ List the books available in the calibre database.
                           ' special field "all" can be used to select all fields.'
                           )%', '.join(sorted(fields)))
     parser.add_option('--sort-by', default=None,
-                      help=_('The field by which to sort the results.\nAvailable fields: %s\nDefault: %%default')%','.join(FIELDS))
+                      help=_('The field by which to sort the results.\nAvailable fields: %s\nDefault: %%default')%', '.join(sorted(FIELDS)))
     parser.add_option('--ascending', default=False, action='store_true',
                       help=_('Sort results in ascending order'))
     parser.add_option('-s', '--search', default=None,
@@ -804,7 +808,7 @@ def add_custom_column_option_parser():
 Create a custom column. label is the machine friendly name of the column. Should
 not contain spaces or colons. name is the human friendly name of the column.
 datatype is one of: {0}
-''').format(', '.join(CustomColumns.CUSTOM_DATA_TYPES)))
+''').format(', '.join(sorted(CustomColumns.CUSTOM_DATA_TYPES))))
 
     parser.add_option('--is-multiple', default=False, action='store_true',
                       help=_('This column stores tag like data (i.e. '

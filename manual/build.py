@@ -64,7 +64,7 @@ def build_manual(language, base):
     epub_to_azw3(epub_dest)
 
 def build_pot(base):
-    cmd = [SPHINX_BUILD, '-b', 'gettext', '-t', 'online', '.', base]
+    cmd = [SPHINX_BUILD, '-b', 'gettext', '-t', 'online', '-t', 'gettext', '.', base]
     print (' '.join(cmd))
     subprocess.check_call(cmd)
     os.remove(j(base, 'generated.pot'))
@@ -77,6 +77,9 @@ if __name__ == '__main__':
     if len(sys.argv) == 1:
         base = j(tempfile.gettempdir(), 'manual')
         os.environ['CALIBRE_OVERRIDE_LANG'] = language = 'en'
+        if 'ALL_USER_MANUAL_LANGUAGES' not in os.environ:
+            import json
+            os.environ['ALL_USER_MANUAL_LANGUAGES'] = ' '.join(json.load(open('locale/completed.json', 'rb')))
         sphinx_build(language, base, t='online', quiet=False)
     else:
         language, base  = sys.argv[1:]

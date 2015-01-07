@@ -8,8 +8,7 @@ from various formats.
 '''
 
 import traceback, os, re
-from cStringIO import StringIO
-from calibre import CurrentDir, force_unicode
+from calibre import CurrentDir, prints
 
 class ConversionError(Exception):
 
@@ -67,6 +66,14 @@ class HTMLRenderer(object):
             self.loop.exit(0)
 
 
+def return_raster_image(path):
+    from calibre.utils.imghdr import what
+    if os.access(path, os.R_OK):
+        with open(path, 'rb') as f:
+            raw = f.read()
+        if what(None, raw) not in (None, 'svg'):
+            return raw
+
 def extract_cover_from_embedded_svg(html, base, log):
     from lxml import etree
     from calibre.ebooks.oeb.base import XPath, SVG, XLINK
@@ -76,9 +83,9 @@ def extract_cover_from_embedded_svg(html, base, log):
     if len(svg) == 1 and len(svg[0]) == 1 and svg[0][0].tag == SVG('image'):
         image = svg[0][0]
         href = image.get(XLINK('href'), None)
-        path = os.path.join(base, *href.split('/'))
-        if href and os.access(path, os.R_OK):
-            return open(path, 'rb').read()
+        if href:
+            path = os.path.join(base, *href.split('/'))
+            return return_raster_image(path)
 
 def extract_calibre_cover(raw, base, log):
     from calibre.ebooks.BeautifulSoup import BeautifulSoup
@@ -90,8 +97,7 @@ def extract_calibre_cover(raw, base, log):
             images[0].get('alt', '')=='cover':
         img = images[0]
         img = os.path.join(base, *img['src'].split('/'))
-        if os.path.exists(img):
-            return open(img, 'rb').read()
+        return_raster_image(img)
 
     # Look for a simple cover, i.e. a body with no text and only one <img> tag
     if matches is None:
@@ -104,8 +110,7 @@ def extract_calibre_cover(raw, base, log):
             images = body.findAll('img', src=True)
             if 0 < len(images) < 2:
                 img = os.path.join(base, *images[0]['src'].split('/'))
-                if os.path.exists(img):
-                    return open(img, 'rb').read()
+                return_raster_image(img)
 
 def render_html_svg_workaround(path_to_html, log, width=590, height=750):
     from calibre.ebooks.oeb.base import SVG_NS
@@ -124,10 +129,26 @@ def render_html_svg_workaround(path_to_html, log, width=590, height=750):
             pass
 
     if data is None:
-        renderer = render_html(path_to_html, width, height)
-        data = getattr(renderer, 'data', None)
+        from calibre.gui2 import is_ok_to_use_qt
+        if is_ok_to_use_qt():
+            data = render_html_data(path_to_html, width, height)
+        else:
+            from calibre.utils.ipc.simple_worker import fork_job, WorkerError
+            try:
+                result = fork_job('calibre.ebooks',
+                                  'render_html_data',
+                                  (path_to_html, width, height),
+                                  no_output=True)
+                data = result['result']
+            except WorkerError as err:
+                prints(err.orig_tb)
+            except:
+                traceback.print_exc()
     return data
 
+def render_html_data(path_to_html, width, height):
+    renderer = render_html(path_to_html, width, height)
+    return getattr(renderer, 'data', None)
 
 def render_html(path_to_html, width=590, height=750, as_xhtml=True):
     from PyQt5.QtWebKitWidgets import QWebPage
@@ -181,7 +202,6 @@ def normalize(x):
 
 def calibre_cover(title, author_string, series_string=None,
         output_format='jpg', title_size=46, author_size=36, logo_path=None):
-    from calibre.utils.config_base import tweaks
     title = normalize(title)
     author_string = normalize(author_string)
     series_string = normalize(series_string)
@@ -189,9 +209,7 @@ def calibre_cover(title, author_string, series_string=None,
     import regex
     pat = regex.compile(ur'\p{Cf}+', flags=regex.VERSION1)  # remove non-printing chars like the soft hyphen
     text = pat.sub(u'', title + author_string + (series_string or u''))
-    font_path = tweaks['generate_cover_title_font']
-    if font_path is None:
-        font_path = P('fonts/liberation/LiberationSerif-Bold.ttf')
+    font_path = P('fonts/liberation/LiberationSerif-Bold.ttf')
 
     from calibre.utils.fonts.utils import get_font_for_text
     font = open(font_path, 'rb').read()
@@ -261,48 +279,8 @@ def unit_convert(value, base, font, dpi, body_font_size=12):
 
 def generate_masthead(title, output_path=None, width=600, height=60):
     from calibre.ebooks.conversion.config import load_defaults
-    from calibre.utils.config import tweaks
-    fp = tweaks['generate_cover_title_font']
-    if not fp:
-        fp = P('fonts/liberation/LiberationSerif-Bold.ttf')
-    font_path = default_font = fp
     recs = load_defaults('mobi_output')
-    masthead_font_family = recs.get('masthead_font', 'Default')
-
-    if masthead_font_family != 'Default':
-        from calibre.utils.fonts.scanner import font_scanner, NoFonts
-        try:
-            faces = font_scanner.fonts_for_family(masthead_font_family)
-        except NoFonts:
-            faces = []
-        if faces:
-            font_path = faces[0]['path']
-
-    if not font_path or not os.access(font_path, os.R_OK):
-        font_path = default_font
-
-    try:
-        from PIL import Image, ImageDraw, ImageFont
-        Image, ImageDraw, ImageFont
-    except ImportError:
-        import Image, ImageDraw, ImageFont
-
-    img = Image.new('RGB', (width, height), 'white')
-    draw = ImageDraw.Draw(img)
-    try:
-        font = ImageFont.truetype(font_path, 48, encoding='unic')
-    except:
-        font = ImageFont.truetype(default_font, 48, encoding='unic')
-    text = force_unicode(title)
-    width, height = draw.textsize(text, font=font)
-    left = max(int((width - width)/2.), 0)
-    top = max(int((height - height)/2.), 0)
-    draw.text((left, top), text, fill=(0,0,0), font=font)
-    if output_path is None:
-        f = StringIO()
-        img.save(f, 'JPEG')
-        return f.getvalue()
-    else:
-        with open(output_path, 'wb') as f:
-            img.save(f, 'JPEG')
+    masthead_font_family = recs.get('masthead_font', None)
+    from calibre.ebooks.covers import generate_masthead
+    return generate_masthead(title, output_path=output_path, width=width, height=height, font_family=masthead_font_family)
 

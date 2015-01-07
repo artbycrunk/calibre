@@ -234,7 +234,7 @@ class TREKSTOR(USBMS):
             0x05cL,  # This is for the 4ink http://www.mobileread.com/forums/showthread.php?t=191318
             0x006c,  # This is for the 4ink http://www.mobileread.com/forums/showthread.php?t=218273
             0x006d,  # Another Pyrus? http://www.mobileread.com/forums/showthread.php?t=231982
-            0x73,    # This is for the Pyrus 2 LED http://www.mobileread.com/forums/showthread.php?t=230379
+            0x73,    # This is for the Pyrus 2 LED https://bugs.launchpad.net/bugs/1376018
             ]
     BCD         = [0x0002, 0x100, 0x0222, 0x2]
 
@@ -242,7 +242,7 @@ class TREKSTOR(USBMS):
 
     VENDOR_NAME = 'TREKSTOR'
     WINDOWS_MAIN_MEM = WINDOWS_CARD_A_MEM = ['EBOOK_PLAYER_7',
-            'EBOOK_PLAYER_5M', 'EBOOK-READER_3.0', 'EREADER_PYRUS', 'PYRUS_MINI', 'PYRUS_MAXI']
+            'EBOOK_PLAYER_5M', 'EBOOK-READER_3.0', 'EREADER_PYRUS', 'PYRUS_MINI', 'PYRUS_MAXI', 'PYRUS_2_LED']
     SUPPORTS_SUB_DIRS = True
     SUPPORTS_SUB_DIRS_DEFAULT = False
 
@@ -505,5 +505,25 @@ class WOXTER(USBMS):
 
     VENDOR_NAME = ['ROCKCHIP', 'TEXET']
     WINDOWS_MAIN_MEM = WINDOWS_CARD_A_MEM = ['EREADER', 'TB-146SE']
+
+class POCKETBOOK626(USBMS):
+
+    name  = 'PocketBook Touch Lux 2'
+    gui_name = 'PocketBook'
+    description    = _('Communicate with the PocketBook Touch Lux 2 reader')
+    author         = 'Kovid Goyal'
+    supported_platforms = ['windows', 'osx', 'linux']
+    # Ordered list of supported formats
+    FORMATS     = ['epub', 'pdf', 'fb2', 'txt', 'pdf', 'html', 'djvu', 'doc', 'docx', 'rtf', 'chm']
+    VENDOR_ID   = [0xfffe]
+    PRODUCT_ID  = [0x0001]
+    BCD         = [0x0230]
+
+    EBOOK_DIR_MAIN = 'Books'
+    SCAN_FROM_ROOT = True
+    SUPPORTS_SUB_DIRS = True
+
+    VENDOR_NAME = ['USB_2.0']
+    WINDOWS_MAIN_MEM = WINDOWS_CARD_A_MEM = ['USB_FLASH_DRIVER']
 
 

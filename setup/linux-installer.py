@@ -19,6 +19,7 @@ py3 = sys.version_info[0] > 2
 enc = getattr(sys.stdout, 'encoding', 'UTF-8') or 'utf-8'
 calibre_version = signature = None
 urllib = __import__('urllib.request' if py3 else 'urllib', fromlist=1)
+has_ssl_verify = hasattr(ssl, 'PROTOCOL_TLSv1_2') and sys.version_info[:3] > (2, 7, 8)
 
 if py3:
     unicode = str
@@ -467,14 +468,11 @@ def match_hostname(cert, hostname):
         raise CertificateError("no appropriate commonName or "
             "subjectAltName fields were found")
 
-if py3:
+if has_ssl_verify:
     class HTTPSConnection(httplib.HTTPSConnection):
 
         def __init__(self, ssl_version, *args, **kwargs):
-            context = kwargs['context'] = ssl.SSLContext(ssl_version)
-            cf = kwargs.pop('cert_file')
-            context.load_verify_locations(cf)
-            context.verify_mode = ssl.CERT_REQUIRED
+            kwargs['context'] = ssl.create_default_context(cafile=kwargs.pop('cert_file'))
             httplib.HTTPSConnection.__init__(self, *args, **kwargs)
 else:
     class HTTPSConnection(httplib.HTTPSConnection):
@@ -545,7 +543,10 @@ def get_https_resource_securely(url, timeout=60, max_redirects=5, ssl_version=No
     server's certificates.
     '''
     if ssl_version is None:
-        ssl_version = ssl.PROTOCOL_TLSv1
+        try:
+            ssl_version = ssl.PROTOCOL_TLSv1_2
+        except AttributeError:
+            ssl_version = ssl.PROTOCOL_TLSv1  # old python
     with tempfile.NamedTemporaryFile(prefix='calibre-ca-cert-') as f:
         f.write(CACERT)
         f.flush()

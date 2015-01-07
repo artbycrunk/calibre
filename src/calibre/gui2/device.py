@@ -13,7 +13,7 @@ from PyQt5.Qt import (
 
 from calibre.customize.ui import (available_input_formats, available_output_formats,
     device_plugins, disabled_device_plugins)
-from calibre.devices.interface import DevicePlugin
+from calibre.devices.interface import DevicePlugin, currently_connected_device
 from calibre.devices.errors import (UserFeedback, OpenFeedback, OpenFailed,
                                     InitialConnectionError)
 from calibre.gui2.dialogs.choose_format_device import ChooseFormatDeviceDialog
@@ -34,6 +34,7 @@ from calibre.constants import DEBUG
 from calibre.utils.config import tweaks, device_prefs
 from calibre.utils.magick.draw import thumbnail
 from calibre.library.save_to_disk import find_plugboard
+from calibre.ptempfile import PersistentTemporaryFile, force_unicode as filename_to_unicode
 # }}}
 
 class DeviceJob(BaseJob):  # {{{
@@ -226,7 +227,7 @@ class DeviceManager(Thread):  # {{{
             dev.ignore_connected_device(uid)
             return
 
-        self.connected_device = dev
+        self.connected_device = currently_connected_device._device = dev
         self.connected_device.specialize_global_preferences(device_prefs)
         self.connected_device_kind = device_kind
         self.connected_slot(True, device_kind)
@@ -253,8 +254,9 @@ class DeviceManager(Thread):  # {{{
             # is being shut down.
             self.connected_device.shutdown()
             self.call_shutdown_on_disconnect = False
+
         device_prefs.set_overrides()
-        self.connected_device = None
+        self.connected_device = currently_connected_device._device = None
         self._device_information = None
 
     def detect_device(self):
@@ -711,7 +713,7 @@ class DeviceMenu(QMenu):  # {{{
     def __init__(self, parent=None):
         QMenu.__init__(self, parent)
         self.group = QActionGroup(self)
-        self.actions = []
+        self._actions = []
         self._memory = []
 
         self.set_default_menu = QMenu(_('Set default send to device action'))
@@ -770,7 +772,7 @@ class DeviceMenu(QMenu):  # {{{
                         self.group.addAction(action)
                     else:
                         action.a_s.connect(self.action_triggered)
-                        self.actions.append(action)
+                        self._actions.append(action)
                     mdest.addAction(action)
                 if actions is basic_actions:
                     menu.addSeparator()
@@ -821,14 +823,14 @@ class DeviceMenu(QMenu):  # {{{
 
     def trigger_default(self, *args):
         r = config['default_send_to_device_action']
-        for action in self.actions:
+        for action in self._actions:
             if repr(action) == r:
                 self.action_triggered(action)
                 break
 
     def enable_device_actions(self, enable, card_prefix=(None, None),
             device=None):
-        for action in self.actions:
+        for action in self._actions:
             if action.dest in ('main:', 'carda:0', 'cardb:0'):
                 if not enable:
                     action.setEnabled(False)
@@ -1078,6 +1080,10 @@ class DeviceMixin(object):  # {{{
             self.location_manager.update_devices()
             self.bars_manager.update_bars()
             self.library_view.set_device_connected(self.device_connected)
+            # Empty any device view information
+            self.memory_view.set_database([])
+            self.card_a_view.set_database([])
+            self.card_b_view.set_database([])
             self.refresh_ondevice()
         device_signals.device_connection_changed.emit(connected)
 
@@ -1178,11 +1184,12 @@ class DeviceMixin(object):  # {{{
         # set_books_in_library even though books were not added because
         # the deleted book might have been an exact match. Upload the booklists
         # if set_books_in_library did not.
-        if not self.set_books_in_library(self.booklists(), reset=True, add_as_step_to_job=job):
+        if not self.set_books_in_library(self.booklists(), reset=True,
+                                 add_as_step_to_job=job, do_device_sync=False):
             self.upload_booklists(job)
         # We need to reset the ondevice flags in the library. Use a big hammer,
         # so we don't need to worry about whether some succeeded or not.
-        self.refresh_ondevice(reset_only=False)
+        self.refresh_ondevice()
 
         try:
             if not self.current_view().currentIndex().isValid():
@@ -1629,7 +1636,8 @@ class DeviceMixin(object):  # {{{
         # because the UUID changed. Force both the device and the library view
         # to refresh the flags. Set_books_in_library could upload the booklists.
         # If it does not, then do it here.
-        if not self.set_books_in_library(self.booklists(), reset=True, add_as_step_to_job=job):
+        if not self.set_books_in_library(self.booklists(), reset=True,
+                                     add_as_step_to_job=job, do_device_sync=False):
             self.upload_booklists(job)
         self.refresh_ondevice()
 
@@ -1714,7 +1722,7 @@ class DeviceMixin(object):  # {{{
             book.thumbnail = self.default_thumbnail
 
     def set_books_in_library(self, booklists, reset=False, add_as_step_to_job=None,
-                             force_send=False):
+                             force_send=False, do_device_sync=True):
         '''
         Set the ondevice indications in the device database.
         This method should be called before book_on_device is called, because
@@ -1774,6 +1782,9 @@ class DeviceMixin(object):  # {{{
             self.db_book_uuid_cache = db_book_uuid_cache
 
         book_ids_to_refresh = set()
+        book_formats_to_send = []
+        books_with_future_dates = []
+        first_call_to_synchronize_with_db = [True]
 
         def update_book(id_, book) :
             if not update_metadata:
@@ -1788,8 +1799,15 @@ class DeviceMixin(object):  # {{{
                 if not update_metadata:
                     return False
 
-                if self.device_manager.device is not None:
-                    set_of_ids = self.device_manager.device.synchronize_with_db(db, id_, book)
+                if do_device_sync and self.device_manager.device is not None:
+                    set_of_ids, (fmt_name, date_bad) = \
+                            self.device_manager.device.synchronize_with_db(db, id_, book,
+                                           first_call_to_synchronize_with_db[0])
+                    first_call_to_synchronize_with_db[0] = False
+                    if date_bad:
+                        books_with_future_dates.append(book.title)
+                    elif fmt_name is not None:
+                        book_formats_to_send.append((id_, fmt_name))
                     if set_of_ids is not None:
                         book_ids_to_refresh.update(set_of_ids)
                         return True
@@ -1912,6 +1930,47 @@ class DeviceMixin(object):  # {{{
                 except:
                     # This shouldn't ever happen, but just in case ...
                     traceback.print_exc()
+
+            # Sync books if necessary
+            try:
+                files, names, metadata = [], [], []
+                for id_, fmt_name in book_formats_to_send:
+                    if DEBUG:
+                        prints('DeviceJob: Syncing book. id:', id_, 'name from device', fmt_name)
+                    ext = os.path.splitext(fmt_name)[1][1:]
+                    fmt_info = db.new_api.format_metadata(id_, ext)
+                    if fmt_info:
+                        try:
+                            pt = PersistentTemporaryFile(suffix='caltmpfmt.'+ext)
+                            db.new_api.copy_format_to(id_, ext, pt)
+                            pt.close()
+                            files.append(filename_to_unicode(os.path.abspath(pt.name)))
+                            names.append(fmt_name)
+                            metadata.append(db.new_api.get_metadata(id_, get_cover=True))
+                        except:
+                            prints('Problem creating temporary file for', fmt_name)
+                            traceback.print_exc()
+                    else:
+                        if DEBUG:
+                            prints("DeviceJob: book doesn't have that format")
+                if files:
+                    self.upload_books(files, names, metadata)
+            except:
+                # Shouldn't ever happen, but just in case
+                traceback.print_exc()
+
+            # Inform user about future-dated books
+            try:
+                if books_with_future_dates:
+                    d = error_dialog(self, _('Book format sync problem'),
+                                 _('Some book formats in your library cannot be '
+                                   'synced because they have dates in the future'),
+                                 det_msg='\n'.join(books_with_future_dates),
+                                 show=False,
+                                 show_copy_button=True)
+                    d.show()
+            except:
+                traceback.print_exc()
 
         if DEBUG:
             prints('DeviceJob: set_books_in_library finished: time=',

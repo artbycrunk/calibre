@@ -75,6 +75,9 @@ class MainWindow(QMainWindow):
     __actions   = []
 
     keyboard_interrupt = pyqtSignal()
+    # See https://bugreports.qt-project.org/browse/QTBUG-42281
+    window_blocked = pyqtSignal()
+    window_unblocked = pyqtSignal()
 
     @classmethod
     def create_application_menubar(cls):
@@ -106,6 +109,12 @@ class MainWindow(QMainWindow):
         if disable_automatic_gc:
             self._gc = GarbageCollector(self, debug=False)
 
+    def enable_garbage_collection(self, enabled=True):
+        if hasattr(self, '_gc'):
+            self._gc.timer.blockSignals(not enabled)
+        else:
+            gc.enable() if enabled else gc.disable()
+
     def unhandled_exception(self, type, value, tb):
         if type == KeyboardInterrupt:
             self.keyboard_interrupt.emit()
@@ -129,3 +138,12 @@ class MainWindow(QMainWindow):
             pass
         except:
             pass
+
+    def event(self, ev):
+        # See https://bugreports.qt-project.org/browse/QTBUG-42281
+        etype = ev.type()
+        if etype == ev.WindowBlocked:
+            self.window_blocked.emit()
+        elif etype == ev.WindowUnblocked:
+            self.window_unblocked.emit()
+        return QMainWindow.event(self, ev)

@@ -7,7 +7,8 @@ __license__   = 'GPL v3'
 __copyright__ = '2011, Kovid Goyal <kovid@kovidgoyal.net>'
 __docformat__ = 'restructuredtext en'
 
-import os, time, sys, traceback, subprocess, urllib2, re, base64, httplib, shutil, glob
+import os, time, sys, traceback, subprocess, urllib2, re, base64, httplib, shutil, glob, json, mimetypes
+from pprint import pprint
 from argparse import ArgumentParser, FileType
 from subprocess import check_call, CalledProcessError, check_output
 from tempfile import NamedTemporaryFile
@@ -379,6 +380,109 @@ class SourceForge(Base):  # {{{
 
 # }}}
 
+class GitHub(Base):  # {{{
+
+    API = 'https://api.github.com/'
+
+    def __init__(self, files, reponame, version, username, password, replace=False):
+        self.files, self.reponame, self.version, self.username, self.password, self.replace = (
+            files, reponame, version, username, password, replace)
+        self.current_tag_name = 'v' + self.version
+        import requests
+        self.requests = s = requests.Session()
+        s.auth = (self.username, self.password)
+        s.headers.update({'Accept': 'application/vnd.github.v3+json'})
+
+    def __call__(self):
+        releases = self.releases()
+        self.clean_older_releases(releases)
+        release = self.create_release(releases)
+        upload_url = release['upload_url'].partition('{')[0]
+        existing_assets = self.existing_assets(release['id'])
+        for path, desc in self.files.iteritems():
+            self.info('')
+            url = self.API + 'repos/%s/%s/releases/assets/{}' % (self.username, self.reponame)
+            fname = os.path.basename(path)
+            if fname in existing_assets:
+                self.info('Deleting %s from GitHub with id: %s' % (fname, existing_assets[fname]))
+                r = self.requests.delete(url.format(existing_assets[fname]))
+                if r.status_code != 204:
+                    self.fail(r, 'Failed to delete %s from GitHub' % fname)
+            r = self.do_upload(upload_url, path, desc, fname)
+            if r.status_code != 201:
+                self.fail(r, 'Failed to upload file: %s' % fname)
+            try:
+                r = self.requests.patch(url.format(r.json()['id']),
+                                data=json.dumps({'name':fname, 'label':desc}))
+            except Exception:
+                time.sleep(15)
+                r = self.requests.patch(url.format(r.json()['id']),
+                                data=json.dumps({'name':fname, 'label':desc}))
+            if r.status_code != 200:
+                self.fail(r, 'Failed to set label for %s' % fname)
+
+    def clean_older_releases(self, releases):
+        for release in releases:
+            if release.get('assets', None) and release['tag_name'] != self.current_tag_name:
+                self.info('\nDeleting old released installers from: %s' % release['tag_name'])
+                for asset in release['assets']:
+                    r = self.requests.delete(self.API + 'repos/%s/%s/releases/assets/%s' % (self.username, self.reponame, asset['id']))
+                    if r.status_code != 204:
+                        self.fail(r, 'Failed to delete obsolete asset: %s for release: %s' % (
+                            asset['name'], release['tag_name']))
+
+    def do_upload(self, url, path, desc, fname):
+        mime_type = mimetypes.guess_type(fname)[0]
+        self.info('Uploading to GitHub: %s (%s)' % (fname, mime_type))
+        with ReadFileWithProgressReporting(path) as f:
+            return self.requests.post(
+                url, headers={'Content-Type': mime_type, 'Content-Length':str(f._total)}, params={'name':fname},
+                data=f)
+
+    def fail(self, r, msg):
+        print (msg, ' Status Code: %s' % r.status_code, file=sys.stderr)
+        print ("JSON from response:", file=sys.stderr)
+        pprint(dict(r.json()), stream=sys.stderr)
+        raise SystemExit(1)
+
+    def already_exists(self, r):
+        error_code = r.json().get('errors', [{}])[0].get('code', None)
+        return error_code == 'already_exists'
+
+    def existing_assets(self, release_id):
+        url = self.API + 'repos/%s/%s/releases/%s/assets' % (self.username, self.reponame, release_id)
+        r = self.requests.get(url)
+        if r.status_code != 200:
+            self.fail('Failed to get assets for release')
+        return {asset['name']:asset['id'] for asset in r.json()}
+
+    def releases(self):
+        url = self.API + 'repos/%s/%s/releases' % (self.username, self.reponame)
+        r = self.requests.get(url)
+        if r.status_code != 200:
+            self.fail(r, 'Failed to list releases')
+        return r.json()
+
+    def create_release(self, releases):
+        ' Create a release on GitHub or if it already exists, return the existing release '
+        for release in releases:
+            # Check for existing release
+            if release['tag_name'] == self.current_tag_name:
+                return release
+        url = self.API + 'repos/%s/%s/releases' % (self.username, self.reponame)
+        r = self.requests.post(url, data=json.dumps({
+            'tag_name': self.current_tag_name,
+            'target_commitish': 'master',
+            'name': 'version %s' % self.version,
+            'body': 'Release version %s' % self.version,
+            'draft': False, 'prerelease':False
+        }))
+        if r.status_code != 201:
+            self.fail(r, 'Failed to create release for version: %s' % self.version)
+        return r.json()
+
+# }}}
+
 def generate_index():  # {{{
     os.chdir('/srv/download')
     releases = set()
@@ -587,6 +691,8 @@ def cli_parser():
             epilog=epilog)
     sf = subparsers.add_parser('sourceforge', help='Upload to sourceforge',
             epilog=epilog)
+    gh = subparsers.add_parser('github', help='Upload to GitHub',
+            epilog=epilog)
     cron = subparsers.add_parser('cron', help='Call script from cron')
     subparsers.add_parser('calibre', help='Upload to calibre file servers')
     subparsers.add_parser('dbs', help='Upload to fosshub.com')
@@ -622,6 +728,14 @@ def cli_parser():
     a('password',
             help='Password to log into your google account')
 
+    a = gh.add_argument
+    a('project',
+            help='The name of the repository on GitHub we are uploading to')
+    a('username',
+            help='Username to log into your GitHub account')
+    a('password',
+            help='Password to log into your GitHub account')
+
     return p
 
 def main(args=None):
@@ -650,6 +764,10 @@ def main(args=None):
         sf = SourceForge(ofiles, args.project, args.version, args.username,
                 replace=args.replace)
         sf()
+    elif args.service == 'github':
+        gh = GitHub(ofiles, args.project, args.version, args.username, args.password,
+                replace=args.replace)
+        gh()
     elif args.service == 'cron':
         login_to_google(args.username, args.password)
     elif args.service == 'calibre':

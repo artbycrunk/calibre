@@ -6,9 +6,10 @@ __license__   = 'GPL v3'
 __copyright__ = '2009, Kovid Goyal <kovid@kovidgoyal.net>'
 __docformat__ = 'restructuredtext en'
 
-import os, shutil, subprocess, glob, tempfile, json, time, filecmp
+import os, shutil, subprocess, glob, tempfile, json, time, filecmp, atexit, sys
 
 from setup import Command, __version__, require_clean_git, require_git_master
+from setup.upload import installers
 from setup.parallel_build import parallel_build
 
 class Stage1(Command):
@@ -28,15 +29,73 @@ class Stage1(Command):
 
 class Stage2(Command):
 
-    description = 'Stage 2 of the publish process'
-    sub_commands = ['linux', 'win', 'osx']
+    description = 'Stage 2 of the publish process, builds the binaries'
 
-    def pre_sub_commands(self, opts):
+    def run(self, opts):
+        from distutils.spawn import find_executable
         for x in glob.glob(os.path.join(self.d(self.SRC), 'dist', '*')):
             os.remove(x)
         build = os.path.join(self.d(self.SRC), 'build')
         if os.path.exists(build):
             shutil.rmtree(build)
+        processes = []
+        tdir = tempfile.mkdtemp('_build_logs')
+        atexit.register(shutil.rmtree, tdir)
+        self.info('Starting builds for all platforms, this will take a while...')
+        def kill_child_on_parent_death():
+            import ctypes, signal
+            libc = ctypes.CDLL("libc.so.6")
+            libc.prctl(1, signal.SIGTERM)
+
+        for x in ('linux', 'osx', 'win'):
+            log = open(os.path.join(tdir, x), 'w+b', buffering=1)  # line buffered
+            p = subprocess.Popen([sys.executable, 'setup.py', x], stdout=log, stderr=subprocess.STDOUT,
+                                 cwd=self.d(self.SRC), preexec_fn=kill_child_on_parent_death)
+            p.log, p.start_time, p.bname = log, time.time(), x
+            p.duration = None
+            processes.append(p)
+
+        def workers_running():
+            running = False
+            for p in processes:
+                rc = p.poll()
+                if rc is not None:
+                    if p.duration is None:
+                        p.duration = int(time.time() - p.start_time)
+                else:
+                    running = True
+            return running
+
+        mtexe = find_executable('multitail')
+        if mtexe:
+            mtexe = subprocess.Popen([mtexe, '--basename'] + [pr.log.name for pr in processes], preexec_fn=kill_child_on_parent_death)
+
+        while workers_running():
+            os.waitpid(-1, 0)
+
+        if mtexe and mtexe.poll() is None:
+            mtexe.terminate(), mtexe.wait()
+
+        failed = False
+        for p in processes:
+            if p.poll() != 0:
+                failed = True
+                log = p.log
+                log.flush()
+                log.seek(0)
+                raw = log.read()
+                self.info('Building of %s failed' % p.bname)
+                sys.stderr.write(raw)
+                sys.stderr.write(b'\n\n')
+        if failed:
+            raise SystemExit('Building of installers failed!')
+
+        for p in sorted(processes, key=lambda p:p.duration):
+            self.info('Built %s in %d minutes and %d seconds' % (p.bname, p.duration // 60, p.duration % 60))
+
+        for installer in installers(include_source=False):
+            if not os.path.exists(self.j(self.d(self.SRC), installer)):
+                raise SystemExit('The installer %s does not exist' % os.path.basename(installer))
 
 class Stage3(Command):
 
@@ -84,6 +143,8 @@ class Manual(Command):
     def add_options(self, parser):
         parser.add_option('-l', '--language', action='append', default=[],
                           help='Build translated versions for only the specified languages (can be specified multiple times)')
+        parser.add_option('--serve', action='store_true', default=False,
+                          help='Run a webserver on the built manual files')
 
     def run(self, opts):
         tdir = self.j(tempfile.gettempdir(), 'user-manual-build')
@@ -99,8 +160,10 @@ class Manual(Command):
             os.makedirs(d)
         jobs = []
         languages = opts.language or list(json.load(open(self.j(base, 'locale', 'completed.json'), 'rb')))
-        for language in (['en'] + languages):
-            jobs.append((['calibre-debug', self.j(self.d(self.SRC), 'manual', 'build.py'),
+        languages = ['en'] + list(set(languages) - {'en'})
+        os.environ['ALL_USER_MANUAL_LANGUAGES'] = ' '.join(languages)
+        for language in languages:
+            jobs.append((['calibre-debug', self.j(self.d(self.SRC), 'manual', 'build.py'), '--',
                           language, self.j(tdir, language)],
                          '\n\n**************** Building translations for: %s'%language))
         self.info('Building manual for %d languages' % len(jobs))
@@ -118,6 +181,26 @@ class Manual(Command):
             self.info('Built manual for %d languages in %s minutes' % (len(jobs), int((time.time() - st)/60.)))
         finally:
             os.chdir(cwd)
+
+        if opts.serve:
+            self.serve_manual(self.j(tdir, 'en', 'html'))
+
+    def serve_manual(self, root):
+        os.chdir(root)
+        import BaseHTTPServer
+        from SimpleHTTPServer import SimpleHTTPRequestHandler
+        HandlerClass = SimpleHTTPRequestHandler
+        ServerClass  = BaseHTTPServer.HTTPServer
+        Protocol     = "HTTP/1.0"
+        server_address = ('127.0.0.1', 8000)
+
+        HandlerClass.protocol_version = Protocol
+        httpd = ServerClass(server_address, HandlerClass)
+
+        print ("Serving User Manual on localhost:8000")
+        from calibre.gui2 import open_url
+        open_url('http://localhost:8000')
+        httpd.serve_forever()
 
     def replace_with_symlinks(self, lang_dir):
         ' Replace all identical files with symlinks to save disk space/upload bandwidth '
@@ -147,4 +230,3 @@ class TagRelease(Command):
         self.info('Tagging release')
         subprocess.check_call('git tag -a v{0} -m "version-{0}"'.format(__version__).split())
         subprocess.check_call('git push origin v{0}'.format(__version__).split())
-

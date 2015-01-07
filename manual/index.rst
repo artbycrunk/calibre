@@ -1,31 +1,31 @@
 .. include:: simple_index.rst
 
-The main |app| user interface
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+The main calibre user interface
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 .. toctree::
    :maxdepth: 2
 
    gui
 
-Adding your favorite news website to |app|
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+Adding your favorite news website to calibre
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 .. toctree::
    :maxdepth: 2
 
    news
 
-The |app| ebook viewer
-^^^^^^^^^^^^^^^^^^^^^^^^^^
+The calibre ebook viewer
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 .. toctree::
    :maxdepth: 2
 
    viewer
 
-Customizing |app|'s ebook conversion
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+Customizing calibre's ebook conversion
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 .. toctree::
    :maxdepth: 2
@@ -33,7 +33,7 @@ Customizing |app|'s ebook conversion
    conversion
 
 Editing ebooks
-^^^^^^^^^^^^^^^^
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 .. toctree::
    :maxdepth: 2
@@ -41,7 +41,7 @@ Editing ebooks
    edit
 
 Comparing ebooks
-^^^^^^^^^^^^^^^^
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 .. toctree::
    :maxdepth: 2
@@ -57,7 +57,7 @@ Editing ebook metadata
    metadata
 
 Frequently Asked Questions
-^^^^^^^^^^^^^^^^^^^^^^^^^^^
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 .. toctree::
    :maxdepth: 2
@@ -72,7 +72,7 @@ Tutorials
 
    tutorials
 
-Customizing |app|
+Customizing calibre
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 .. toctree::
@@ -81,15 +81,15 @@ Customizing |app|
    customize
 
 The Command Line Interface
-^^^^^^^^^^^^^^^^^^^^^^^^^^^
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 .. toctree::
    :maxdepth: 2
 
    generated/|lang|/cli-index
 
-Setting up a |app| development environment
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+Setting up a calibre development environment
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 .. toctree::
    :maxdepth: 2

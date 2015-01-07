@@ -20,6 +20,7 @@ from calibre.gui2.dialogs.tag_editor import TagEditor
 from calibre.utils.config import tweaks
 from calibre.utils.icu import sort_key
 from calibre.library.comments import comments_to_html
+from calibre.gui2.library.delegates import ClearingDoubleSpinBox, ClearingSpinBox
 
 class Base(object):
 
@@ -50,6 +51,9 @@ class Base(object):
                             notify=notify, commit=False, allow_case_change=True)
         else:
             return set()
+
+    def apply_to_metadata(self, mi):
+        mi.set('#' + self.col_metadata['label'], self.current_val)
 
     def normalize_db_val(self, val):
         return val
@@ -88,7 +92,7 @@ class Int(Base):
 
     def setup_ui(self, parent):
         self.widgets = [QLabel('&'+self.col_metadata['name']+':', parent),
-                QSpinBox(parent)]
+                ClearingSpinBox(parent)]
         w = self.widgets[1]
         w.setRange(-1000000, 100000000)
         w.setSpecialValueText(_('Undefined'))
@@ -111,7 +115,7 @@ class Float(Int):
 
     def setup_ui(self, parent):
         self.widgets = [QLabel('&'+self.col_metadata['name']+':', parent),
-                QDoubleSpinBox(parent)]
+                ClearingDoubleSpinBox(parent)]
         w = self.widgets[1]
         w.setRange(-1000000., float(100000000))
         w.setDecimals(2)
@@ -451,6 +455,10 @@ class Series(Base):
                                notify=notify, commit=False, allow_case_change=True)
         else:
             return set()
+
+    def apply_to_metadata(self, mi):
+        val, s_index = self.current_val
+        mi.set('#' + self.col_metadata['label'], val, extra=s_index)
 
 class Enumeration(Base):
 

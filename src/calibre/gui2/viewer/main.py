@@ -24,8 +24,11 @@ from calibre.customize.ui import available_input_formats
 from calibre import as_unicode, force_unicode, isbytestring
 from calibre.ptempfile import reset_base_dir
 from calibre.utils.zipfile import BadZipfile
+from calibre.utils.localization import canonicalize_lang, lang_as_iso639_1, get_lang
 
 vprefs = JSONConfig('viewer')
+dprefs = JSONConfig('viewer_dictionaries')
+dprefs.defaults['word_lookups'] = {}
 
 class Worker(Thread):
 
@@ -47,6 +50,22 @@ class RecentAction(QAction):
     def __init__(self, path, parent):
         self.path = path
         QAction.__init__(self, os.path.basename(path), parent)
+
+def default_lookup_website(lang):
+    if lang == 'und':
+        lang = get_lang()
+    lang = lang_as_iso639_1(lang) or lang
+    if lang == 'en':
+        prefix = 'https://www.wordnik.com/words/'
+    else:
+        prefix = 'http://%s.wiktionary.org/wiki/' % lang
+    return prefix + '{word}'
+
+def lookup_website(lang):
+    if lang == 'und':
+        lang = get_lang()
+    wm = dprefs['word_lookups']
+    return wm.get(lang, default_lookup_website(lang))
 
 class EbookViewer(MainWindow):
 
@@ -110,6 +129,7 @@ class EbookViewer(MainWindow):
         self.search.search.connect(self.find)
         self.search.focus_to_library.connect(lambda: self.view.setFocus(Qt.OtherFocusReason))
         self.toc.pressed[QModelIndex].connect(self.toc_clicked)
+        self.toc.searched.connect(partial(self.toc_clicked, force=True))
         self.reference.goto.connect(self.goto)
         self.bookmarks.edited.connect(self.bookmarks_edited)
         self.bookmarks.activated.connect(self.goto_bookmark)
@@ -258,6 +278,7 @@ class EbookViewer(MainWindow):
                 self.restoreState(state, self.STATE_VERSION)
             except:
                 pass
+        self.initialize_dock_state()
         mult = vprefs.get('multiplier', None)
         if mult:
             self.view.multiplier = mult
@@ -272,17 +293,14 @@ class EbookViewer(MainWindow):
                 at_start=True)
 
     def lookup(self, word):
-        from calibre.utils.localization import canonicalize_lang, lang_as_iso639_1
         from urllib import quote
-        lang = lang_as_iso639_1(self.view.current_language)
-        if not lang:
-            lang = canonicalize_lang(lang) or 'en'
         word = quote(word.encode('utf-8'))
-        if lang == 'en':
-            prefix = 'https://www.wordnik.com/words/'
-        else:
-            prefix = 'http://%s.wiktionary.org/wiki/' % lang
-        open_url(prefix + word)
+        try:
+            url = lookup_website(canonicalize_lang(self.view.current_language) or 'en').format(word=word)
+        except Exception:
+            traceback.print_exc()
+            url = default_lookup_website(canonicalize_lang(self.view.current_language) or 'en').format(word=word)
+        open_url(url)
 
     def get_remember_current_page_opt(self):
         from calibre.gui2.viewer.documentview import config
@@ -546,9 +564,8 @@ class EbookViewer(MainWindow):
         if self.view.search(text, backwards=backwards):
             self.scrolled(self.view.scroll_fraction)
 
-    def internal_link_clicked(self, frac):
-        self.update_page_number()  # Ensure page number is accurate as it is used for history
-        self.history.add(self.pos.value())
+    def internal_link_clicked(self, prev_pos):
+        self.history.add(prev_pos)
 
     def link_clicked(self, url):
         path = os.path.abspath(unicode(url.toLocalFile()))
@@ -660,14 +677,6 @@ class EbookViewer(MainWindow):
         self.view.load_path(path, pos=pos)
 
     def viewport_resize_started(self, event):
-        old, curr = event.size(), event.oldSize()
-        if not self.window_mode_changed and old.width() == curr.width():
-            # No relayout changes, so page position does not need to be saved
-            # This is needed as Qt generates a viewport resized event that
-            # changes only the height after a file has been loaded. This can
-            # cause the last read position bookmark to become slightly
-            # inaccurate
-            return
         if not self.resize_in_progress:
             # First resize, so save the current page position
             self.resize_in_progress = True
@@ -700,6 +709,7 @@ class EbookViewer(MainWindow):
 
     def update_page_number(self):
         self.set_page_number(self.view.document.scroll_fraction)
+        return self.pos.value()
 
     def close_progress_indicator(self):
         self.pi.stop()
@@ -798,6 +808,7 @@ class EbookViewer(MainWindow):
             self.save_current_position()
             self.iterator.__exit__()
         self.iterator = EbookIterator(pathtoebook)
+        self.history.clear()
         self.open_progress_indicator(_('Loading ebook...'))
         worker = Worker(target=partial(self.iterator.__enter__, view_kepub=True))
         worker.start()
@@ -841,6 +852,7 @@ class EbookViewer(MainWindow):
             vprefs.set('viewer_open_history', vh[:50])
             self.build_recent_menu()
 
+            self.footnotes_dock.close()
             self.action_table_of_contents.setDisabled(not self.iterator.toc)
             self.current_book_has_toc = bool(self.iterator.toc)
             self.current_title = title
@@ -927,6 +939,7 @@ class EbookViewer(MainWindow):
             'Next occurrence': self.view.search_action,
             'Bookmark': bac,
             'Reload': self.action_reload,
+            'Table of Contents': self.action_table_of_contents,
         }.get(key, None)
         if action is not None:
             event.accept()
@@ -944,6 +957,7 @@ class EbookViewer(MainWindow):
                 reopen_at = self.current_page_bookmark
             except Exception:
                 reopen_at = None
+            self.history.clear()
             self.load_ebook(self.iterator.pathtoebook, reopen_at=reopen_at)
             return
 
@@ -966,6 +980,9 @@ class EbookViewer(MainWindow):
         av = desktop.availableGeometry(self).height() - 30
         if self.height() > av:
             self.resize(self.width(), av)
+
+    def show_footnote_view(self):
+        self.footnotes_dock.show()
 
 def config(defaults=None):
     desc = _('Options to control the ebook viewer')

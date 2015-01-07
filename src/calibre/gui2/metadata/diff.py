@@ -6,21 +6,24 @@ from __future__ import (unicode_literals, division, absolute_import,
 __license__ = 'GPL v3'
 __copyright__ = '2013, Kovid Goyal <kovid at kovidgoyal.net>'
 
-import os
+import os, weakref
 from collections import OrderedDict, namedtuple
 from functools import partial
 from future_builtins import zip
 
 from PyQt5.Qt import (
-    QDialog, QWidget, QGridLayout, QLineEdit, QLabel, QToolButton, QIcon,
+    QDialog, QWidget, QGridLayout, QLabel, QToolButton, QIcon,
     QVBoxLayout, QDialogButtonBox, QApplication, pyqtSignal, QFont, QPixmap,
-    QSize, QPainter, Qt, QColor, QPen, QSizePolicy, QScrollArea, QFrame)
+    QSize, QPainter, Qt, QColor, QPen, QSizePolicy, QScrollArea, QFrame,
+    QKeySequence, QAction, QMenu)
 
 from calibre import fit_image
-from calibre.ebooks.metadata import title_sort, authors_to_sort_string
+from calibre.ebooks.metadata import title_sort, authors_to_sort_string, fmt_sidx
 from calibre.gui2 import pixmap_to_data, gprefs
+from calibre.gui2.complete2 import LineEdit as EditWithComplete
 from calibre.gui2.comments_editor import Editor
 from calibre.gui2.languages import LanguagesEdit as LE
+from calibre.gui2.widgets2 import RightClickButton
 from calibre.gui2.metadata.basic_widgets import PubdateEdit, RatingEdit
 from calibre.ptempfile import PersistentTemporaryFile
 from calibre.utils.date import UNDEFINED_DATE
@@ -29,38 +32,51 @@ Widgets = namedtuple('Widgets', 'new old label button')
 
 # Widgets {{{
 
-class LineEdit(QLineEdit):
+class LineEdit(EditWithComplete):
 
     changed = pyqtSignal()
 
     def __init__(self, field, is_new, parent, metadata, extra):
-        QLineEdit.__init__(self, parent)
+        EditWithComplete.__init__(self, parent)
         self.is_new = is_new
         self.field = field
         self.metadata = metadata
         if not is_new:
             self.setReadOnly(True)
+        else:
+            sep = metadata['is_multiple']['list_to_ui'] if metadata['is_multiple'] else None
+            self.set_separator(sep)
         self.textChanged.connect(self.changed)
+
+    @dynamic_property
+    def value(self):
+        def fget(self):
+            val = unicode(self.text()).strip()
+            ism = self.metadata['is_multiple']
+            if ism:
+                if not val:
+                    val = []
+                else:
+                    val = val.strip(ism['list_to_ui'].strip())
+                    val = [x.strip() for x in val.split(ism['list_to_ui']) if x.strip()]
+            return val
+        def fset(self, val):
+            ism = self.metadata['is_multiple']
+            if ism:
+                if not val:
+                    val = ''
+                else:
+                    val = ism['list_to_ui'].join(val)
+            self.setText(val)
+            self.setCursorPosition(0)
+        return property(fget=fget, fset=fset)
 
     def from_mi(self, mi):
         val = mi.get(self.field, default='') or ''
-        ism = self.metadata['is_multiple']
-        if ism:
-            if not val:
-                val = ''
-            else:
-                val = ism['list_to_ui'].join(val)
-        self.setText(val)
-        self.setCursorPosition(0)
+        self.value = val
 
     def to_mi(self, mi):
-        val = unicode(self.text()).strip()
-        ism = self.metadata['is_multiple']
-        if ism:
-            if not val:
-                val = []
-            else:
-                val = [x.strip() for x in val.split(ism['list_to_ui']) if x.strip()]
+        val = self.value
         mi.set(self.field, val)
         if self.field == 'title':
             mi.set('title_sort', title_sort(val, lang=mi.language))
@@ -85,6 +101,7 @@ class LineEdit(QLineEdit):
 
     def same_as(self, other):
         return self.current_val == other.current_val
+
 
 class LanguagesEdit(LE):
 
@@ -176,6 +193,11 @@ class DateEdit(PubdateEdit):
 
 class SeriesEdit(LineEdit):
 
+    def __init__(self, *args, **kwargs):
+        LineEdit.__init__(self, *args, **kwargs)
+        self.dbref = None
+        self.item_selected.connect(self.insert_series_index)
+
     def from_mi(self, mi):
         series = mi.get(self.field, default='')
         series_index = mi.get(self.field + '_index', default=1.0)
@@ -191,21 +213,39 @@ class SeriesEdit(LineEdit):
             series_index = float(val.rpartition('[')[-1].rstrip(']').strip())
         except:
             series_index = 1.0
-        series = val.rpartition('[')[0].strip() or None
+        series = val.rpartition('[')[0].strip() or val.rpartition('[')[-1].strip() or None
         mi.set(self.field, series)
         mi.set(self.field + '_index', series_index)
+
+    def set_db(self, db):
+        self.dbref = weakref.ref(db)
+
+    def insert_series_index(self, series):
+        db = self.dbref()
+        if db is None or not series:
+            return
+        num = db.get_next_series_num_for(series)
+        sidx = fmt_sidx(num)
+        self.setText(self.text() + ' [%s]' % sidx)
 
 class IdentifiersEdit(LineEdit):
 
     def from_mi(self, mi):
-        val = ('%s:%s' % (k, v) for k, v in mi.identifiers.iteritems())
-        self.setText(', '.join(val))
-        self.setCursorPosition(0)
+        self.as_dict = mi.identifiers
 
     def to_mi(self, mi):
-        parts = (x.strip() for x in self.current_val.split(',') if x.strip())
-        val = {x.partition(':')[0].strip():x.partition(':')[-1].strip() for x in parts}
-        mi.set_identifiers({k:v for k, v in val.iteritems() if k and v})
+        mi.set_identifiers(self.as_dict)
+
+    @dynamic_property
+    def as_dict(self):
+        def fget(self):
+            parts = (x.strip() for x in self.current_val.split(',') if x.strip())
+            return {k:v for k, v in {x.partition(':')[0].strip():x.partition(':')[-1].strip() for x in parts}.iteritems() if k and v}
+        def fset(self, val):
+            val = ('%s:%s' % (k, v) for k, v in val.iteritems())
+            self.setText(', '.join(val))
+            self.setCursorPosition(0)
+        return property(fget=fget, fset=fset)
 
 class CommentsEdit(Editor):
 
@@ -341,7 +381,7 @@ class CompareSingle(QWidget):
     def __init__(
             self, field_metadata, parent=None, revert_tooltip=None,
             datetime_fmt='MMMM yyyy', blank_as_equal=True,
-            fields=('title', 'authors', 'series', 'tags', 'rating', 'publisher', 'pubdate', 'identifiers', 'languages', 'comments', 'cover')):
+            fields=('title', 'authors', 'series', 'tags', 'rating', 'publisher', 'pubdate', 'identifiers', 'languages', 'comments', 'cover'), db=None):
         QWidget.__init__(self, parent)
         self.l = l = QGridLayout()
         l.setContentsMargins(0, 0, 0, 0)
@@ -381,13 +421,37 @@ class CompareSingle(QWidget):
                 continue
             neww = cls(field, True, self, m, extra)
             neww.changed.connect(partial(self.changed, field))
+            if isinstance(neww, EditWithComplete):
+                try:
+                    neww.update_items_cache(db.new_api.all_field_names(field))
+                except ValueError:
+                    pass  # A one-one field like title
+            if isinstance(neww, SeriesEdit):
+                neww.set_db(db.new_api)
             oldw = cls(field, False, self, m, extra)
             newl = QLabel('&%s:' % m['name'])
             newl.setBuddy(neww)
-            button = QToolButton(self)
+            button = RightClickButton(self)
             button.setIcon(QIcon(I('back.png')))
             button.clicked.connect(partial(self.revert, field))
             button.setToolTip(revert_tooltip % m['name'])
+            if field == 'identifiers':
+                button.m = m = QMenu(button)
+                button.setMenu(m)
+                button.setPopupMode(QToolButton.DelayedPopup)
+                m.addAction(button.toolTip()).triggered.connect(button.click)
+                m.actions()[0].setIcon(button.icon())
+                m.addAction(_('Merge identifiers')).triggered.connect(self.merge_identifiers)
+                m.actions()[1].setIcon(QIcon(I('merge.png')))
+            elif field == 'tags':
+                button.m = m = QMenu(button)
+                button.setMenu(m)
+                button.setPopupMode(QToolButton.DelayedPopup)
+                m.addAction(button.toolTip()).triggered.connect(button.click)
+                m.actions()[0].setIcon(button.icon())
+                m.addAction(_('Merge tags')).triggered.connect(self.merge_tags)
+                m.actions()[1].setIcon(QIcon(I('merge.png')))
+
             self.widgets[field] = Widgets(neww, oldw, newl, button)
             for i, w in enumerate((newl, neww, button, oldw)):
                 c = i if i < 2 else i + 1
@@ -422,6 +486,22 @@ class CompareSingle(QWidget):
         widgets = self.widgets[field]
         neww, oldw = widgets[:2]
         neww.current_val = oldw.current_val
+
+    def merge_identifiers(self):
+        widgets = self.widgets['identifiers']
+        neww, oldw = widgets[:2]
+        val = neww.as_dict
+        val.update(oldw.as_dict)
+        neww.as_dict = val
+
+    def merge_tags(self):
+        widgets = self.widgets['tags']
+        neww, oldw = widgets[:2]
+        val = oldw.value
+        lval = {icu_lower(x) for x in val}
+        extra = [x for x in neww.value if icu_lower(x) not in lval]
+        if extra:
+            neww.value = val + extra
 
     def __call__(self, oldmi, newmi):
         self.current_mi = newmi
@@ -490,12 +570,18 @@ class CompareMany(QDialog):
             b.setIcon(QIcon(I('minus.png')))
             if reject_button_tooltip:
                 b.setToolTip(reject_button_tooltip)
+            self.next_action = ac = QAction(self)
+            ac.setShortcut(QKeySequence(Qt.ALT | Qt.Key_Right))
+            self.addAction(ac)
         if action_button is not None:
             self.acb = b = bb.addButton(action_button[0], bb.ActionRole)
             b.setIcon(QIcon(action_button[1]))
             self.action_button_action = action_button[2]
             b.clicked.connect(self.action_button_clicked)
         self.nb = b = bb.addButton(_('&Next') if self.total > 1 else _('&OK'), bb.ActionRole)
+        if self.total > 1:
+            b.setToolTip(_('Move to next [%s]') % self.next_action.shortcut().toString(QKeySequence.NativeText))
+            self.next_action.triggered.connect(b.click)
         b.setIcon(QIcon(I('forward.png' if self.total > 1 else 'ok.png')))
         b.clicked.connect(partial(self.next_item, True))
         b.setDefault(True)
@@ -554,6 +640,9 @@ class CompareMany(QDialog):
         self.accept()
 
     def reject_all_remaining(self):
+        from calibre.gui2.dialogs.confirm_delete import confirm
+        if not confirm(_('Are you sure you want to reject all %d remaining results?') % len(self.ids), 'confirm_metadata_review_reject', parent=self):
+            return
         self.next_item(False)
         for id_ in self.ids:
             oldmi, newmi = self.get_metadata(id_)
@@ -569,7 +658,7 @@ if __name__ == '__main__':
     ids = tuple(zip(ids[0::2], ids[1::2]))
     gm = partial(db.get_metadata, index_is_id=True, get_cover=True, cover_as_data=True)
     get_metadata = lambda x:map(gm, ids[x])
-    d = CompareMany(list(xrange(len(ids))), get_metadata, db.field_metadata)
+    d = CompareMany(list(xrange(len(ids))), get_metadata, db.field_metadata, db=db)
     if d.exec_() == d.Accepted:
         for changed, mi in d.accepted.itervalues():
             if changed and mi is not None:

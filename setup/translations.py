@@ -6,7 +6,7 @@ __license__   = 'GPL v3'
 __copyright__ = '2009, Kovid Goyal <kovid@kovidgoyal.net>'
 __docformat__ = 'restructuredtext en'
 
-import os, tempfile, shutil, subprocess, glob, re, time, textwrap, cPickle, shlex, json
+import os, tempfile, shutil, subprocess, glob, re, time, textwrap, cPickle, shlex, json, errno
 from locale import normalize as normalize_locale
 from functools import partial
 
@@ -17,7 +17,7 @@ def qt_sources():
     qtdir = '/usr/src/qt5'
     j = partial(os.path.join, qtdir)
     return list(map(j, [
-            'qtbase/src/widgets/widgets/qdialogbuttonbox.cpp',
+            'qtbase/src/gui/kernel/qplatformtheme.cpp',
             'qtbase/src/widgets/dialogs/qcolordialog.cpp',
             'qtbase/src/widgets/dialogs/qfontdialog.cpp',
     ]))
@@ -158,7 +158,7 @@ class POT(Command):  # {{{
             subprocess.check_call(['xgettext', '-j',
                 '--default-domain=calibre', '-o', out.name,
                 '--from-code=UTF-8', '--sort-by-file', '--omit-header',
-                '--no-wrap', '-kQT_TRANSLATE_NOOP:2', '-ktr',
+                                   '--no-wrap', '-kQT_TRANSLATE_NOOP:2', '-ktr', '-ktranslate:2',
                 ] + qt_inputs)
 
             with open(out.name, 'rb') as f:
@@ -299,6 +299,12 @@ class Translations(POT):  # {{{
             locale = self.mo_file(f)[0]
             stats[locale] = min(1.0, float(trans)/total)
 
+        base = self.d(dest)
+        try:
+            os.mkdir(base)
+        except EnvironmentError as err:
+            if err.errno != errno.EEXIST:
+                raise
         cPickle.dump(stats, open(dest, 'wb'), -1)
 
     def compile_user_manual_translations(self):
@@ -332,8 +338,8 @@ class Translations(POT):  # {{{
             with open(self.j(self.d(dest), 'stats.json'), 'wb') as f:
                 json.dump(stats, f)
             total = translated + untranslated
-            # Raise the 20% threshold in the future
-            if total and (translated / float(total)) > 0.2:
+            # Raise the 30% threshold in the future
+            if total and (translated / float(total)) > 0.3:
                 complete[x] = stats
         with open(self.j(destbase, 'completed.json'), 'wb') as f:
             json.dump(complete, f, indent=True, sort_keys=True)

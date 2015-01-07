@@ -348,7 +348,13 @@ class SavedSearchBox(QComboBox):  # {{{
         name = unicode(self.currentText())
         if not name.strip():
             name = unicode(self.search_box.text()).replace('"', '')
-        if not (name and self.search_box.text()):
+        name = name.replace('\\', '')
+        if not name:
+            error_dialog(self, _('Create saved search'),
+                         _('Invalid saved search name. '
+                           'It must contain at least one letter or number'), show=True)
+            return
+        if not self.search_box.text():
             error_dialog(self, _('Create saved search'),
                          _('There is no search to save'), show=True)
             return
@@ -429,6 +435,9 @@ class SearchBoxMixin(object):  # {{{
         tt = _('Enable or disable search highlighting.') + '<br><br>'
         tt += config.help('highlight_search_matches')
         self.highlight_only_button.setToolTip(tt)
+        self.highlight_only_action = ac = QAction(self)
+        self.addAction(ac), ac.triggered.connect(self.highlight_only_clicked)
+        self.keyboard.register_shortcut('highlight search results', _('Highlight search results'), action=self.highlight_only_action)
 
     def highlight_only_clicked(self, state):
         if not config['highlight_search_matches'] and not question_dialog(self, _('Are you sure?'),

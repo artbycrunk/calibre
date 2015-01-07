@@ -12,7 +12,7 @@ from urllib import quote
 import cherrypy
 from lxml import html
 from lxml.html.builder import HTML, HEAD, TITLE, LINK, DIV, IMG, BODY, \
-        OPTION, SELECT, INPUT, FORM, SPAN, TABLE, TR, TD, A, HR
+        OPTION, SELECT, INPUT, FORM, SPAN, TABLE, TR, TD, A, HR, META
 
 from calibre.library.server import custom_fields_to_display
 from calibre.library.server.utils import strftime, format_tag_string
@@ -92,7 +92,7 @@ def build_navigation(start, num, total, url_base):  # {{{
     # }}}
 
 def build_index(books, num, search, sort, order, start, total, url_base, CKEYS,
-        prefix):
+        prefix, have_kobo_browser=False):
     logo = DIV(IMG(src=prefix+'/static/calibre.png', alt=__appname__), id='logo')
 
     search_box = build_search_box(num, search, sort, order, prefix)
@@ -122,13 +122,14 @@ def build_index(books, num, search, sort, order, start, total, url_base, CKEYS,
         for fmt in book['formats'].split(','):
             if not fmt or fmt.lower().startswith('original_'):
                 continue
+            file_extension = "kepub.epub" if have_kobo_browser and fmt.lower() == "kepub" else fmt
             a = quote(ascii_filename(book['authors']))
             t = quote(ascii_filename(book['title']))
             s = SPAN(
                 A(
                     fmt.lower(),
                     href=prefix+'/get/%s/%s-%s_%d.%s' % (fmt, a, t,
-                        book['id'], fmt.lower())
+                        book['id'], file_extension.lower())
                 ),
                 CLASS('button'))
             s.tail = u''
@@ -172,7 +173,8 @@ def build_index(books, num, search, sort, order, start, total, url_base, CKEYS,
                 type='image/x-icon'),
             LINK(rel='stylesheet', type='text/css',
                 href=prefix+'/mobile/style.css'),
-            LINK(rel='apple-touch-icon', href="/static/calibre.png")
+            LINK(rel='apple-touch-icon', href="/static/calibre.png"),
+            META(name="robots", content="noindex")
         ),  # End head
         body
     )  # End html
@@ -186,6 +188,9 @@ class MobileServer(object):
     def is_mobile_browser(self, ua):
         match = self.MOBILE_UA.search(ua)
         return match is not None and 'iPad' not in ua
+
+    def is_kobo_browser(self, ua):
+        return 'Kobo Touch' in ua
 
     def add_routes(self, connect):
         connect('mobile', '/mobile', self.mobile)
@@ -282,10 +287,13 @@ class MobileServer(object):
         cherrypy.response.headers['Last-Modified'] = self.last_modified(updated)
 
         url_base = "/mobile?search=" + search+";order="+order+";sort="+sort+";num="+str(num)
+        ua = cherrypy.request.headers.get('User-Agent', '').strip()
+        have_kobo_browser = self.is_kobo_browser(ua)
 
         raw = html.tostring(build_index(books, num, search, sort, order,
                              start, len(ids), url_base, CKEYS,
-                             self.opts.url_prefix),
+                             self.opts.url_prefix,
+                             have_kobo_browser=have_kobo_browser),
                              encoding='utf-8',
                              pretty_print=True)
         # tostring's include_meta_content_type is broken

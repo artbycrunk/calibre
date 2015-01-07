@@ -6,7 +6,7 @@ __license__   = 'GPL v3'
 __copyright__ = '2009, Kovid Goyal <kovid@kovidgoyal.net>'
 __docformat__ = 'restructuredtext en'
 
-import sys, os
+import sys, os, re
 from xml.sax.saxutils import escape
 from string import Formatter
 
@@ -18,6 +18,7 @@ from calibre.ebooks.BeautifulSoup import BeautifulSoup
 from calibre.ebooks.oeb.base import XPath, XHTML_NS, XHTML, xml2text, urldefrag
 from calibre.library.comments import comments_to_html
 from calibre.utils.date import is_date_undefined
+from calibre.utils.icu import sort_key
 from calibre.ebooks.chardet import strip_encoding_declarations
 from calibre.ebooks.metadata import fmt_sidx
 
@@ -146,14 +147,24 @@ def get_rating(rating, rchar, e_rchar):
 class Series(unicode):
 
     def __new__(self, series, series_index):
-        series = roman = escape(series or u'')
         if series and series_index is not None:
             roman = _('Number {1} of <em>{0}</em>').format(
                 escape(series), escape(fmt_sidx(series_index, use_roman=True)))
             series = escape(series + ' [%s]'%fmt_sidx(series_index, use_roman=False))
+        else:
+            series = roman = escape(series or u'')
         s = unicode.__new__(self, series)
         s.roman = roman
         return s
+
+class Tags(unicode):
+
+    def __new__(self, tags, output_profile):
+        tags = [escape(x) for x in tags or ()]
+        t = unicode.__new__(self, ', '.join(tags))
+        t.alphabetical = ', '.join(sorted(tags, key=sort_key))
+        t.tags_list = tags
+        return t
 
 def render_jacket(mi, output_profile,
         alt_title=_('Unknown'), alt_tags=[], alt_comments='',
@@ -161,17 +172,22 @@ def render_jacket(mi, output_profile,
     css = P('jacket/stylesheet.css', data=True).decode('utf-8')
     template = P('jacket/template.xhtml', data=True).decode('utf-8')
 
+    template = re.sub(r'<!--.*?-->', '', template, flags=re.DOTALL)
+    css = re.sub(r'/\*.*?\*/', '', css, flags=re.DOTALL)
+
     try:
         title_str = mi.title if mi.title else alt_title
     except:
         title_str = _('Unknown')
-    title = '<span class="title">%s</span>' % (escape(title_str))
+    title_str = escape(title_str)
+    title = '<span class="title">%s</span>' % title_str
 
     series = Series(mi.series, mi.series_index)
     try:
         publisher = mi.publisher if mi.publisher else alt_publisher
     except:
         publisher = ''
+    publisher = escape(publisher)
 
     try:
         if is_date_undefined(mi.pubdate):
@@ -183,11 +199,7 @@ def render_jacket(mi, output_profile,
 
     rating = get_rating(mi.rating, output_profile.ratings_char, output_profile.empty_ratings_char)
 
-    tags = mi.tags if mi.tags else alt_tags
-    if tags:
-        tags = output_profile.tags_to_string(tags)
-    else:
-        tags = ''
+    tags = Tags((mi.tags if mi.tags else alt_tags), output_profile)
 
     comments = mi.comments if mi.comments else alt_comments
     comments = comments.strip()
@@ -199,6 +211,7 @@ def render_jacket(mi, output_profile,
         author = mi.format_authors()
     except:
         author = ''
+    author = escape(author)
 
     def generate_html(comments):
         args = dict(xmlns=XHTML_NS,
@@ -212,7 +225,8 @@ def render_jacket(mi, output_profile,
                     rating_label=_('Rating'), rating=rating,
                     tags_label=_('Tags'), tags=tags,
                     comments=comments,
-                    footer=''
+                    footer='',
+                    searchable_tags=' '.join(escape(t)+'ttt' for t in tags.tags_list),
                     )
         for key in mi.custom_field_keys():
             try:

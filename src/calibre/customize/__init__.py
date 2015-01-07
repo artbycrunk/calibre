@@ -43,7 +43,7 @@ class Plugin(object):  # {{{
         * :meth:`load_resources`
 
     '''
-    #: List of platforms this plugin works on
+    #: List of platforms this plugin works on.
     #: For example: ``['windows', 'osx', 'linux']``
     supported_platforms = []
 
@@ -84,8 +84,10 @@ class Plugin(object):  # {{{
 
     def initialize(self):
         '''
-        Called once when calibre plugins are initialized. Plugins are re-initialized
-        every time a new plugin is added.
+        Called once when calibre plugins are initialized.  Plugins are
+        re-initialized every time a new plugin is added. Also note that if the
+        plugin is run in a worker process, such as for adding books, then the
+        plugin will be initialized for every new worker process.
 
         Perform any plugin specific initialization here, such as extracting
         resources from the plugin zip file. The path to the zip file is
@@ -213,7 +215,7 @@ class Plugin(object):  # {{{
 
         :param names: List of paths to resources in the zip file using / as separator
 
-        :return: A dictionary of the form ``{name : file_contents}``. Any names
+        :return: A dictionary of the form ``{name: file_contents}``. Any names
                  that were not found in the zip file will not be present in the
                  dictionary.
 
@@ -316,9 +318,9 @@ class FileTypePlugin(Plugin):  # {{{
     A plugin that is associated with a particular set of file types.
     '''
 
-    #: Set of file types for which this plugin should be run
-    #: For example: ``set(['lit', 'mobi', 'prc'])``
-    file_types     = set([])
+    #: Set of file types for which this plugin should be run.
+    #: For example: ``{'lit', 'mobi', 'prc'}``
+    file_types     = set()
 
     #: If True, this plugin is run when books are added
     #: to the database
@@ -363,7 +365,7 @@ class FileTypePlugin(Plugin):  # {{{
 
         :param book_id: Database id of the added book.
         :param book_format: The file type of the book that was added.
-                :param db: Library database.
+        :param db: Library database.
         '''
         pass  # Default implementation does nothing
 
@@ -474,7 +476,7 @@ class CatalogPlugin(Plugin):  # {{{
         return db.get_data_as_dict(ids=opts.ids)
 
     def get_output_fields(self, db, opts):
-        # Return a list of requested fields, with opts.sort_by first
+        # Return a list of requested fields
         all_std_fields = set(
                           ['author_sort','authors','comments','cover','formats',
                            'id','isbn','library_name','ondevice','pubdate','publisher',
@@ -489,7 +491,8 @@ class CatalogPlugin(Plugin):  # {{{
 
         if opts.fields != 'all':
             # Make a list from opts.fields
-            requested_fields = set(opts.fields.split(','))
+            of = [x.strip() for x in opts.fields.split(',')]
+            requested_fields = set(of)
 
             # Validate requested_fields
             if requested_fields - all_fields:
@@ -500,16 +503,13 @@ class CatalogPlugin(Plugin):  # {{{
                       (current_library_name(), ', '.join(sorted(list(all_fields)))))
                 raise ValueError("unable to generate catalog with specified fields")
 
-            fields = list(all_fields & requested_fields)
+            fields = [x for x in of if x in all_fields]
         else:
-            fields = list(all_fields)
+            fields = sorted(all_fields, key=self._field_sorter)
 
         if not opts.connected_device['is_device_connected'] and 'ondevice' in fields:
             fields.pop(int(fields.index('ondevice')))
 
-        fields = sorted(fields, key=self._field_sorter)
-        if opts.sort_by and opts.sort_by in fields:
-            fields.insert(0,fields.pop(int(fields.index(opts.sort_by))))
         return fields
 
     def initialize(self):

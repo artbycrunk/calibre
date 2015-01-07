@@ -14,7 +14,6 @@ from PyQt5.Qt import (
     QWidget, QSizePolicy, QBrush, QPixmap, QSize, QPushButton, QVBoxLayout)
 
 from calibre import human_readable
-from calibre.constants import islinux, isbsd
 from calibre.gui2.preferences import ConfigWidgetBase, test_widget, CommaSeparatedList
 from calibre.gui2.preferences.look_feel_ui import Ui_Form
 from calibre.gui2 import config, gprefs, qt_app, open_local_file, question_dialog
@@ -146,7 +145,7 @@ class ConfigWidget(ConfigWidgetBase, Ui_Form):
         r('bd_overlay_cover_size', gprefs)
         r('cover_grid_width', gprefs)
         r('cover_grid_height', gprefs)
-        r('cover_grid_cache_size', gprefs)
+        r('cover_grid_cache_size_multiple', gprefs)
         r('cover_grid_disk_cache_size', gprefs)
         r('cover_grid_spacing', gprefs)
         r('cover_grid_show_title', gprefs)
@@ -180,9 +179,6 @@ class ConfigWidget(ConfigWidgetBase, Ui_Form):
         r('show_avg_rating', config)
         r('disable_animations', config)
         r('systray_icon', config, restart_required=True)
-        if islinux or isbsd:
-            self.opt_systray_icon.setEnabled(False)
-            self.opt_systray_icon.setText(_('System tray icon is disabled because of bugs in Qt 5'))
         r('show_splash_screen', gprefs)
         r('disable_tray_notification', config)
         r('use_roman_numerals_for_series_number', config)

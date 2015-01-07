@@ -6,18 +6,16 @@ __license__   = 'GPL v3'
 __copyright__ = '2009, Kovid Goyal <kovid@kovidgoyal.net>'
 __docformat__ = 'restructuredtext en'
 
-import os, traceback, cStringIO, re, shutil
+import os, traceback, re, shutil
 
 from calibre.constants import DEBUG
 from calibre.utils.config import Config, StringConfig, tweaks
 from calibre.utils.formatter import TemplateFormatter
-from calibre.utils.filenames import shorten_components_to, supports_long_names, \
-                                    ascii_filename
-from calibre.ebooks.metadata.opf2 import metadata_to_opf
+from calibre.utils.filenames import shorten_components_to, supports_long_names, ascii_filename
 from calibre.constants import preferred_encoding
 from calibre.ebooks.metadata import fmt_sidx
 from calibre.ebooks.metadata import title_sort
-from calibre.utils.date import parse_date, as_local_time
+from calibre.utils.date import as_local_time
 from calibre import strftime, prints, sanitize_file_name_unicode
 from calibre.ptempfile import SpooledTemporaryFile
 from calibre.db.lazy import FormatsList
@@ -98,7 +96,7 @@ def config(defaults=None):
                 'Default is "%(templ)s" which will save books into a per-author '
                 'subdirectory with filenames containing title and author. '
                 'Available controls are: {%(controls)s}')%dict(
-                    templ=DEFAULT_TEMPLATE, controls=', '.join(FORMAT_ARGS)))
+                    templ=DEFAULT_TEMPLATE, controls=', '.join(sorted(FORMAT_ARGS))))
     x('send_template', default=DEFAULT_SEND_TEMPLATE,
             help=_('The template to control the filename and directory structure of files '
                 'sent to the device. '
@@ -171,7 +169,7 @@ class Formatter(TemplateFormatter):
 
 def get_components(template, mi, id, timefmt='%b %Y', length=250,
         sanitize_func=ascii_filename, replace_whitespace=False,
-        to_lowercase=False, safe_format=True):
+        to_lowercase=False, safe_format=True, last_has_extension=True):
 
     tsorder = tweaks['save_template_title_series_sorting']
     format_args = FORMAT_ARGS.copy()
@@ -250,7 +248,7 @@ def get_components(template, mi, id, timefmt='%b %Y', length=250,
     if replace_whitespace:
         components = [re.sub(r'\s', '_', x) for x in components]
 
-    return shorten_components_to(length, components)
+    return shorten_components_to(length, components, last_has_extension=last_has_extension)
 
 
 def save_book_to_disk(id_, db, root, opts, length):
@@ -283,10 +281,53 @@ def save_book_to_disk(id_, db, root, opts, length):
             except:
                 pass
 
+def get_path_components(opts, mi, book_id, path_length):
+    try:
+        components = get_components(opts.template, mi, book_id, opts.timefmt, path_length,
+            ascii_filename if opts.asciiize else sanitize_file_name_unicode,
+            to_lowercase=opts.to_lowercase,
+            replace_whitespace=opts.replace_whitespace, safe_format=False,
+            last_has_extension=False)
+    except Exception, e:
+        raise ValueError(_('Failed to calculate path for '
+            'save to disk. Template: %(templ)s\n'
+            'Error: %(err)s')%dict(templ=opts.template, err=e))
+    if opts.single_dir:
+        components = components[-1:]
+    if not components:
+        raise ValueError(_('Template evaluation resulted in no'
+            ' path components. Template: %s')%opts.template)
+    return components
+
+
+def update_metadata(mi, fmt, stream, plugboards, cdata, error_report=None, plugboard_cache=None):
+    from calibre.ebooks.metadata.meta import set_metadata
+    if error_report is not None:
+        def report_error(mi, fmt, tb):
+            error_report(fmt, tb)
+
+    try:
+        if plugboard_cache is not None:
+            cpb = plugboard_cache[fmt]
+        else:
+            cpb = find_plugboard(plugboard_save_to_disk_value, fmt, plugboards)
+        if cpb:
+            newmi = mi.deepcopy_metadata()
+            newmi.template_to_attribute(mi, cpb)
+        else:
+            newmi = mi
+        if cdata:
+            newmi.cover_data = ('jpg', cdata)
+        set_metadata(stream, newmi, fmt, report_error=None if error_report is None else report_error)
+    except:
+        if error_report is None:
+            prints('Failed to set metadata for the', fmt, 'format of', mi.title)
+            traceback.print_exc()
+        else:
+            error_report(fmt, traceback.format_exc())
 
 def do_save_book_to_disk(id_, mi, cover, plugboards,
         format_map, root, opts, length):
-    from calibre.ebooks.metadata.meta import set_metadata
     available_formats = [x.lower().strip() for x in format_map.keys()]
     if mi.pubdate:
         mi.pubdate = as_local_time(mi.pubdate)
@@ -301,20 +342,7 @@ def do_save_book_to_disk(id_, mi, cover, plugboards,
     if not formats:
         return True, id_, mi.title
 
-    try:
-        components = get_components(opts.template, mi, id_, opts.timefmt, length,
-            ascii_filename if opts.asciiize else sanitize_file_name_unicode,
-            to_lowercase=opts.to_lowercase,
-            replace_whitespace=opts.replace_whitespace, safe_format=False)
-    except Exception, e:
-        raise ValueError(_('Failed to calculate path for '
-            'save to disk. Template: %(templ)s\n'
-            'Error: %(err)s')%dict(templ=opts.template, err=e))
-    if opts.single_dir:
-        components = components[-1:]
-    if not components:
-        raise ValueError(_('Template evaluation resulted in no'
-            ' path components. Template: %s')%opts.template)
+    components = get_path_components(opts, mi, id_, length)
     base_path = os.path.join(root, *components)
     base_name = os.path.basename(base_path)
     dirpath = os.path.dirname(base_path)
@@ -336,6 +364,7 @@ def do_save_book_to_disk(id_, mi, cover, plugboards,
         mi.cover = None
 
     if opts.write_opf:
+        from calibre.ebooks.metadata.opf2 import metadata_to_opf
         opf = metadata_to_opf(mi)
         with open(base_path+'.opf', 'wb') as f:
             f.write(opf)
@@ -344,8 +373,6 @@ def do_save_book_to_disk(id_, mi, cover, plugboards,
 
     written = False
     for fmt in formats:
-        global plugboard_save_to_disk_value, plugboard_any_format_value
-        cpb = find_plugboard(plugboard_save_to_disk_value, fmt, plugboards)
         fp = format_map.get(fmt, None)
         if fp is None:
             continue
@@ -356,18 +383,7 @@ def do_save_book_to_disk(id_, mi, cover, plugboards,
         stream.seek(0)
         written = True
         if opts.update_metadata:
-            try:
-                if cpb:
-                    newmi = mi.deepcopy_metadata()
-                    newmi.template_to_attribute(mi, cpb)
-                else:
-                    newmi = mi
-                if cover:
-                    newmi.cover_data = ('jpg', cover)
-                set_metadata(stream, newmi, fmt)
-            except:
-                if DEBUG:
-                    traceback.print_exc()
+            update_metadata(mi, fmt, stream, plugboards, cover)
             stream.seek(0)
         fmt_path = base_path+'.'+str(fmt)
         with open(fmt_path, 'wb') as f:
@@ -375,13 +391,13 @@ def do_save_book_to_disk(id_, mi, cover, plugboards,
 
     return not written, id_, mi.title
 
-def _sanitize_args(root, opts):
+def sanitize_args(root, opts):
     if opts is None:
         opts = config().parse()
     root = os.path.abspath(root)
 
     opts.template = preprocess_template(opts.template)
-    length = 1000 if supports_long_names(root) else 250
+    length = 1000 if supports_long_names(root) else 240
     length -= len(root)
     if length < 5:
         raise ValueError('%r is too long.'%root)
@@ -399,7 +415,7 @@ def save_to_disk(db, ids, root, opts=None, callback=None):
     :return: A list of failures. Each element of the list is a tuple
     (id, title, traceback)
     '''
-    root, opts, length = _sanitize_args(root, opts)
+    root, opts, length = sanitize_args(root, opts)
     failures = []
     for x in ids:
         tb = ''
@@ -416,37 +432,37 @@ def save_to_disk(db, ids, root, opts=None, callback=None):
                 break
     return failures
 
-def save_serialized_to_disk(ids, data, plugboards, root, opts, callback):
+def read_serialized_metadata(data):
     from calibre.ebooks.metadata.opf2 import OPF
-    root, opts, length = _sanitize_args(root, opts)
-    failures = []
-    for x in ids:
-        opf, cover, format_map, last_modified = data[x]
-        if isinstance(opf, unicode):
-            opf = opf.encode('utf-8')
-        mi = OPF(cStringIO.StringIO(opf)).to_book_metadata()
-        try:
-            mi.last_modified = parse_date(last_modified)
-        except:
-            pass
-        tb = ''
-        try:
-            with open(cover, 'rb') as f:
-                cover = f.read()
-        except:
-            cover = None
-        try:
-            failed, id, title = do_save_book_to_disk(x, mi, cover,
-                plugboards, format_map, root, opts, length)
-            tb = _('Requested formats not available')
-        except:
-            failed, id, title = True, x, mi.title
-            tb = traceback.format_exc()
-        if failed:
-            failures.append((id, title, tb))
-        if callable(callback):
-            if not callback(int(id), title, failed, tb):
-                break
+    from calibre.utils.date import parse_date
+    mi = OPF(data['opf'], try_to_guess_cover=False, populate_spine=False, basedir=os.path.dirname(data['opf'])).to_book_metadata()
+    try:
+        mi.last_modified = parse_date(data['last_modified'])
+    except:
+        pass
+    mi.cover, mi.cover_data = None, (None, None)
+    cdata = None
+    if 'cover' in data:
+        with lopen(data['cover'], 'rb') as f:
+            cdata = f.read()
+    return mi, cdata
 
-    return failures
+def update_serialized_metadata(book, common_data=None):
+    result = []
+    plugboard_cache = common_data
+    from calibre.customize.ui import apply_null_metadata
+    with apply_null_metadata:
 
+            fmts = [fp.rpartition(os.extsep)[-1] for fp in book['fmts']]
+            mi, cdata = read_serialized_metadata(book)
+            def report_error(fmt, tb):
+                result.append((fmt, tb))
+
+            for fmt, fmtpath in zip(fmts, book['fmts']):
+                try:
+                    with lopen(fmtpath, 'r+b') as stream:
+                        update_metadata(mi, fmt, stream, (), cdata, error_report=report_error, plugboard_cache=plugboard_cache)
+                except Exception:
+                    report_error(fmt, traceback.format_exc())
+
+    return result

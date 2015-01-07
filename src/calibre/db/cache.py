@@ -7,7 +7,7 @@ __license__   = 'GPL v3'
 __copyright__ = '2011, Kovid Goyal <kovid@kovidgoyal.net>'
 __docformat__ = 'restructuredtext en'
 
-import os, traceback, random, shutil, re, operator
+import os, traceback, random, shutil, operator
 from io import BytesIO
 from collections import defaultdict
 from functools import wraps, partial
@@ -26,7 +26,7 @@ from calibre.db.tables import VirtualTable
 from calibre.db.write import get_series_values, uniq
 from calibre.db.lazy import FormatMetadata, FormatsList, ProxyMetadata
 from calibre.ebooks import check_ebook_format
-from calibre.ebooks.metadata import string_to_authors, author_to_author_sort, get_title_sort_pat
+from calibre.ebooks.metadata import string_to_authors, author_to_author_sort
 from calibre.ebooks.metadata.book.base import Metadata
 from calibre.ebooks.metadata.opf2 import metadata_to_opf
 from calibre.ptempfile import (base_dir, PersistentTemporaryFile,
@@ -350,7 +350,7 @@ class Cache(object):
         '''
         Return the value of the field ``name`` for the book identified
         by ``book_id``. If no such book exists or it has no defined
-        value for the field ``name` or no such field exists, then
+        value for the field ``name`` or no such field exists, then
         ``default_value`` is returned.
 
         ``default_value`` is not used for title, title_sort, authors, author_sort
@@ -405,7 +405,7 @@ class Cache(object):
         if mi is None:
             return f.get_value_with_cache(book_id, self._get_proxy_metadata)
         else:
-            return f.render_composite(book_id, mi)
+            return f._render_composite_with_cache(book_id, mi, mi.formatter, mi.template_cache)
 
     @read_api
     def field_ids_for(self, name, book_id):
@@ -606,7 +606,7 @@ class Cache(object):
         ''' Like :meth:`get_metadata` except that it returns a ProxyMetadata
         object that only reads values from the database on demand. This is much
         faster than get_metadata when only a small number of fields need to be
-        accessed from the reutrned metadata object. '''
+        accessed from the returned metadata object. '''
         return ProxyMetadata(self, book_id)
 
     @api
@@ -670,7 +670,7 @@ class Cache(object):
         Copy the cover to the file like object ``dest``. Returns False
         if no cover exists or dest is the same file as the current cover.
         dest can also be a path in which case the cover is
-        copied to it iff the path is different from the current path (taking
+        copied to it if and only if the path is different from the current path (taking
         case sensitivity into account).
         '''
         try:
@@ -1423,10 +1423,17 @@ class Cache(object):
         return ' & '.join(filter(None, result))
 
     @read_api
+    def data_for_has_book(self):
+        ''' Return data suitable for use in :meth:`has_book`. This can be used for an
+        implementation of :meth:`has_book` in a worker process without access to the
+        db. '''
+        return {icu_lower(title) for title in self.fields['title'].table.book_col_map.itervalues()}
+
+    @read_api
     def has_book(self, mi):
         ''' Return True iff the database contains an entry with the same title
         as the passed in Metadata object. The comparison is case-insensitive.
-        '''
+        See also :meth:`data_for_has_book`.  '''
         title = mi.title
         if title:
             if isbytestring(title):
@@ -1662,7 +1669,7 @@ class Cache(object):
     def tags_older_than(self, tag, delta=None, must_have_tag=None, must_have_authors=None):
         '''
         Return the ids of all books having the tag ``tag`` that are older than
-        than the specified time. tag comparison is case insensitive.
+        the specified time. tag comparison is case insensitive.
 
         :param delta: A timedelta object or None. If None, then all ids with
             the tag are returned.
@@ -1768,25 +1775,33 @@ class Cache(object):
         return self._books_for_field(f.name, int(item_id_or_composite_value))
 
     @read_api
+    def data_for_find_identical_books(self):
+        ''' Return data that can be used to implement
+        :meth:`find_identical_books` in a worker process without access to the
+        db. See db.utils for an implementation. '''
+        at = self.fields['authors'].table
+        author_map = defaultdict(set)
+        for aid, author in at.id_map.iteritems():
+            author_map[icu_lower(author)].add(aid)
+        return (author_map, at.col_book_map.copy(), self.fields['title'].table.book_col_map.copy())
+
+    @read_api
+    def update_data_for_find_identical_books(self, book_id, data):
+        author_map, author_book_map, title_map = data
+        title_map[book_id] = self._field_for('title', book_id)
+        at = self.fields['authors'].table
+        for aid in at.book_col_map.get(book_id, ()):
+            author_map[icu_lower(at.id_map[aid])].add(aid)
+            try:
+                author_book_map[aid].add(book_id)
+            except KeyError:
+                author_book_map[aid] = {book_id}
+
+    @read_api
     def find_identical_books(self, mi, search_restriction='', book_ids=None):
         ''' Finds books that have a superset of the authors in mi and the same
-        title (title is fuzzy matched) '''
-        fuzzy_title_patterns = [(re.compile(pat, re.IGNORECASE) if
-            isinstance(pat, basestring) else pat, repl) for pat, repl in
-                [
-                    (r'[\[\](){}<>\'";,:#]', ''),
-                    (get_title_sort_pat(), ''),
-                    (r'[-._]', ' '),
-                    (r'\s+', ' ')
-                ]
-        ]
-
-        def fuzzy_title(title):
-            title = icu_lower(title.strip())
-            for pat, repl in fuzzy_title_patterns:
-                title = pat.sub(repl, title)
-            return title
-
+        title (title is fuzzy matched). See also :meth:`data_for_find_identical_books`. '''
+        from calibre.db.utils import fuzzy_title
         identical_book_ids = set()
         if mi.authors:
             try:
@@ -1900,6 +1915,41 @@ class Cache(object):
                 if book in books:
                     ans[book].append(lib)
         return {k:tuple(sorted(v, key=sort_key)) for k, v in ans.iteritems()}
+
+    @read_api
+    def user_categories_for_books(self, book_ids, proxy_metadata_map=None):
+        ''' Return the user categories for the specified books.
+        proxy_metadata_map is optional and is useful for a performance boost,
+        in contexts where a ProxyMetadata object for the books already exists.
+        It should be a mapping of book_ids to their corresponding ProxyMetadata
+        objects.
+        '''
+        user_cats = self.backend.prefs['user_categories']
+        pmm = proxy_metadata_map or {}
+        ans = {}
+
+        for book_id in book_ids:
+            proxy_metadata = pmm.get(book_id) or self._get_proxy_metadata(book_id)
+            user_cat_vals = ans[book_id] = {}
+            for ucat, categories in user_cats.iteritems():
+                user_cat_vals[ucat] = res = []
+                for name, cat, ign in categories:
+                    try:
+                        field_obj = self.fields[cat]
+                    except KeyError:
+                        continue
+
+                    if field_obj.is_composite:
+                        v = field_obj.get_value_with_cache(book_id, lambda x:proxy_metadata)
+                    else:
+                        v = self._fast_field_for(field_obj, book_id)
+
+                    if isinstance(v, (list, tuple)):
+                        if name in v:
+                            res.append([name, cat])
+                    elif name == v:
+                        res.append([name, cat])
+        return ans
 
     @write_api
     def embed_metadata(self, book_ids, only_fmts=None, report_error=None, report_progress=None):

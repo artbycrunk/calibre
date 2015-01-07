@@ -24,6 +24,7 @@ from calibre.utils.formatter import EvalFormatter
 
 TAG_SEARCH_STATES = {'clear': 0, 'mark_plus': 1, 'mark_plusplus': 2,
                      'mark_minus': 3, 'mark_minusminus': 4}
+DRAG_IMAGE_ROLE = Qt.UserRole + 1000
 
 _bf = None
 def bf():
@@ -116,6 +117,8 @@ class TagTreeItem(object):  # {{{
             return bf()
         if role == Qt.ToolTipRole and self.tooltip is not None:
             return (self.tooltip)
+        if role == DRAG_IMAGE_ROLE:
+            return self.icon
         return None
 
     def tag_data(self, role):
@@ -153,6 +156,8 @@ class TagTreeItem(object):  # {{{
                 return (self.tooltip + tag.tooltip)
             else:
                 return (self.tooltip)
+        if role == DRAG_IMAGE_ROLE:
+            return self.icon_state_map[0]
         return None
 
     def toggle(self, set_to=None):
@@ -733,7 +738,7 @@ class TagsModel(QAbstractItemModel):  # {{{
             if node.type == TagTreeItem.TAG:
                 fm = self.db.metadata_for_field(node.tag.category)
                 if node.tag.category in \
-                    ('tags', 'series', 'authors', 'rating', 'publisher') or \
+                    ('tags', 'series', 'authors', 'rating', 'publisher', 'languages') or \
                     (fm['is_custom'] and (
                             fm['datatype'] in ['text', 'rating', 'series',
                                                'enumeration'] or (
@@ -1041,6 +1046,7 @@ class TagsModel(QAbstractItemModel):  # {{{
                                     label=self.db.field_metadata[key]['label'])
             self.tag_item_renamed.emit()
             item.tag.name = val
+            item.tag.state = TAG_SEARCH_STATES['clear']
             self.rename_item_in_all_user_categories(name, key, val)
             self.refresh_required.emit()
         return True
@@ -1100,7 +1106,7 @@ class TagsModel(QAbstractItemModel):  # {{{
                     ans |= Qt.ItemIsDragEnabled
                 fm = self.db.metadata_for_field(node.tag.category)
                 if node.tag.category in \
-                    ('tags', 'series', 'authors', 'rating', 'publisher') or \
+                    ('tags', 'series', 'authors', 'rating', 'publisher', 'languages') or \
                     (fm['is_custom'] and
                         fm['datatype'] in ['text', 'rating', 'series', 'enumeration']):
                     ans |= Qt.ItemIsDropEnabled

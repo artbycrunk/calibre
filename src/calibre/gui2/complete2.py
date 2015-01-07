@@ -10,8 +10,10 @@ __docformat__ = 'restructuredtext en'
 import weakref
 
 import sip
-from PyQt5.Qt import (QLineEdit, QAbstractListModel, Qt, pyqtSignal, QObject,
-        QApplication, QListView, QPoint, QModelIndex, QFont, QFontInfo, QTimer)
+from PyQt5.Qt import (
+    QLineEdit, QAbstractListModel, Qt, pyqtSignal, QObject, QKeySequence,
+    QApplication, QListView, QPoint, QModelIndex, QFont, QFontInfo,
+    QStyleOptionComboBox, QStyle, QComboBox, QTimer)
 
 from calibre.constants import isosx, get_osx_version
 from calibre.utils.icu import sort_key, primary_startswith, primary_contains
@@ -191,6 +193,12 @@ class Completer(QListView):  # {{{
                 self.setFont(f)
             p.show()
 
+    def debug_event(self, ev):
+        from calibre.gui2 import event_type_name
+        print ('Event:', event_type_name(ev))
+        if ev.type() in (ev.KeyPress, ev.ShortcutOverride, ev.KeyRelease):
+            print ('\tkey:', QKeySequence(ev.key()).toString())
+
     def eventFilter(self, obj, e):
         'Redirect key presses from the popup to the widget'
         widget = self.completer_widget()
@@ -199,6 +207,8 @@ class Completer(QListView):  # {{{
         etype = e.type()
         if obj is not self:
             return QObject.eventFilter(self, obj, e)
+
+        # self.debug_event(e)
 
         if etype == e.KeyPress:
             key = e.key()
@@ -244,11 +254,27 @@ class Completer(QListView):  # {{{
                 self.hide()
             if e.isAccepted():
                 return True
-        elif etype == e.MouseButtonPress:
-            if not self.rect().contains(self.mapFromGlobal(e.globalPos())):
-                QTimer.singleShot(0, self.hide)
-                e.accept()
-                return True
+        elif isosx and etype == e.InputMethodQuery and e.queries() == (Qt.ImHints | Qt.ImEnabled) and self.isVisible():
+            # In Qt 5 the Esc key causes this event and the line edit does not
+            # handle it, which causes the parent dialog to be closed
+            # See https://bugreports.qt-project.org/browse/QTBUG-41806
+            e.accept()
+            return True
+        elif etype == e.MouseButtonPress and not self.rect().contains(self.mapFromGlobal(e.globalPos())):
+            # A click outside the popup, close it
+            if isinstance(widget, QComboBox):
+                # This workaround is needed to ensure clicking on the drop down
+                # arrow of the combobox closes the popup
+                opt = QStyleOptionComboBox()
+                widget.initStyleOption(opt)
+                sc = widget.style().hitTestComplexControl(QStyle.CC_ComboBox, opt, widget.mapFromGlobal(e.globalPos()), widget)
+                if sc == QStyle.SC_ComboBoxArrow:
+                    QTimer.singleShot(0, self.hide)
+                    e.accept()
+                    return True
+            self.hide()
+            e.accept()
+            return True
         elif etype in (e.InputMethod, e.ShortcutOverride):
             QApplication.sendEvent(widget, e)
         return False
@@ -264,6 +290,7 @@ class LineEdit(QLineEdit, LineEditECM):
     A call to self.set_separator(None) will allow this widget to be used
     to complete non multiple fields as well.
     '''
+    item_selected = pyqtSignal(object)
 
     def __init__(self, parent=None, completer_widget=None, sort_func=sort_key):
         QLineEdit.__init__(self, parent)
@@ -381,12 +408,16 @@ class LineEdit(QLineEdit, LineEditECM):
         before_text, after_text = self.get_completed_text(unicode(text))
         self.setText(before_text + after_text)
         self.setCursorPosition(len(before_text))
+        self.item_selected.emit(text)
 
 class EditWithComplete(EnComboBox):
+
+    item_selected = pyqtSignal(object)
 
     def __init__(self, *args, **kwargs):
         EnComboBox.__init__(self, *args)
         self.setLineEdit(LineEdit(self, completer_widget=self, sort_func=kwargs.get('sort_func', sort_key)))
+        self.lineEdit().item_selected.connect(self.item_selected)
         self.setCompleter(None)
         self.eat_focus_out = True
         self.installEventFilter(self)
