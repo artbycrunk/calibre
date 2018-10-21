@@ -12,21 +12,25 @@ ERROR = 3
 
 import sys, traceback, cStringIO
 from functools import partial
-from threading import RLock
+from threading import Lock
 
-from calibre import isbytestring, force_unicode, as_unicode
+from calibre import isbytestring, force_unicode, as_unicode, prints
+
 
 class Stream(object):
 
     def __init__(self, stream=None):
-        from calibre import prints
-        self._prints = partial(prints, safe_encode=True)
         if stream is None:
             stream = cStringIO.StringIO()
         self.stream = stream
+        self._prints = partial(prints, safe_encode=True, file=stream)
 
     def flush(self):
         self.stream.flush()
+
+    def prints(self, level, *args, **kwargs):
+        self._prints(*args, **kwargs)
+
 
 class ANSIStream(Stream):
 
@@ -47,14 +51,15 @@ class ANSIStream(Stream):
     def flush(self):
         self.stream.flush()
 
+
 class FileStream(Stream):
 
     def __init__(self, stream=None):
         Stream.__init__(self, stream)
 
     def prints(self, level, *args, **kwargs):
-        kwargs['file'] = self.stream
         self._prints(*args, **kwargs)
+
 
 class HTMLStream(Stream):
 
@@ -77,6 +82,7 @@ class HTMLStream(Stream):
 
     def flush(self):
         self.stream.flush()
+
 
 class UnicodeHTMLStream(HTMLStream):
 
@@ -161,32 +167,60 @@ class Log(object):
     def __call__(self, *args, **kwargs):
         self.prints(INFO, *args, **kwargs)
 
+    def __enter__(self):
+        self.orig_filter_level = self.filter_level
+        self.filter_level = self.ERROR + 100
+
+    def __exit__(self, *args):
+        self.filter_level = self.orig_filter_level
+
+    def flush(self):
+        for o in self.outputs:
+            if hasattr(o, 'flush'):
+                o.flush()
+
+    def close(self):
+        for o in self.outputs:
+            if hasattr(o, 'close'):
+                o.close()
+
+
 class DevNull(Log):
 
     def __init__(self):
         Log.__init__(self, level=Log.ERROR)
         self.outputs = []
 
+
 class ThreadSafeLog(Log):
+    exception_traceback_level = Log.DEBUG
 
     def __init__(self, level=Log.INFO):
         Log.__init__(self, level=level)
-        self._lock = RLock()
+        self._lock = Lock()
 
     def prints(self, *args, **kwargs):
         with self._lock:
             Log.prints(self, *args, **kwargs)
+
+    def exception(self, *args, **kwargs):
+        limit = kwargs.pop('limit', None)
+        with self._lock:
+            Log.prints(self, ERROR, *args, **kwargs)
+            Log.prints(self, self.exception_traceback_level, traceback.format_exc(limit))
+
 
 class ThreadSafeWrapper(Log):
 
     def __init__(self, other_log):
         Log.__init__(self, level=other_log.filter_level)
         self.outputs = list(other_log.outputs)
-        self._lock = RLock()
+        self._lock = Lock()
 
     def prints(self, *args, **kwargs):
         with self._lock:
             Log.prints(self, *args, **kwargs)
+
 
 class GUILog(ThreadSafeLog):
 

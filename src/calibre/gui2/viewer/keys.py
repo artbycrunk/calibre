@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python2
 # vim:fileencoding=UTF-8:ts=4:sw=4:sta:et:sts=4:ai
 from __future__ import with_statement
 
@@ -90,6 +90,15 @@ SHORTCUTS = {
         'Bookmark': (['Ctrl+B'],
                      _('Bookmark the current location')),
 
+        'Toggle bookmarks': (['Ctrl+Alt+B'],
+                     _('Show/hide bookmarks')),
+
         'Reload': (['Ctrl+R', 'F5'],
                      _('Reload the current book')),
+
+        'Print': (['Ctrl+P'],
+                     _('Print the current book')),
+
+        'Show/hide controls': (['Ctrl+F11'],
+            _('Show/hide controls')),
 }

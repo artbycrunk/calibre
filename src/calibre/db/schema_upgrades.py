@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python2
 # vim:fileencoding=UTF-8:ts=4:sw=4:sta:et:sts=4:ai
 from __future__ import (unicode_literals, division, absolute_import,
                         print_function)
@@ -11,6 +11,7 @@ import os
 
 from calibre import prints
 from calibre.utils.date import isoformat, DEFAULT_DATE
+
 
 class SchemaUpgrade(object):
 
@@ -421,6 +422,7 @@ class SchemaUpgrade(object):
         'Cache has_cover'
         self.db.execute('ALTER TABLE books ADD COLUMN has_cover BOOL DEFAULT 0')
         data = self.db.get('SELECT id,path FROM books', all=True)
+
         def has_cover(path):
             if path:
                 path = os.path.join(self.library_path, path.replace('/', os.sep),
@@ -614,4 +616,83 @@ class SchemaUpgrade(object):
         '''
         self.db.execute(script)
 
+    def upgrade_version_21(self):
+        '''
+        Write the series sort into the existing sort column in the series table
+        '''
 
+        script = '''
+        DROP TRIGGER IF EXISTS series_insert_trg;
+        DROP TRIGGER IF EXISTS series_update_trg;
+
+        UPDATE series SET sort=title_sort(name);
+
+        CREATE TRIGGER series_insert_trg
+            AFTER INSERT ON series
+            BEGIN
+              UPDATE series SET sort=title_sort(NEW.name) WHERE id=NEW.id;
+            END;
+
+        CREATE TRIGGER series_update_trg
+            AFTER UPDATE ON series
+            BEGIN
+              UPDATE series SET sort=title_sort(NEW.name) WHERE id=NEW.id;
+            END;
+        '''
+        self.db.execute(script)
+
+    def upgrade_version_22(self):
+        ''' Create the last_read_positions table '''
+        self.db.execute('''
+DROP TABLE IF EXISTS last_read_positions;
+CREATE TABLE last_read_positions ( id INTEGER PRIMARY KEY,
+    book INTEGER NOT NULL,
+    format TEXT NOT NULL COLLATE NOCASE,
+    user TEXT NOT NULL,
+    device TEXT NOT NULL,
+    cfi TEXT NOT NULL,
+    epoch REAL NOT NULL,
+    pos_frac REAL NOT NULL DEFAULT 0,
+    UNIQUE(user, device, book, format)
+);
+DROP INDEX IF EXISTS lrp_idx;
+CREATE INDEX lrp_idx ON last_read_positions (book);
+
+DROP TRIGGER IF EXISTS books_delete_trg;
+CREATE TRIGGER books_delete_trg
+    AFTER DELETE ON books
+    BEGIN
+        DELETE FROM books_authors_link WHERE book=OLD.id;
+        DELETE FROM books_publishers_link WHERE book=OLD.id;
+        DELETE FROM books_ratings_link WHERE book=OLD.id;
+        DELETE FROM books_series_link WHERE book=OLD.id;
+        DELETE FROM books_tags_link WHERE book=OLD.id;
+        DELETE FROM books_languages_link WHERE book=OLD.id;
+        DELETE FROM data WHERE book=OLD.id;
+        DELETE FROM last_read_positions WHERE book=OLD.id;
+        DELETE FROM comments WHERE book=OLD.id;
+        DELETE FROM conversion_options WHERE book=OLD.id;
+        DELETE FROM books_plugin_data WHERE book=OLD.id;
+        DELETE FROM identifiers WHERE book=OLD.id;
+END;
+
+DROP TRIGGER IF EXISTS fkc_lrp_insert;
+DROP TRIGGER IF EXISTS fkc_lrp_update;
+CREATE TRIGGER fkc_lrp_insert
+        BEFORE INSERT ON last_read_positions
+        BEGIN
+            SELECT CASE
+                WHEN (SELECT id from books WHERE id=NEW.book) IS NULL
+                THEN RAISE(ABORT, 'Foreign key violation: book not in books')
+            END;
+        END;
+CREATE TRIGGER fkc_lrp_update
+        BEFORE UPDATE OF book ON last_read_positions
+        BEGIN
+            SELECT CASE
+                WHEN (SELECT id from books WHERE id=NEW.book) IS NULL
+                THEN RAISE(ABORT, 'Foreign key violation: book not in books')
+            END;
+        END;
+
+        ''')

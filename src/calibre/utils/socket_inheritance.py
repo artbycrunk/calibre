@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python2
 # vim:fileencoding=UTF-8:ts=4:sw=4:sta:et:sts=4:fdm=marker:ai
 from __future__ import (unicode_literals, division, absolute_import,
                         print_function)
@@ -13,6 +13,7 @@ modified to make it work
 '''
 
 from calibre.constants import iswindows
+
 
 def get_socket_inherit(socket):
     '''
@@ -31,6 +32,7 @@ def get_socket_inherit(socket):
     except:
         import traceback
         traceback.print_exc()
+
 
 def set_socket_inherit(sock, inherit):
     '''
@@ -64,6 +66,7 @@ def set_socket_inherit(sock, inherit):
     except:
         import traceback
         traceback.print_exc()
+
 
 def test():
     import socket

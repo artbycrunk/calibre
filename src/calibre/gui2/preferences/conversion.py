@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python2
 # vim:fileencoding=UTF-8:ts=4:sw=4:sta:et:sts=4:ai
 
 __license__   = 'GPL v3'
@@ -7,12 +7,13 @@ __docformat__ = 'restructuredtext en'
 
 import importlib
 
-from PyQt5.Qt import QIcon, Qt, QStringListModel
+from PyQt5.Qt import (
+    QIcon, Qt, QStringListModel, QListView, QSizePolicy, QHBoxLayout, QSize,
+    QStackedWidget, pyqtSignal)
 
 from calibre.gui2.preferences import ConfigWidgetBase, test_widget, AbortCommit
 from calibre.ebooks.conversion.plumber import Plumber
 from calibre.utils.logging import Log
-from calibre.gui2.preferences.conversion_ui import Ui_Form
 from calibre.gui2.convert.look_and_feel import LookAndFeelWidget
 from calibre.gui2.convert.heuristics import HeuristicsWidget
 from calibre.gui2.convert.search_and_replace import SearchAndReplaceWidget
@@ -21,6 +22,7 @@ from calibre.gui2.convert.structure_detection import StructureDetectionWidget
 from calibre.gui2.convert.toc import TOCWidget
 from calibre.customize.ui import input_format_plugins, output_format_plugins
 from calibre.gui2.convert import config_widget_for_input_plugin
+
 
 class Model(QStringListModel):
 
@@ -36,11 +38,39 @@ class Model(QStringListModel):
                 return (QIcon(w.ICON))
         return QStringListModel.data(self, index, role)
 
-class Base(ConfigWidgetBase, Ui_Form):
+
+class ListView(QListView):
+
+    current_changed = pyqtSignal(object, object)
+
+    def __init__(self, parent=None):
+        QListView.__init__(self, parent)
+        self.setSizePolicy(QSizePolicy.MinimumExpanding, QSizePolicy.Expanding)
+        f = self.font()
+        f.setBold(True)
+        self.setFont(f)
+        self.setIconSize(QSize(48, 48))
+        self.setFlow(self.TopToBottom)
+        self.setSpacing(10)
+
+    def currentChanged(self, cur, prev):
+        QListView.currentChanged(self, cur, prev)
+        self.current_changed.emit(cur, prev)
+
+
+class Base(ConfigWidgetBase):
 
     restore_defaults_desc = _('Restore settings to default values. '
             'Only settings for the currently selected section '
             'are restored.')
+
+    def setupUi(self, x):
+        self.resize(720, 603)
+        self.l = l = QHBoxLayout(self)
+        self.list = lv = ListView(self)
+        l.addWidget(lv)
+        self.stack = s = QStackedWidget(self)
+        l.addWidget(s, stretch=10)
 
     def genesis(self, gui):
         log = Log()
@@ -50,8 +80,19 @@ class Base(ConfigWidgetBase, Ui_Form):
                 merge_plugin_recs=False)
 
         def widget_factory(cls):
-            return cls(self, self.plumber.get_option_by_name,
-                self.plumber.get_option_help, None, None)
+            plugin = getattr(cls, 'conv_plugin', None)
+            if plugin is None:
+                hfunc = self.plumber.get_option_help
+            else:
+                options = plugin.options.union(plugin.common_options)
+
+                def hfunc(name):
+                    for rec in options:
+                        if rec.option == name:
+                            ans = getattr(rec, 'help', None)
+                            if ans is not None:
+                                return ans.replace('%default', str(rec.recommended_value))
+            return cls(self, self.plumber.get_option_by_name, hfunc, None, None)
 
         self.load_conversion_widgets()
         widgets = list(map(widget_factory, self.conversion_widgets))
@@ -64,7 +105,7 @@ class Base(ConfigWidgetBase, Ui_Form):
             if isinstance(w, TOCWidget):
                 w.manually_fine_tune_toc.hide()
 
-        self.list.currentChanged = self.category_current_changed
+        self.list.current_changed.connect(self.category_current_changed)
         self.list.setCurrentIndex(self.model.index(0))
 
     def initialize(self):
@@ -85,12 +126,14 @@ class Base(ConfigWidgetBase, Ui_Form):
     def category_current_changed(self, n, p):
         self.stack.setCurrentIndex(n.row())
 
+
 class CommonOptions(Base):
 
     def load_conversion_widgets(self):
         self.conversion_widgets = [LookAndFeelWidget, HeuristicsWidget,
                 PageSetupWidget,
                 StructureDetectionWidget, TOCWidget, SearchAndReplaceWidget,]
+
 
 class InputOptions(Base):
 
@@ -99,7 +142,9 @@ class InputOptions(Base):
         for plugin in input_format_plugins():
             pw = config_widget_for_input_plugin(plugin)
             if pw is not None:
+                pw.conv_plugin = plugin
                 self.conversion_widgets.append(pw)
+
 
 class OutputOptions(Base):
 
@@ -111,14 +156,15 @@ class OutputOptions(Base):
                 output_widget = importlib.import_module(
                         'calibre.gui2.convert.'+name)
                 pw = output_widget.PluginWidget
+                pw.conv_plugin = plugin
                 self.conversion_widgets.append(pw)
             except ImportError:
                 continue
 
-if __name__ == '__main__':
-    from PyQt5.Qt import QApplication
-    app = QApplication([])
-    #test_widget('Conversion', 'Input Options')
-    #test_widget('Conversion', 'Common Options')
-    test_widget('Conversion', 'Output Options')
 
+if __name__ == '__main__':
+    from calibre.gui2 import Application
+    app = Application([])
+    # test_widget('Conversion', 'Input Options')
+    test_widget('Conversion', 'Common Options')
+    # test_widget('Conversion', 'Output Options')

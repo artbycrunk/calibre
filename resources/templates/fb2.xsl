@@ -333,7 +333,9 @@
                     <xsl:attribute name="name"><xsl:value-of select="@id"/></xsl:attribute>
                 </xsl:element>
             </xsl:if>
-            <xsl:apply-templates/>
+            <div>
+                <xsl:apply-templates/>
+            </div>
         </blockquote>
     </xsl:template>
     <!-- epigraph/text-author -->
@@ -350,7 +352,9 @@
                 <xsl:attribute name="name"><xsl:value-of select="@id"/></xsl:attribute>
             </xsl:element>
         </xsl:if>
-        <xsl:apply-templates/>
+        <div>
+            <xsl:apply-templates/>
+        </div>
         </blockquote>
     </xsl:template>
     <!-- cite/text-author -->
@@ -379,7 +383,9 @@
                     <xsl:attribute name="name"><xsl:value-of select="@id"/></xsl:attribute>
                 </xsl:element>
             </xsl:if>
-            <xsl:apply-templates/>
+            <div>
+                <xsl:apply-templates/>
+            </div>
         </blockquote>
     </xsl:template>
 
@@ -401,7 +407,6 @@
     <xsl:template match="fb:body/fb:image|fb:section/fb:image">
         <div align="center">
             <xsl:element name="img">
-                <xsl:attribute name="border">1</xsl:attribute>
                 <xsl:choose>
                     <xsl:when test="starts-with(@xlink:href,'#')">
                         <xsl:attribute name="src"><xsl:value-of select="substring-after(@xlink:href,'#')"/></xsl:attribute>

@@ -1,81 +1,110 @@
-__license__   = 'GPL v3'
-__copyright__ = '2008, Kovid Goyal <kovid at kovidgoyal.net>'
+#!/usr/bin/env python2
+# vim:fileencoding=utf-8
+# License: GPLv3 Copyright: 2008, Kovid Goyal <kovid at kovidgoyal.net>
+from __future__ import print_function
 
-'''Dialog to edit metadata in bulk'''
-
-import re, os
-from collections import namedtuple, defaultdict
+import re
+from collections import defaultdict, namedtuple
+from io import BytesIO
 from threading import Thread
 
-from PyQt5.Qt import Qt, QDialog, QGridLayout, QVBoxLayout, QFont, QLabel, \
-                     pyqtSignal, QDialogButtonBox, QInputDialog, QLineEdit, \
-                     QDateTime, QCompleter
+from PyQt5.Qt import (
+    QCompleter, QCoreApplication, QDateTime, QDialog, QDialogButtonBox, QFont, QProgressBar,
+    QGridLayout, QInputDialog, QLabel, QLineEdit, QSize, Qt, QVBoxLayout, pyqtSignal
+)
 
+from calibre import prints
+from calibre.constants import DEBUG
+from calibre.db import _get_next_series_num_for_list
+from calibre.ebooks.metadata import authors_to_string, string_to_authors, title_sort
+from calibre.ebooks.metadata.book.formatter import SafeFormat
+from calibre.ebooks.metadata.opf2 import OPF
+from calibre.gui2 import (
+    UNDEFINED_QDATETIME, FunctionDispatcher, error_dialog, gprefs, question_dialog
+)
+from calibre.gui2.custom_column_widgets import populate_metadata_page
 from calibre.gui2.dialogs.metadata_bulk_ui import Ui_MetadataBulkDialog
 from calibre.gui2.dialogs.tag_editor import TagEditor
-from calibre.ebooks.metadata import string_to_authors, authors_to_string, title_sort
-from calibre.ebooks.metadata.book.formatter import SafeFormat
-from calibre.gui2.custom_column_widgets import populate_metadata_page
-from calibre.gui2 import error_dialog, ResizableDialog, UNDEFINED_QDATETIME, \
-    gprefs, question_dialog, FunctionDispatcher
-from calibre.gui2.progress_indicator import ProgressIndicator
+from calibre.gui2.dialogs.template_line_editor import TemplateLineEditor
 from calibre.gui2.metadata.basic_widgets import CalendarWidget
-from calibre.utils.config import dynamic, JSONConfig
-from calibre.utils.titlecase import titlecase
-from calibre.utils.icu import sort_key, capitalize
-from calibre.utils.config import prefs, tweaks
-from calibre.utils.magick.draw import identify_data
+from calibre.utils.config import JSONConfig, dynamic, prefs, tweaks
 from calibre.utils.date import qt_to_dt
-from calibre.db import _get_next_series_num_for_list
+from calibre.utils.icu import capitalize, sort_key
+from calibre.utils.titlecase import titlecase
+from calibre.gui2.widgets import LineEditECM
 
-def get_cover_data(stream, ext):  # {{{
-    from calibre.ebooks.metadata.meta import get_metadata
-    old = prefs['read_file_metadata']
-    if not old:
-        prefs['read_file_metadata'] = True
-    cdata = area = None
+Settings = namedtuple('Settings',
+    'remove_all remove add au aus do_aus rating pub do_series do_autonumber '
+    'do_swap_ta do_remove_conv do_auto_author series do_series_restart series_start_value series_increment '
+    'do_title_case cover_action clear_series clear_pub pubdate adddate do_title_sort languages clear_languages '
+    'restore_original comments generate_cover_settings read_file_metadata casing_algorithm')
 
-    try:
-        with stream:
-            mi = get_metadata(stream, ext)
-        if mi.cover and os.access(mi.cover, os.R_OK):
-            cdata = open(mi.cover).read()
-        elif mi.cover_data[1] is not None:
-            cdata = mi.cover_data[1]
-        if cdata:
-            width, height, fmt = identify_data(cdata)
-            area = width*height
-    except:
-        cdata = area = None
-
-    if old != prefs['read_file_metadata']:
-        prefs['read_file_metadata'] = old
-
-    return cdata, area
-# }}}
-
-Settings = namedtuple('Settings', 'remove_all remove add au aus do_aus rating pub do_series do_autonumber do_remove_format '
-                      'remove_format do_swap_ta do_remove_conv do_auto_author series do_series_restart series_start_value '
-                      'do_title_case cover_action clear_series clear_pub pubdate adddate do_title_sort languages clear_languages restore_original comments')
 null = object()
+
+
+class Caser(LineEditECM):
+
+    def __init__(self, title):
+        self.title = title
+
+    def text(self):
+        return self.title
+
+    def setText(self, text):
+        self.title = text
+
 
 class MyBlockingBusy(QDialog):  # {{{
 
     all_done = pyqtSignal()
+    progress_update = pyqtSignal(int)
+    progress_finished_cur_step = pyqtSignal()
+    progress_next_step_range = pyqtSignal(int)
 
     def __init__(self, args, ids, db, refresh_books, cc_widgets, s_r_func, do_sr, sr_calls, parent=None, window_title=_('Working')):
         QDialog.__init__(self, parent)
 
         self._layout =  l = QVBoxLayout()
         self.setLayout(l)
+        # Every Path that will be taken in do_all
+        options = [
+            args.cover_action == 'fromfmt' or args.read_file_metadata,
+            args.do_swap_ta, args.do_title_case and not
+            args.do_swap_ta, args.do_title_sort, bool(args.au),
+            args.do_auto_author, bool(args.aus) and args.do_aus,
+            args.cover_action == 'remove' or args.cover_action ==
+            'generate' or args.cover_action == 'trim' or
+            args.cover_action == 'clone', args.restore_original,
+            args.rating != -1, args.clear_pub, bool(args.pub),
+            args.clear_series, args.pubdate is not None, args.adddate
+            is not None, args.do_series, bool(args.series) and
+            args.do_autonumber, args.comments is not null,
+            args.do_remove_conv, args.clear_languages, args.remove_all,
+            bool(do_sr)
+        ]
+        self.selected_options = sum(options)
+        if DEBUG:
+            print("Number of steps for bulk metadata: %d" % self.selected_options)
+            print("Optionslist: ")
+            print(options)
 
         self.msg = QLabel(_('Processing %d books, please wait...') % len(ids))
         self.font = QFont()
         self.font.setPointSize(self.font.pointSize() + 8)
         self.msg.setFont(self.font)
-        self.pi = ProgressIndicator(self)
-        self.pi.setDisplaySize(100)
-        self._layout.addWidget(self.pi, 0, Qt.AlignHCenter)
+        self.current_step_pb = QProgressBar(self)
+        self.current_step_pb.setFormat(_("Current step progress: %p %"))
+        if self.selected_options > 1:
+            # More than one Option needs to be done! Add Overall ProgressBar
+            self.overall_pb = QProgressBar(self)
+            self.overall_pb.setRange(0, self.selected_options)
+            self.overall_pb.setValue(0)
+            self.overall_pb.setFormat(_("Step %v/%m"))
+            self._layout.addWidget(self.overall_pb)
+            self._layout.addSpacing(15)
+        self.current_option = 0
+        self.current_step_value = 0
+        self._layout.addWidget(self.current_step_pb)
         self._layout.addSpacing(15)
         self._layout.addWidget(self.msg, 0, Qt.AlignHCenter)
         self.setWindowTitle(window_title + '...')
@@ -83,6 +112,9 @@ class MyBlockingBusy(QDialog):  # {{{
         self.resize(self.sizeHint())
         self.error = None
         self.all_done.connect(self.on_all_done, type=Qt.QueuedConnection)
+        self.progress_update.connect(self.on_progress_update, type=Qt.QueuedConnection)
+        self.progress_finished_cur_step.connect(self.on_progress_finished_cur_step, type=Qt.QueuedConnection)
+        self.progress_next_step_range.connect(self.on_progress_next_step_range, type=Qt.QueuedConnection)
         self.args, self.ids = args, ids
         self.db, self.cc_widgets = db, cc_widgets
         self.s_r_func = FunctionDispatcher(s_r_func)
@@ -96,6 +128,26 @@ class MyBlockingBusy(QDialog):  # {{{
     def reject(self):
         pass
 
+    def on_progress_update(self, processed_steps):
+        """
+        This signal should be emitted if a step can be traced with numbers.
+        """
+        self.current_step_value += processed_steps
+        self.current_step_pb.setValue(self.current_step_value)
+
+    def on_progress_finished_cur_step(self):
+        if self.selected_options > 1:
+            self.current_option += 1
+            self.overall_pb.setValue(self.current_option)
+
+    def on_progress_next_step_range(self, steps_of_progress):
+        """
+        If steps_of_progress equals 0 results this in a indetermined ProgressBar
+        Otherwise the range is from 0..steps_of_progress
+        """
+        self.current_step_value = 0
+        self.current_step_pb.setRange(0, steps_of_progress)
+
     def on_all_done(self):
         if not self.error:
             # The cc widgets can only be accessed in the GUI thread
@@ -105,13 +157,11 @@ class MyBlockingBusy(QDialog):  # {{{
             except Exception as err:
                 import traceback
                 self.error = (err, traceback.format_exc())
-        self.pi.stopAnimation()
         QDialog.accept(self)
 
     def exec_(self):
         self.thread = Thread(target=self.do_it)
         self.thread.start()
-        self.pi.startAnimation()
         return QDialog.exec_(self)
 
     def do_it(self):
@@ -127,29 +177,89 @@ class MyBlockingBusy(QDialog):  # {{{
 
         self.all_done.emit()
 
+    def read_file_metadata(self, args):
+        from calibre.utils.ipc.simple_worker import offload_worker
+        db = self.db.new_api
+        worker = offload_worker()
+        try:
+            self.progress_next_step_range.emit(len(self.ids))
+            for book_id in self.ids:
+                fmts = db.formats(book_id, verify_formats=False)
+                paths = filter(None, [db.format_abspath(book_id, fmt) for fmt in fmts])
+                if paths:
+                    ret = worker(
+                        'calibre.ebooks.metadata.worker', 'read_metadata_bulk',
+                        args.read_file_metadata, args.cover_action == 'fromfmt', paths)
+                    if ret['tb'] is not None:
+                        prints(ret['tb'])
+                    else:
+                        ans = ret['result']
+                        opf, cdata = ans['opf'], ans['cdata']
+                        if opf is not None:
+                            try:
+                                mi = OPF(BytesIO(opf), populate_spine=False, try_to_guess_cover=False).to_book_metadata()
+                            except Exception:
+                                import traceback
+                                traceback.print_exc()
+                            else:
+                                db.set_metadata(book_id, mi, allow_case_change=True)
+                        if cdata is not None:
+                            db.set_cover({book_id: cdata})
+                self.progress_update.emit(1)
+            self.progress_finished_cur_step.emit()
+
+        finally:
+            worker.shutdown()
+
     def do_all(self):
         cache = self.db.new_api
         args = self.args
+        from_file = args.cover_action == 'fromfmt' or args.read_file_metadata
+        if from_file:
+            old = prefs['read_file_metadata']
+            if not old:
+                prefs['read_file_metadata'] = True
+            try:
+                self.read_file_metadata(args)
+            finally:
+                if old != prefs['read_file_metadata']:
+                    prefs['read_file_metadata'] = old
+
+        def change_title_casing(val):
+            caser = Caser(val)
+            getattr(caser, args.casing_algorithm)()
+            return caser.title
 
         # Title and authors
         if args.do_swap_ta:
+            self.progress_next_step_range.emit(3)
             title_map = cache.all_field_for('title', self.ids)
             authors_map = cache.all_field_for('authors', self.ids)
+            self.progress_update.emit(1)
+
             def new_title(authors):
                 ans = authors_to_string(authors)
-                return titlecase(ans) if args.do_title_case else ans
+                return change_title_casing(ans) if args.do_title_case else ans
             new_title_map = {bid:new_title(authors) for bid, authors in authors_map.iteritems()}
             new_authors_map = {bid:string_to_authors(title) for bid, title in title_map.iteritems()}
+            self.progress_update.emit(1)
             cache.set_field('authors', new_authors_map)
             cache.set_field('title', new_title_map)
+            self.progress_update.emit(1)
+            self.progress_finished_cur_step.emit()
 
         if args.do_title_case and not args.do_swap_ta:
+            self.progress_next_step_range.emit(0)
             title_map = cache.all_field_for('title', self.ids)
-            cache.set_field('title', {bid:titlecase(title) for bid, title in title_map.iteritems()})
+            cache.set_field('title', {bid:change_title_casing(title) for bid, title in title_map.iteritems()})
+            self.progress_finished_cur_step.emit()
 
         if args.do_title_sort:
+            self.progress_next_step_range.emit(2)
             lang_map = cache.all_field_for('languages', self.ids)
             title_map = cache.all_field_for('title', self.ids)
+            self.progress_update.emit(1)
+
             def get_sort(book_id):
                 if args.languages:
                     lang = args.languages[0]
@@ -159,137 +269,189 @@ class MyBlockingBusy(QDialog):  # {{{
                     except (KeyError, IndexError, TypeError, AttributeError):
                         lang = 'eng'
                 return title_sort(title_map[book_id], lang=lang)
+
             cache.set_field('sort', {bid:get_sort(bid) for bid in self.ids})
+            self.progress_update.emit(1)
+            self.progress_finished_cur_step.emit()
 
         if args.au:
+            self.progress_next_step_range.emit(0)
+            self.processed_books = 0
             authors = string_to_authors(args.au)
-            cache.set_field('authors', {bid:authors for bid in self.ids})
+            cache.set_field('authors', {bid: authors for bid in self.ids})
+            self.progress_finished_cur_step.emit()
 
         if args.do_auto_author:
+            self.progress_next_step_range.emit(0)
             aus_map = cache.author_sort_strings_for_books(self.ids)
-            cache.set_field('author_sort', {book_id:' & '.join(aus_map[book_id]) for book_id in aus_map})
+            cache.set_field('author_sort', {book_id: ' & '.join(aus_map[book_id]) for book_id in aus_map})
+            self.progress_finished_cur_step.emit()
 
         if args.aus and args.do_aus:
+            self.progress_next_step_range.emit(0)
             cache.set_field('author_sort', {bid:args.aus for bid in self.ids})
+            self.progress_finished_cur_step.emit()
 
         # Covers
         if args.cover_action == 'remove':
-            cache.set_cover({bid:None for bid in self.ids})
+            self.progress_next_step_range.emit(0)
+            cache.set_cover({bid: None for bid in self.ids})
+            self.progress_finished_cur_step.emit()
+
         elif args.cover_action == 'generate':
+            self.progress_next_step_range.emit(len(self.ids))
             from calibre.ebooks.covers import generate_cover
             for book_id in self.ids:
                 mi = self.db.get_metadata(book_id, index_is_id=True)
-                cdata = generate_cover(mi)
+                cdata = generate_cover(mi, prefs=args.generate_cover_settings)
                 cache.set_cover({book_id:cdata})
-        elif args.cover_action == 'fromfmt':
-            for book_id in self.ids:
-                fmts = cache.formats(book_id, verify_formats=False)
-                if fmts:
-                    covers = []
-                    for fmt in fmts:
-                        fmtf = cache.format(book_id, fmt, as_file=True)
-                        if fmtf is None:
-                            continue
-                        cdata, area = get_cover_data(fmtf, fmt)
-                        if cdata:
-                            covers.append((cdata, area))
-                    covers.sort(key=lambda x: x[1])
-                    if covers:
-                        cache.set_cover({book_id:covers[-1][0]})
+                self.progress_update.emit(1)
+            self.progress_finished_cur_step.emit()
+
         elif args.cover_action == 'trim':
-            from calibre.utils.magick import Image
+            self.progress_next_step_range.emit(len(self.ids))
+            from calibre.utils.img import remove_borders_from_image, image_to_data, image_from_data
             for book_id in self.ids:
                 cdata = cache.cover(book_id)
                 if cdata:
-                    im = Image()
-                    im.load(cdata)
-                    im.trim(tweaks['cover_trim_fuzz_value'])
-                    cdata = im.export('jpg')
-                    cache.set_cover({book_id:cdata})
+                    img = image_from_data(cdata)
+                    nimg = remove_borders_from_image(img)
+                    if nimg is not img:
+                        cdata = image_to_data(nimg)
+                        cache.set_cover({book_id:cdata})
+                self.progress_update.emit(1)
+            self.progress_finished_cur_step.emit()
+
         elif args.cover_action == 'clone':
+            self.progress_next_step_range.emit(len(self.ids))
             cdata = None
             for book_id in self.ids:
                 cdata = cache.cover(book_id)
                 if cdata:
                     break
-            if cdata:
-                cache.set_cover({bid:cdata for bid in self.ids if bid != book_id})
+                self.progress_update.emit(1)
+            self.progress_finished_cur_step.emit()
 
-        # Formats
-        if args.do_remove_format:
-            cache.remove_formats({bid:(args.remove_format,) for bid in self.ids})
+            if cdata:
+                self.progress_next_step_range.emit(0)
+                cache.set_cover({bid:cdata for bid in self.ids if bid != book_id})
+                self.progress_finished_cur_step.emit()
 
         if args.restore_original:
+            self.progress_next_step_range.emit(len(self.ids))
             for book_id in self.ids:
                 formats = cache.formats(book_id)
                 originals = tuple(x.upper() for x in formats if x.upper().startswith('ORIGINAL_'))
                 for ofmt in originals:
                     cache.restore_original_format(book_id, ofmt)
+                self.progress_update.emit(1)
+            self.progress_finished_cur_step.emit()
 
         # Various fields
         if args.rating != -1:
-            cache.set_field('rating', {bid:args.rating*2 for bid in self.ids})
+            self.progress_next_step_range.emit(0)
+            cache.set_field('rating', {bid: args.rating for bid in self.ids})
+            self.progress_finished_cur_step.emit()
 
         if args.clear_pub:
-            cache.set_field('publisher', {bid:'' for bid in self.ids})
+            self.progress_next_step_range.emit(0)
+            cache.set_field('publisher', {bid: '' for bid in self.ids})
+            self.progress_finished_cur_step.emit()
 
         if args.pub:
-            cache.set_field('publisher', {bid:args.pub for bid in self.ids})
+            self.progress_next_step_range.emit(0)
+            cache.set_field('publisher', {bid: args.pub for bid in self.ids})
+            self.progress_finished_cur_step.emit()
 
         if args.clear_series:
-            cache.set_field('series', {bid:'' for bid in self.ids})
+            self.progress_next_step_range.emit(0)
+            cache.set_field('series', {bid: '' for bid in self.ids})
+            self.progress_finished_cur_step.emit()
 
         if args.pubdate is not None:
-            cache.set_field('pubdate', {bid:args.pubdate for bid in self.ids})
+            self.progress_next_step_range.emit(0)
+            cache.set_field('pubdate', {bid: args.pubdate for bid in self.ids})
+            self.progress_finished_cur_step.emit()
 
         if args.adddate is not None:
-            cache.set_field('timestamp', {bid:args.adddate for bid in self.ids})
+            self.progress_next_step_range.emit(0)
+            cache.set_field('timestamp', {bid: args.adddate for bid in self.ids})
+            self.progress_finished_cur_step.emit()
 
         if args.do_series:
+            self.progress_next_step_range.emit(0)
             sval = args.series_start_value if args.do_series_restart else cache.get_next_series_num_for(args.series, current_indices=True)
             cache.set_field('series', {bid:args.series for bid in self.ids})
+            self.progress_finished_cur_step.emit()
             if not args.series:
+                self.progress_next_step_range.emit(0)
                 cache.set_field('series_index', {bid:1.0 for bid in self.ids})
+                self.progress_finished_cur_step.emit()
             else:
                 def next_series_num(bid, i):
                     if args.do_series_restart:
-                        return sval + i
+                        return sval + (i * args.series_increment)
                     next_num = _get_next_series_num_for_list(sorted(sval.itervalues()), unwrap=False)
                     sval[bid] = next_num
                     return next_num
 
                 smap = {bid:next_series_num(bid, i) for i, bid in enumerate(self.ids)}
                 if args.do_autonumber:
+                    self.progress_next_step_range.emit(0)
                     cache.set_field('series_index', smap)
+                    self.progress_finished_cur_step.emit()
                 elif tweaks['series_index_auto_increment'] != 'no_change':
+                    self.progress_next_step_range.emit(0)
                     cache.set_field('series_index', {bid:1.0 for bid in self.ids})
+                    self.progress_finished_cur_step.emit()
 
         if args.comments is not null:
-            cache.set_field('comments', {bid:args.comments for bid in self.ids})
+            self.progress_next_step_range.emit(0)
+            cache.set_field('comments', {bid: args.comments for bid in self.ids})
+            self.progress_finished_cur_step.emit()
 
         if args.do_remove_conv:
+            self.progress_next_step_range.emit(0)
             cache.delete_conversion_options(self.ids)
+            self.progress_finished_cur_step.emit()
 
         if args.clear_languages:
-            cache.set_field('languages', {bid:() for bid in self.ids})
+            self.progress_next_step_range.emit(0)
+            cache.set_field('languages', {bid: () for bid in self.ids})
+            self.progress_finished_cur_step.emit()
         elif args.languages:
-            cache.set_field('languages', {bid:args.languages for bid in self.ids})
+            self.progress_next_step_range.emit(0)
+            cache.set_field('languages', {bid: args.languages for bid in self.ids})
+            self.progress_finished_cur_step.emit()
 
         if args.remove_all:
-            cache.set_field('tags', {bid:() for bid in self.ids})
+            self.progress_next_step_range.emit(0)
+            cache.set_field('tags', {bid: () for bid in self.ids})
+            self.progress_finished_cur_step.emit()
+
         if args.add or args.remove:
+            self.progress_next_step_range.emit(0)
             self.db.bulk_modify_tags(self.ids, add=args.add, remove=args.remove)
+            self.progress_finished_cur_step.emit()
 
         if self.do_sr:
+            self.progress_next_step_range.emit(len(self.ids))
             for book_id in self.ids:
                 self.s_r_func(book_id)
+                self.progress_update.emit(1)
             if self.sr_calls:
+                self.progress_next_step_range.emit(len(self.sr_calls))
+                self.progress_update.emit(0)
                 for field, book_id_val_map in self.sr_calls.iteritems():
                     self.refresh_books.update(self.db.new_api.set_field(field, book_id_val_map))
+                    self.progress_update.emit(1)
+                self.progress_finished_cur_step.emit()
+            self.progress_finished_cur_step.emit()
 
 # }}}
 
-class MetadataBulkDialog(ResizableDialog, Ui_MetadataBulkDialog):
+
+class MetadataBulkDialog(QDialog, Ui_MetadataBulkDialog):
 
     s_r_functions = {''              : lambda x: x,
                             _('Lower Case') : lambda x: icu_lower(x),
@@ -299,7 +461,7 @@ class MetadataBulkDialog(ResizableDialog, Ui_MetadataBulkDialog):
                     }
 
     s_r_match_modes = [_('Character match'),
-                            _('Regular Expression'),
+                            _('Regular expression'),
                       ]
 
     s_r_replace_modes = [_('Replace field'),
@@ -308,8 +470,8 @@ class MetadataBulkDialog(ResizableDialog, Ui_MetadataBulkDialog):
                         ]
 
     def __init__(self, window, rows, model, tab, refresh_books):
-        ResizableDialog.__init__(self, window)
-        Ui_MetadataBulkDialog.__init__(self)
+        QDialog.__init__(self, window)
+        self.setupUi(self)
         self.model = model
         self.db = model.db
         self.refresh_book_list.setChecked(gprefs['refresh_book_list_on_bulk_edit'])
@@ -332,12 +494,8 @@ class MetadataBulkDialog(ResizableDialog, Ui_MetadataBulkDialog):
 
         self.initialize_combos()
 
-        for f in sorted(self.db.all_formats()):
-            self.remove_format.addItem(f)
-
-        self.remove_format.setCurrentIndex(-1)
-
         self.series.currentIndexChanged[int].connect(self.series_changed)
+        connect_lambda(self.rating.currentIndexChanged, self, lambda self:self.apply_rating.setChecked(True))
         self.series.editTextChanged.connect(self.series_changed)
         self.tag_editor_button.clicked.connect(self.tag_editor)
         self.autonumber_series.stateChanged[int].connect(self.auto_number_changed)
@@ -352,12 +510,25 @@ class MetadataBulkDialog(ResizableDialog, Ui_MetadataBulkDialog):
         self.pubdate.dateTimeChanged.connect(self.do_apply_pubdate)
         self.adddate.setDateTime(QDateTime.currentDateTime())
         self.adddate.setMinimumDateTime(UNDEFINED_QDATETIME)
+        self.adddate_cw = CalendarWidget(self.adddate)
+        self.adddate.setCalendarWidget(self.adddate_cw)
         adddate_format = tweaks['gui_timestamp_display_format']
         if adddate_format is not None:
             self.adddate.setDisplayFormat(adddate_format)
         self.adddate.setSpecialValueText(_('Undefined'))
         self.clear_adddate_button.clicked.connect(self.clear_adddate)
         self.adddate.dateTimeChanged.connect(self.do_apply_adddate)
+        self.casing_algorithm.addItems([
+            _('Title case'), _('Capitalize'), _('Upper case'), _('Lower case'), _('Swap case')
+        ])
+        self.casing_map = ['title_case', 'capitalize', 'upper_case', 'lower_case', 'swap_case']
+        prevca = gprefs.get('bulk-mde-casing-algorithm', 'title_case')
+        idx = max(0, self.casing_map.index(prevca))
+        self.casing_algorithm.setCurrentIndex(idx)
+        self.casing_algorithm.setEnabled(False)
+        connect_lambda(
+            self.change_title_to_title_case.toggled, self,
+            lambda self: self.casing_algorithm.setEnabled(self.change_title_to_title_case.isChecked()))
 
         if len(self.db.custom_field_keys(include_composites=False)) == 0:
             self.central_widget.removeTab(1)
@@ -375,12 +546,29 @@ class MetadataBulkDialog(ResizableDialog, Ui_MetadataBulkDialog):
         geom = gprefs.get('bulk_metadata_window_geometry', None)
         if geom is not None:
             self.restoreGeometry(bytes(geom))
+        else:
+            self.resize(self.sizeHint())
         ct = gprefs.get('bulk_metadata_window_tab', 0)
         self.central_widget.setCurrentIndex(ct)
         self.languages.init_langs(self.db)
         self.languages.setEditText('')
         self.authors.setFocus(Qt.OtherFocusReason)
+        self.generate_cover_settings = None
+        self.button_config_cover_gen.setVisible(False)
+        self.button_config_cover_gen.clicked.connect(self.customize_cover_generation)
         self.exec_()
+
+    def sizeHint(self):
+        desktop = QCoreApplication.instance().desktop()
+        geom = desktop.availableGeometry(self)
+        nh, nw = max(300, geom.height()-50), max(400, geom.width()-70)
+        return QSize(nw, nh)
+
+    def customize_cover_generation(self):
+        from calibre.gui2.covers import CoverSettingsDialog
+        d = CoverSettingsDialog(parent=self)
+        if d.exec_() == d.Accepted:
+            self.generate_cover_settings = d.prefs_for_rendering
 
     def set_comments(self):
         from calibre.gui2.dialogs.comments_dialog import CommentsDialog
@@ -421,6 +609,7 @@ class MetadataBulkDialog(ResizableDialog, Ui_MetadataBulkDialog):
     def prepare_search_and_replace(self):
         self.search_for.initialize('bulk_edit_search_for')
         self.replace_with.initialize('bulk_edit_replace_with')
+        self.s_r_template.setLineEdit(TemplateLineEditor(self.s_r_template))
         self.s_r_template.initialize('bulk_edit_template')
         self.test_text.initialize('bulk_edit_test_test')
         self.all_fields = ['']
@@ -428,9 +617,9 @@ class MetadataBulkDialog(ResizableDialog, Ui_MetadataBulkDialog):
         fm = self.db.field_metadata
         for f in fm:
             if (f in ['author_sort'] or
-                    (fm[f]['datatype'] in ['text', 'series', 'enumeration', 'comments']
-                     and fm[f].get('search_terms', None)
-                     and f not in ['formats', 'ondevice', 'series_sort']) or
+                    (fm[f]['datatype'] in ['text', 'series', 'enumeration', 'comments', 'rating'] and
+                     fm[f].get('search_terms', None) and
+                     f not in ['formats', 'ondevice', 'series_sort']) or
                     (fm[f]['datatype'] in ['int', 'float', 'bool', 'datetime'] and
                      f not in ['id', 'timestamp'])):
                 self.all_fields.append(f)
@@ -492,7 +681,7 @@ class MetadataBulkDialog(ResizableDialog, Ui_MetadataBulkDialog):
 
         self.regexp_heading = _(
                  'In regular expression mode, the search text is an '
-                 'arbitrary python-compatible regular expression. The '
+                 'arbitrary Python-compatible regular expression. The '
                  'replacement text can contain backreferences to parenthesized '
                  'expressions in the pattern. The search is not anchored, '
                  'and can match and replace multiple times on the same string. '
@@ -501,8 +690,8 @@ class MetadataBulkDialog(ResizableDialog, Ui_MetadataBulkDialog):
                  'The destination box specifies the field where the result after '
                  'matching and replacement is to be assigned. You can replace '
                  'the text in the field, or prepend or append the matched text. '
-                 'See <a href="http://docs.python.org/library/re.html"> '
-                 'this reference</a> for more information on python\'s regular '
+                 'See <a href="https://docs.python.org/library/re.html">'
+                 'this reference</a> for more information on Python\'s regular '
                  'expressions, and in particular the \'sub\' function.'
                  )
 
@@ -728,6 +917,18 @@ class MetadataBulkDialog(ResizableDialog, Ui_MetadataBulkDialog):
                 raise Exception(_('You must specify a destination when source is '
                                   'a composite field or a template'))
             dest = src
+
+        if self.destination_field_fm['datatype'] == 'rating' and val[0]:
+            ok = True
+            try:
+                v = int(val[0])
+                if v < 0 or v > 10:
+                    ok = False
+            except:
+                ok = False
+            if not ok:
+                raise Exception(_('The replacement value for a rating column must '
+                                  'be empty or an integer between 0 and 10'))
         dest_mode = self.replace_mode.currentIndex()
 
         if self.destination_field_fm['is_csp']:
@@ -856,6 +1057,13 @@ class MetadataBulkDialog(ResizableDialog, Ui_MetadataBulkDialog):
             if dest == 'title' and len(val) == 0:
                 val = _('Unknown')
 
+        if not val and dfm['datatype'] == 'datetime':
+            val = None
+        if dfm['datatype'] == 'rating':
+            if (not val or int(val) == 0):
+                val = None
+            if dest == 'rating' and val:
+                val = (int(val) // 2) * 2
         self.set_field_calls[dest][book_id] = val
     # }}}
 
@@ -916,18 +1124,19 @@ class MetadataBulkDialog(ResizableDialog, Ui_MetadataBulkDialog):
             self.remove_tags.update_items_cache(self.db.all_tags())
 
     def auto_number_changed(self, state):
+        self.series_start_number.setEnabled(bool(state))
+        self.series_increment.setEnabled(bool(state))
         if state:
             self.series_numbering_restarts.setEnabled(True)
-            self.series_start_number.setEnabled(True)
         else:
             self.series_numbering_restarts.setEnabled(False)
             self.series_numbering_restarts.setChecked(False)
-            self.series_start_number.setEnabled(False)
-            self.series_start_number.setValue(1)
+            self.series_start_number.setValue(1.0)
+            self.series_increment.setValue(1.0)
 
     def reject(self):
         self.save_state()
-        ResizableDialog.reject(self)
+        QDialog.reject(self)
 
     def accept(self):
         self.save_state()
@@ -941,7 +1150,7 @@ class MetadataBulkDialog(ResizableDialog, Ui_MetadataBulkDialog):
 
         if self.s_r_error is not None and do_sr:
             error_dialog(self, _('Search/replace invalid'),
-                    _('Search pattern is invalid: %s')%self.s_r_error.message,
+                    _('Search/replace is invalid: %s')%self.s_r_error.message,
                     show=True)
             return False
         self.changed = bool(self.ids)
@@ -958,7 +1167,9 @@ class MetadataBulkDialog(ResizableDialog, Ui_MetadataBulkDialog):
         au = unicode(self.authors.text())
         aus = unicode(self.author_sort.text())
         do_aus = self.author_sort.isEnabled()
-        rating = self.rating.value()
+        rating = self.rating.rating_value
+        if not self.apply_rating.isChecked():
+            rating = -1
         pub = unicode(self.publisher.text())
         do_series = self.write_series
         clear_series = self.clear_series.isChecked()
@@ -967,13 +1178,13 @@ class MetadataBulkDialog(ResizableDialog, Ui_MetadataBulkDialog):
         do_autonumber = self.autonumber_series.isChecked()
         do_series_restart = self.series_numbering_restarts.isChecked()
         series_start_value = self.series_start_number.value()
-        do_remove_format = self.remove_format.currentIndex() > -1
-        remove_format = unicode(self.remove_format.currentText())
+        series_increment = self.series_increment.value()
         do_swap_ta = self.swap_title_and_author.isChecked()
         do_remove_conv = self.remove_conversion_settings.isChecked()
         do_auto_author = self.auto_author_sort.isChecked()
         do_title_case = self.change_title_to_title_case.isChecked()
         do_title_sort = self.update_title_sort.isChecked()
+        read_file_metadata = self.read_file_metadata.isChecked()
         clear_languages = self.clear_languages.isChecked()
         restore_original = self.restore_original.isChecked()
         languages = self.languages.lang_codes
@@ -995,12 +1206,17 @@ class MetadataBulkDialog(ResizableDialog, Ui_MetadataBulkDialog):
         elif self.cover_clone.isChecked():
             cover_action = 'clone'
 
-        args = Settings(remove_all, remove, add, au, aus, do_aus, rating, pub, do_series,
-                do_autonumber, do_remove_format, remove_format, do_swap_ta,
-                do_remove_conv, do_auto_author, series, do_series_restart,
-                series_start_value, do_title_case, cover_action, clear_series, clear_pub,
-                pubdate, adddate, do_title_sort, languages, clear_languages,
-                restore_original, self.comments)
+        args = Settings(
+            remove_all, remove, add, au, aus, do_aus, rating, pub, do_series,
+            do_autonumber, do_swap_ta, do_remove_conv, do_auto_author, series,
+            do_series_restart, series_start_value, series_increment,
+            do_title_case, cover_action, clear_series, clear_pub, pubdate,
+            adddate, do_title_sort, languages, clear_languages,
+            restore_original, self.comments, self.generate_cover_settings,
+            read_file_metadata, self.casing_map[self.casing_algorithm.currentIndex()])
+        if DEBUG:
+            print('Running bulk metadata operation with settings:')
+            print(args)
 
         self.set_field_calls = defaultdict(dict)
         bb = MyBlockingBusy(args, self.ids, self.db, self.refresh_books,
@@ -1023,6 +1239,7 @@ class MetadataBulkDialog(ResizableDialog, Ui_MetadataBulkDialog):
                     show=True)
 
         dynamic['s_r_search_mode'] = self.search_mode.currentIndex()
+        gprefs.set('bulk-mde-casing-algorithm', args.casing_algorithm)
         self.db.clean()
         return QDialog.accept(self)
 
@@ -1177,5 +1394,3 @@ class MetadataBulkDialog(ResizableDialog, Ui_MetadataBulkDialog):
         self.results_count.setValue(999)
         self.starting_from.setValue(1)
         self.multiple_separator.setText(" ::: ")
-
-

@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python2
 # vim:fileencoding=UTF-8:ts=4:sw=4:sta:et:sts=4:ai
 
 __license__   = 'GPL v3'
@@ -7,18 +7,19 @@ __docformat__ = 'restructuredtext en'
 
 import os
 from functools import partial
-from future_builtins import map
+from polyglot.builtins import map
 
 
 from calibre.utils.config import prefs
 from calibre.gui2 import error_dialog, Dispatcher, choose_dir
 from calibre.gui2.actions import InterfaceAction
 
+
 class SaveToDiskAction(InterfaceAction):
 
     name = "Save To Disk"
     action_spec = (_('Save to disk'), 'save.png',
-                   _('Export ebook files from the calibre library'), _('S'))
+                   _('Export e-book files from the calibre library'), _('S'))
     action_type = 'current'
     action_add_menu = True
     action_menu_clone_qaction = True

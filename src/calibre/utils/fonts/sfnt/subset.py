@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python2
 # vim:fileencoding=UTF-8:ts=4:sw=4:sta:et:sts=4:fdm=marker:ai
 from __future__ import (unicode_literals, division, absolute_import,
                         print_function)
@@ -12,10 +12,12 @@ from collections import OrderedDict
 from operator import itemgetter
 from functools import partial
 
+from calibre.utils.icu import safe_chr
 from calibre.utils.fonts.sfnt.container import Sfnt
 from calibre.utils.fonts.sfnt.errors import UnsupportedFont, NoGlyphs
 
 # TrueType outlines {{{
+
 
 def resolve_glyphs(loca, glyf, character_map, extra_glyphs):
     unresolved_glyphs = set(character_map.itervalues()) | extra_glyphs
@@ -35,6 +37,7 @@ def resolve_glyphs(loca, glyf, character_map, extra_glyphs):
                 unresolved_glyphs.add(gid)
 
     return OrderedDict(sorted(resolved_glyphs.iteritems(), key=itemgetter(0)))
+
 
 def subset_truetype(sfnt, character_map, extra_glyphs):
     loca = sfnt[b'loca']
@@ -64,10 +67,12 @@ def subset_truetype(sfnt, character_map, extra_glyphs):
 
 # }}}
 
+
 def subset_postscript(sfnt, character_map, extra_glyphs):
     cff = sfnt[b'CFF ']
     cff.decompile()
     cff.subset(character_map, extra_glyphs)
+
 
 def do_warn(warnings, *args):
     for arg in args:
@@ -80,6 +85,7 @@ def do_warn(warnings, *args):
         print()
     else:
         warnings.append('')
+
 
 def pdf_subset(sfnt, glyphs):
     for tag in tuple(sfnt.tables):
@@ -97,6 +103,7 @@ def pdf_subset(sfnt, glyphs):
     else:
         raise UnsupportedFont('This font does not contain TrueType '
                 'or PostScript outlines')
+
 
 def subset(raw, individual_chars, ranges=(), warnings=None):
     warn = partial(do_warn, warnings)
@@ -175,6 +182,8 @@ def subset(raw, individual_chars, ranges=(), warnings=None):
     return raw, old_sizes, new_sizes
 
 # CLI {{{
+
+
 def option_parser():
     import textwrap
     from calibre.utils.config import OptionParser
@@ -193,6 +202,7 @@ def option_parser():
             'characters a,b you would use 97,98')
     parser.prog = 'subset-font'
     return parser
+
 
 def print_stats(old_stats, new_stats):
     from calibre import prints
@@ -237,6 +247,11 @@ def main(args):
             prints(c, 'is not a single character', file=sys.stderr)
             raise SystemExit(1)
 
+    def conv_code(c):
+        if c.upper()[:2] in ('U+', '0X'):
+            c = int(c[2:], 16)
+        return safe_chr(int(c))
+
     for c in chars:
         if '-' in c:
             parts = [x.strip() for x in c.split('-')]
@@ -244,18 +259,19 @@ def main(args):
                 prints('Invalid range:', c, file=sys.stderr)
                 raise SystemExit(1)
             if opts.codes:
-                parts = tuple(map(unichr, map(int, parts)))
+                parts = tuple(map(conv_code, parts))
             map(not_single, parts)
             ranges.add(tuple(parts))
         else:
             if opts.codes:
-                c = unichr(int(c))
+                c = conv_code(c)
             not_single(c)
             individual.add(c)
     st = time.time()
     sf, old_stats, new_stats = subset(orig, individual, ranges)
     taken = time.time() - st
     reduced = (len(sf)/len(orig)) * 100
+
     def sz(x):
         return '%gKB'%(len(x)/1024.)
     print_stats(old_stats, new_stats)
@@ -276,6 +292,8 @@ if __name__ == '__main__':
 # }}}
 
 # Tests {{{
+
+
 def test_mem():
     from calibre.utils.mem import memory
     import gc
@@ -290,11 +308,13 @@ def test_mem():
         gc.collect()
     print ('Leaked memory per call:', (memory() - start_mem)/calls*1024, 'KB')
 
+
 def test():
     raw = P('fonts/liberation/LiberationSerif-Regular.ttf', data=True)
     sf, old_stats, new_stats = subset(raw, set(('a', 'b', 'c')), ())
     if len(sf) > 0.3 * len(raw):
         raise Exception('Subsetting failed')
+
 
 def all():
     from calibre.utils.fonts.scanner import font_scanner
@@ -325,8 +345,7 @@ def all():
                 print ('Failed!')
                 failed.append((font['full_name'], font['path'], unicode(e)))
             else:
-                averages.append(sum(new_stats.itervalues())/sum(old_stats.itervalues())
-                        * 100)
+                averages.append(sum(new_stats.itervalues())/sum(old_stats.itervalues()) * 100)
                 print ('Reduced to:', '%.1f'%averages[-1] , '%')
     if unsupported:
         print ('\n\nUnsupported:')

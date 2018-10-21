@@ -1,3 +1,4 @@
+from __future__ import print_function
 __license__   = 'GPL v3'
 __copyright__ = '2008, Kovid Goyal <kovid at kovidgoyal.net>'
 '''
@@ -15,15 +16,16 @@ from PyQt5.Qt import (QIcon, QFont, QLabel, QListWidget, QAction,
 from calibre.gui2 import (error_dialog, pixmap_to_data, gprefs,
         warning_dialog)
 from calibre.gui2.filename_pattern_ui import Ui_Form
-from calibre import fit_image
+from calibre import fit_image, strftime, force_unicode
 from calibre.ebooks import BOOK_EXTENSIONS
 from calibre.utils.config import prefs, XMLConfig
 from calibre.gui2.progress_indicator import ProgressIndicator as _ProgressIndicator
 from calibre.gui2.dnd import (dnd_has_image, dnd_get_image, dnd_get_files,
-    IMAGE_EXTENSIONS, dnd_has_extension, DownloadDialog)
+    image_extensions, dnd_has_extension, DownloadDialog)
 from calibre.utils.localization import localize_user_manual_link
 
 history = XMLConfig('history')
+
 
 class ProgressIndicator(QWidget):  # {{{
 
@@ -58,6 +60,7 @@ class ProgressIndicator(QWidget):  # {{{
         self.setVisible(False)
 # }}}
 
+
 class FilenamePattern(QWidget, Ui_Form):  # {{{
 
     changed_signal = pyqtSignal()
@@ -67,14 +70,14 @@ class FilenamePattern(QWidget, Ui_Form):  # {{{
         self.setupUi(self)
         try:
             self.help_label.setText(self.help_label.text() % localize_user_manual_link(
-                'http://manual.calibre-ebook.com/regexp.html'))
+                'https://manual.calibre-ebook.com/regexp.html'))
         except TypeError:
             pass  # link already localized
 
         self.test_button.clicked.connect(self.do_test)
         self.re.lineEdit().returnPressed[()].connect(self.do_test)
         self.filename.returnPressed[()].connect(self.do_test)
-        self.re.lineEdit().textChanged.connect(lambda x: self.changed_signal.emit())
+        connect_lambda(self.re.lineEdit().textChanged, self, lambda self, x: self.changed_signal.emit())
 
     def initialize(self, defaults=False):
         # Get all items in the combobox. If we are reseting
@@ -90,7 +93,7 @@ class FilenamePattern(QWidget, Ui_Form):  # {{{
         self.re.lineEdit().setText(val)
 
         val_hist += gprefs.get('filename_pattern_history', [
-                               '(?P<title>.+)', '(?P<author>[^_-]+) -?\s*(?P<series>[^_0-9-]*)(?P<series_index>[0-9]*)\s*-\s*(?P<title>[^_].+) ?'])
+                               '(?P<title>.+)', r'(?P<author>[^_-]+) -?\s*(?P<series>[^_0-9-]*)(?P<series_index>[0-9]*)\s*-\s*(?P<title>[^_].+) ?'])
         if val in val_hist:
             del val_hist[val_hist.index(val)]
         val_hist.insert(0, val)
@@ -106,9 +109,9 @@ class FilenamePattern(QWidget, Ui_Form):  # {{{
         fname = unicode(self.filename.text())
         ext = os.path.splitext(fname)[1][1:].lower()
         if ext not in BOOK_EXTENSIONS:
-            return warning_dialog(self, _('Test name invalid'),
-                    _('The name <b>%r</b> does not appear to end with a'
-                        ' file extension. The name must end with a file '
+            return warning_dialog(self, _('Test file name invalid'),
+                    _('The file name <b>%s</b> does not appear to end with a'
+                        ' file extension. It must end with a file '
                         ' extension like .epub or .mobi')%fname, show=True)
 
         try:
@@ -143,7 +146,7 @@ class FilenamePattern(QWidget, Ui_Form):  # {{{
             self.publisher.setText(_('No match'))
 
         if mi.pubdate:
-            self.pubdate.setText(mi.pubdate.strftime('%Y-%m-%d'))
+            self.pubdate.setText(strftime('%Y-%m-%d', mi.pubdate))
         else:
             self.pubdate.setText(_('No match'))
 
@@ -170,6 +173,7 @@ class FilenamePattern(QWidget, Ui_Form):  # {{{
 
 # }}}
 
+
 class FormatList(QListWidget):  # {{{
     DROPABBLE_EXTENSIONS = BOOK_EXTENSIONS
     formats_dropped = pyqtSignal(object, object)
@@ -177,14 +181,14 @@ class FormatList(QListWidget):  # {{{
 
     def dragEnterEvent(self, event):
         md = event.mimeData()
-        if dnd_has_extension(md, self.DROPABBLE_EXTENSIONS):
+        if dnd_has_extension(md, self.DROPABBLE_EXTENSIONS, allow_all_extensions=True):
             event.acceptProposedAction()
 
     def dropEvent(self, event):
         event.setDropAction(Qt.CopyAction)
         md = event.mimeData()
         # Now look for ebook files
-        urls, filenames = dnd_get_files(md, self.DROPABBLE_EXTENSIONS)
+        urls, filenames = dnd_get_files(md, self.DROPABBLE_EXTENSIONS, allow_all_extensions=True)
         if not urls:
             # Nothing found
             return
@@ -210,19 +214,21 @@ class FormatList(QListWidget):  # {{{
 
 # }}}
 
+
 class ImageDropMixin(object):  # {{{
     '''
     Adds support for dropping images onto widgets and a context menu for
     copy/pasting images.
     '''
-    DROPABBLE_EXTENSIONS = IMAGE_EXTENSIONS
+    DROPABBLE_EXTENSIONS = None
 
     def __init__(self):
         self.setAcceptDrops(True)
 
     def dragEnterEvent(self, event):
         md = event.mimeData()
-        if dnd_has_extension(md, self.DROPABBLE_EXTENSIONS) or \
+        exts = self.DROPABBLE_EXTENSIONS or image_extensions()
+        if dnd_has_extension(md, exts) or \
                 dnd_has_image(md):
             event.acceptProposedAction()
 
@@ -243,13 +249,15 @@ class ImageDropMixin(object):  # {{{
                 d.start_download()
                 if d.err is None:
                     pmap = QPixmap()
-                    pmap.loadFromData(open(d.fpath, 'rb').read())
+                    with lopen(d.fpath, 'rb') as f:
+                        data = f.read()
+                    pmap.loadFromData(data)
                     if not pmap.isNull():
-                        self.handle_image_drop(pmap)
+                        self.handle_image_drop(pmap, data=data)
 
-    def handle_image_drop(self, pmap):
+    def handle_image_drop(self, pmap, data=None):
         self.set_pixmap(pmap)
-        self.cover_changed.emit(pixmap_to_data(pmap, quality=100))
+        self.cover_changed.emit(data or pixmap_to_data(pmap, format='PNG'))
 
     def dragMoveEvent(self, event):
         event.acceptProposedAction()
@@ -262,8 +270,8 @@ class ImageDropMixin(object):  # {{{
 
     def build_context_menu(self):
         cm = QMenu(self)
-        paste = cm.addAction(_('Paste Cover'))
-        copy = cm.addAction(_('Copy Cover'))
+        paste = cm.addAction(_('Paste cover'))
+        copy = cm.addAction(_('Copy cover'))
         if not QApplication.instance().clipboard().mimeData().hasImage():
             paste.setEnabled(False)
         copy.triggered.connect(self.copy_to_clipboard)
@@ -284,10 +292,26 @@ class ImageDropMixin(object):  # {{{
         if not pmap.isNull():
             self.set_pixmap(pmap)
             self.cover_changed.emit(
-                    pixmap_to_data(pmap, quality=100))
+                    pixmap_to_data(pmap, format='PNG'))
 # }}}
 
-class ImageView(QWidget, ImageDropMixin):  # {{{
+
+# ImageView {{{
+
+def draw_size(p, rect, w, h):
+    rect = rect.adjusted(0, 0, 0, -4)
+    f = p.font()
+    f.setBold(True)
+    p.setFont(f)
+    sz = u'\u00a0%d x %d\u00a0'%(w, h)
+    flags = Qt.AlignBottom|Qt.AlignRight|Qt.TextSingleLine
+    szrect = p.boundingRect(rect, flags, sz)
+    p.fillRect(szrect.adjusted(0, 0, 0, 4), QColor(0, 0, 0, 200))
+    p.setPen(QPen(QColor(255,255,255)))
+    p.drawText(rect, flags, sz)
+
+
+class ImageView(QWidget, ImageDropMixin):
 
     BORDER_WIDTH = 1
     cover_changed = pyqtSignal(object)
@@ -295,7 +319,7 @@ class ImageView(QWidget, ImageDropMixin):  # {{{
     def __init__(self, parent=None, show_size_pref_name=None, default_show_size=False):
         QWidget.__init__(self, parent)
         self.show_size_pref_name = ('show_size_on_cover_' + show_size_pref_name) if show_size_pref_name else None
-        self._pixmap = QPixmap(self)
+        self._pixmap = QPixmap()
         self.setMinimumSize(QSize(150, 200))
         ImageDropMixin.__init__(self)
         self.draw_border = True
@@ -341,9 +365,9 @@ class ImageView(QWidget, ImageDropMixin):  # {{{
         cw, ch = self.rect().width(), self.rect().height()
         scaled, nw, nh = fit_image(w, h, cw, ch)
         if scaled:
-            pmap = pmap.scaled(nw, nh, Qt.IgnoreAspectRatio,
+            pmap = pmap.scaled(int(nw*pmap.devicePixelRatio()), int(nh*pmap.devicePixelRatio()), Qt.IgnoreAspectRatio,
                     Qt.SmoothTransformation)
-        w, h = pmap.width(), pmap.height()
+        w, h = int(pmap.width()/pmap.devicePixelRatio()), int(pmap.height()/pmap.devicePixelRatio())
         x = int(abs(cw - w)/2.)
         y = int(abs(ch - h)/2.)
         target = QRect(x, y, w, h)
@@ -356,26 +380,22 @@ class ImageView(QWidget, ImageDropMixin):  # {{{
             p.setPen(pen)
             p.drawRect(target)
         if self.show_size:
-            sztgt = target.adjusted(0, 0, 0, -4)
-            f = p.font()
-            f.setBold(True)
-            p.setFont(f)
-            sz = u'\u00a0%d x %d\u00a0'%(ow, oh)
-            flags = Qt.AlignBottom|Qt.AlignRight|Qt.TextSingleLine
-            szrect = p.boundingRect(sztgt, flags, sz)
-            p.fillRect(szrect.adjusted(0, 0, 0, 4), QColor(0, 0, 0, 200))
-            p.setPen(QPen(QColor(255,255,255)))
-            p.drawText(sztgt, flags, sz)
+            draw_size(p, target, ow, oh)
         p.end()
 # }}}
+
 
 class CoverView(QGraphicsView, ImageDropMixin):  # {{{
 
     cover_changed = pyqtSignal(object)
 
     def __init__(self, *args, **kwargs):
+        self.show_size = kwargs.pop('show_size', False)
         QGraphicsView.__init__(self, *args, **kwargs)
         ImageDropMixin.__init__(self)
+        self.pixmap_size = 0, 0
+        if self.show_size:
+            self.setViewportUpdateMode(self.FullViewportUpdate)
 
     def get_pixmap(self):
         for item in self.scene.items():
@@ -387,9 +407,18 @@ class CoverView(QGraphicsView, ImageDropMixin):  # {{{
         self.scene.addPixmap(pmap)
         self.setScene(self.scene)
 
+    def paintEvent(self, ev):
+        QGraphicsView.paintEvent(self, ev)
+        if self.show_size:
+            v = self.viewport()
+            p = QPainter(v)
+            draw_size(p, v.rect(), *self.pixmap_size)
+
 # }}}
 
 # BasicList {{{
+
+
 class BasicListItem(QListWidgetItem):
 
     def __init__(self, text, user_data=None):
@@ -400,6 +429,7 @@ class BasicListItem(QListWidgetItem):
         if hasattr(other, 'text'):
             return self.text() == other.text()
         return False
+
 
 class BasicList(QListWidget):
 
@@ -424,21 +454,19 @@ class BasicList(QListWidget):
             yield self.item(i)
 # }}}
 
+
 class LineEditECM(object):  # {{{
 
     '''
     Extend the context menu of a QLineEdit to include more actions.
     '''
 
-    def contextMenuEvent(self, event):
-        menu = self.createStandardContextMenu()
-        menu.addSeparator()
-
-        case_menu = QMenu(_('Change Case'))
-        action_upper_case = case_menu.addAction(_('Upper Case'))
-        action_lower_case = case_menu.addAction(_('Lower Case'))
-        action_swap_case = case_menu.addAction(_('Swap Case'))
-        action_title_case = case_menu.addAction(_('Title Case'))
+    def create_change_case_menu(self, menu):
+        case_menu = QMenu(_('Change case'), menu)
+        action_upper_case = case_menu.addAction(_('Upper case'))
+        action_lower_case = case_menu.addAction(_('Lower case'))
+        action_swap_case = case_menu.addAction(_('Swap case'))
+        action_title_case = case_menu.addAction(_('Title case'))
         action_capitalize = case_menu.addAction(_('Capitalize'))
 
         action_upper_case.triggered.connect(self.upper_case)
@@ -446,8 +474,13 @@ class LineEditECM(object):  # {{{
         action_swap_case.triggered.connect(self.swap_case)
         action_title_case.triggered.connect(self.title_case)
         action_capitalize.triggered.connect(self.capitalize)
-
         menu.addMenu(case_menu)
+        return case_menu
+
+    def contextMenuEvent(self, event):
+        menu = self.createStandardContextMenu()
+        menu.addSeparator()
+        self.create_change_case_menu(menu)
         menu.exec_(event.globalPos())
 
     def upper_case(self):
@@ -472,6 +505,7 @@ class LineEditECM(object):  # {{{
 
 # }}}
 
+
 class EnLineEdit(LineEditECM, QLineEdit):  # {{{
 
     '''
@@ -480,8 +514,15 @@ class EnLineEdit(LineEditECM, QLineEdit):  # {{{
     Includes an extended content menu.
     '''
 
-    pass
+    def event(self, ev):
+        # See https://bugreports.qt.io/browse/QTBUG-46911
+        if ev.type() == ev.ShortcutOverride and (
+                ev.key() in (Qt.Key_Left, Qt.Key_Right) and (ev.modifiers() & ~Qt.KeypadModifier) == Qt.ControlModifier):
+            ev.accept()
+        return QLineEdit.event(self, ev)
+
 # }}}
+
 
 class ItemsCompleter(QCompleter):  # {{{
 
@@ -509,6 +550,7 @@ class ItemsCompleter(QCompleter):  # {{{
         self.setModel(model)
 
 # }}}
+
 
 class CompleteLineEdit(EnLineEdit):  # {{{
 
@@ -569,6 +611,7 @@ class CompleteLineEdit(EnLineEdit):  # {{{
 
 # }}}
 
+
 class EnComboBox(QComboBox):  # {{{
 
     '''
@@ -595,6 +638,7 @@ class EnComboBox(QComboBox):  # {{{
 
 # }}}
 
+
 class CompleteComboBox(EnComboBox):  # {{{
 
     def __init__(self, *args):
@@ -612,6 +656,7 @@ class CompleteComboBox(EnComboBox):  # {{{
 
 # }}}
 
+
 class HistoryLineEdit(QComboBox):  # {{{
 
     lost_focus = pyqtSignal()
@@ -621,6 +666,7 @@ class HistoryLineEdit(QComboBox):  # {{{
         self.setEditable(True)
         self.setInsertPolicy(self.NoInsert)
         self.setMaxCount(10)
+        self.setClearButtonEnabled = self.lineEdit().setClearButtonEnabled
 
     def setPlaceholderText(self, txt):
         return self.lineEdit().setPlaceholderText(txt)
@@ -649,7 +695,15 @@ class HistoryLineEdit(QComboBox):  # {{{
         self.addItems(items)
         self.setEditText(ct)
         self.blockSignals(False)
-        history.set(self.store_name, items)
+        try:
+            history.set(self.store_name, items)
+        except ValueError:
+            from calibre.utils.cleantext import clean_ascii_chars
+            items = [clean_ascii_chars(force_unicode(x)) for x in items]
+            try:
+                history.set(self.store_name, items)
+            except ValueError:
+                pass
 
     def setText(self, t):
         self.setEditText(t)
@@ -665,12 +719,14 @@ class HistoryLineEdit(QComboBox):  # {{{
 
 # }}}
 
+
 class ComboBoxWithHelp(QComboBox):  # {{{
     '''
     A combobox where item 0 is help text. CurrentText will return '' for item 0.
     Be sure to always fetch the text with currentText. Don't use the signals
     that pass a string, because they will not correct the text.
     '''
+
     def __init__(self, parent=None):
         QComboBox.__init__(self, parent)
         self.currentIndexChanged[int].connect(self.index_changed)
@@ -714,6 +770,7 @@ class ComboBoxWithHelp(QComboBox):  # {{{
 
 # }}}
 
+
 class EncodingComboBox(QComboBox):  # {{{
     '''
     A combobox that holds text encodings support
@@ -738,6 +795,7 @@ class EncodingComboBox(QComboBox):  # {{{
             self.addItem(item)
 
 # }}}
+
 
 class PythonHighlighter(QSyntaxHighlighter):  # {{{
 
@@ -898,6 +956,8 @@ class PythonHighlighter(QSyntaxHighlighter):  # {{{
 # }}}
 
 # Splitter {{{
+
+
 class SplitterHandle(QSplitterHandle):
 
     double_clicked = pyqtSignal(object)
@@ -920,6 +980,7 @@ class SplitterHandle(QSplitterHandle):
     def mouseDoubleClickEvent(self, ev):
         self.double_clicked.emit(self)
 
+
 class LayoutButton(QToolButton):
 
     def __init__(self, icon, text, splitter=None, parent=None, shortcut=None):
@@ -927,27 +988,36 @@ class LayoutButton(QToolButton):
         self.label = text
         self.setIcon(QIcon(icon))
         self.setCheckable(True)
+        self.icname = os.path.basename(icon).rpartition('.')[0]
 
         self.splitter = splitter
         if splitter is not None:
             splitter.state_changed.connect(self.update_state)
         self.setCursor(Qt.PointingHandCursor)
-        self.shortcut = ''
-        if shortcut:
-            self.shortcut = shortcut
+        self.shortcut = shortcut or ''
+
+    def update_shortcut(self, action_toggle=None):
+        action_toggle = action_toggle or getattr(self, 'action_toggle', None)
+        if action_toggle:
+            sc = ', '.join(sc.toString(sc.NativeText)
+                                for sc in action_toggle.shortcuts())
+            self.shortcut = sc or ''
+            self.update_text()
+
+    def update_text(self):
+        t = _('Hide {}') if self.isChecked() else _('Show {}')
+        t = t.format(self.label)
+        if self.shortcut:
+            t += ' [{}]'.format(self.shortcut)
+        self.setText(t), self.setToolTip(t), self.setStatusTip(t)
 
     def set_state_to_show(self, *args):
         self.setChecked(False)
-        self.setText(_('Show %(label)s [%(shortcut)s]')%dict(label=self.label, shortcut=self.shortcut))
-        self.setToolTip(self.text())
-        self.setStatusTip(self.text())
+        self.update_text()
 
     def set_state_to_hide(self, *args):
         self.setChecked(True)
-        self.setText(_('Hide %(label)s [%(shortcut)s]')%dict(
-            label=self.label, shortcut=self.shortcut))
-        self.setToolTip(self.text())
-        self.setStatusTip(self.text())
+        self.update_text()
 
     def update_state(self, *args):
         if self.splitter.is_side_index_hidden:
@@ -955,14 +1025,36 @@ class LayoutButton(QToolButton):
         else:
             self.set_state_to_hide()
 
+    def mouseReleaseEvent(self, ev):
+        if ev.button() == Qt.RightButton:
+            from calibre.gui2.ui import get_gui
+            gui = get_gui()
+            if self.icname == 'search':
+                gui.iactions['Preferences'].do_config(initial_plugin=('Interface', 'Search'), close_after_initial=True)
+                ev.accept()
+                return
+            tab_name = {'book':'book_details', 'grid':'cover_grid', 'cover_flow':'cover_browser',
+                        'tags':'tag_browser', 'quickview':'quickview'}.get(self.icname)
+            if tab_name:
+                if gui is not None:
+                    gui.iactions['Preferences'].do_config(initial_plugin=('Interface', 'Look & Feel', tab_name+'_tab'), close_after_initial=True)
+                    ev.accept()
+                    return
+        return QToolButton.mouseReleaseEvent(self, ev)
+
+
 class Splitter(QSplitter):
 
     state_changed = pyqtSignal(object)
 
     def __init__(self, name, label, icon, initial_show=True,
             initial_side_size=120, connect_button=True,
-            orientation=Qt.Horizontal, side_index=0, parent=None, shortcut=None):
+            orientation=Qt.Horizontal, side_index=0, parent=None,
+            shortcut=None, hide_handle_on_single_panel=True):
         QSplitter.__init__(self, parent)
+        if hide_handle_on_single_panel:
+            self.state_changed.connect(self.update_handle_width)
+        self.original_handle_width = self.handleWidth()
         self.resize_timer = QTimer(self)
         self.resize_timer.setSingleShot(True)
         self.desired_side_size = initial_side_size
@@ -983,6 +1075,7 @@ class Splitter(QSplitter):
         if shortcut is not None:
             self.action_toggle = QAction(QIcon(icon), _('Toggle') + ' ' + label,
                     self)
+            self.action_toggle.changed.connect(self.update_shortcut)
             self.action_toggle.triggered.connect(self.toggle_triggered)
             if parent is not None:
                 parent.addAction(self.action_toggle)
@@ -994,6 +1087,9 @@ class Splitter(QSplitter):
                     self.action_toggle.setShortcut(shortcut)
             else:
                 self.action_toggle.setShortcut(shortcut)
+
+    def update_shortcut(self):
+        self.button.update_shortcut(self.action_toggle)
 
     def toggle_triggered(self, *args):
         self.toggle_side_pane()
@@ -1012,6 +1108,9 @@ class Splitter(QSplitter):
         self.desired_side_size = self.side_index_size
         self.state_changed.emit(not self.is_side_index_hidden)
 
+    def update_handle_width(self, not_one_panel):
+        self.setHandleWidth(self.original_handle_width if not_one_panel else 0)
+
     @property
     def is_side_index_hidden(self):
         sizes = list(self.sizes())
@@ -1028,8 +1127,8 @@ class Splitter(QSplitter):
 
     def print_sizes(self):
         if self.count() > 1:
-            print self.save_name, 'side:', self.side_index_size, 'other:',
-            print list(self.sizes())[self.other_index]
+            print(self.save_name, 'side:', self.side_index_size, 'other:', end=' ')
+            print(list(self.sizes())[self.other_index])
 
     @dynamic_property
     def side_index_size(self):
@@ -1133,6 +1232,7 @@ class Splitter(QSplitter):
     # }}}
 
 # }}}
+
 
 if __name__ == '__main__':
     from PyQt5.Qt import QTextEdit

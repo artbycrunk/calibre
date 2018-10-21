@@ -1,10 +1,13 @@
-#!/usr/bin/env  python
+#!/usr/bin/env  python2
+from __future__ import print_function
 __license__   = 'GPL v3'
 __copyright__ = '2008, Kovid Goyal kovid@kovidgoyal.net'
 __docformat__ = 'restructuredtext en'
 
 import re
 from calibre.utils import zipfile
+from calibre.utils.icu import numeric_sort_key
+
 
 def update(pathtozip, patterns, filepaths, names, compression=zipfile.ZIP_DEFLATED, verbose=True):
     '''
@@ -27,7 +30,7 @@ def update(pathtozip, patterns, filepaths, names, compression=zipfile.ZIP_DEFLAT
         for pat, fname, new_name in zip(patterns, filepaths, names):
             if pat.search(name):
                 if verbose:
-                    print 'Updating %s with %s' % (name, fname)
+                    print('Updating %s with %s' % (name, fname))
                 if new_name is None:
                     z.replace(fname, arcname=name, compress_type=compression)
                 else:
@@ -36,19 +39,41 @@ def update(pathtozip, patterns, filepaths, names, compression=zipfile.ZIP_DEFLAT
                 break
     z.close()
 
+
 def extract(filename, dir):
     """
     Extract archive C{filename} into directory C{dir}
     """
-    zf = zipfile.ZipFile( filename )
+    zf = zipfile.ZipFile(filename)
     zf.extractall(dir)
 
-def extract_member(filename, match=re.compile(r'\.(jpg|jpeg|gif|png)\s*$',
-    re.I), sort_alphabetically=False):
+
+def sort_key(filename):
+    bn, ext = filename.rpartition('.')[::2]
+    if not bn and ext:
+        bn, ext = ext, bn
+    return (numeric_sort_key(bn), numeric_sort_key(ext))
+
+
+def extract_member(filename, match=re.compile(r'\.(jpg|jpeg|gif|png)\s*$', re.I), sort_alphabetically=False):
     zf = zipfile.ZipFile(filename)
     names = list(zf.namelist())
     if sort_alphabetically:
-        names.sort()
+        names.sort(key=sort_key)
     for name in names:
         if match.search(name):
             return name, zf.read(name)
+
+
+comic_exts = {'png', 'jpg', 'jpeg', 'gif', 'webp'}
+
+
+def name_ok(name):
+    return bool(name and not name.startswith('__MACOSX/') and name.rpartition('.')[-1].lower() in comic_exts)
+
+
+def extract_cover_image(filename):
+    with zipfile.ZipFile(filename) as zf:
+        for name in sorted(zf.namelist(), key=sort_key):
+            if name_ok(name):
+                return name, zf.read(name)

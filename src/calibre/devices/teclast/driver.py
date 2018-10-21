@@ -4,6 +4,7 @@ __docformat__ = 'restructuredtext en'
 
 from calibre.devices.usbms.driver import USBMS
 
+
 class TECLAST_K3(USBMS):
 
     name           = 'Teclast K3/K5 Device Interface'
@@ -20,7 +21,7 @@ class TECLAST_K3(USBMS):
     BCD         = [0x0000, 0x0100]
 
     VENDOR_NAME      = ['TECLAST', 'IMAGIN', 'RK28XX', 'PER3274B', 'BEBOOK',
-                        'RK2728', 'MR700', 'CYBER', 'E-BOOK']
+                        'RK2728', 'MR700', 'CYBER', 'E-BOOK', 'EBOOK']
     WINDOWS_MAIN_MEM = WINDOWS_CARD_A_MEM = [
         'DIGITAL_PLAYER', 'TL-K5', 'EREADER', 'USB-MSC', 'PER3274B', 'BEBOOK', 'USER', 'BOOK', 'E71B',
     ]
@@ -44,6 +45,7 @@ class NEWSMY(TECLAST_K3):
     WINDOWS_MAIN_MEM = 'NEWSMY'
     WINDOWS_CARD_A_MEM = 'USBDISK____SD'
 
+
 class ARCHOS7O(TECLAST_K3):
     name = 'Archos 7O device interface'
     gui_name = 'Archos'
@@ -53,6 +55,7 @@ class ARCHOS7O(TECLAST_K3):
 
     VENDOR_NAME      = 'ARCHOS'
     WINDOWS_MAIN_MEM = WINDOWS_CARD_A_MEM = 'USB-MSC'
+
 
 class PICO(NEWSMY):
     name = 'Pico device interface'
@@ -65,6 +68,7 @@ class PICO(NEWSMY):
     FORMATS = ['EPUB', 'FB2', 'TXT', 'LRC', 'PDB', 'PDF', 'HTML', 'WTXT']
     SCAN_FROM_ROOT = True
 
+
 class IPAPYRUS(TECLAST_K3):
 
     name = 'iPapyrus device interface'
@@ -75,6 +79,7 @@ class IPAPYRUS(TECLAST_K3):
 
     VENDOR_NAME      = ['E_READER', 'EBOOKREA', 'ICARUS']
     WINDOWS_MAIN_MEM = ''
+
 
 class SOVOS(TECLAST_K3):
 
@@ -87,6 +92,7 @@ class SOVOS(TECLAST_K3):
     VENDOR_NAME      = 'RK28XX'
     WINDOWS_MAIN_MEM = WINDOWS_CARD_A_MEM = 'USB-MSC'
 
+
 class SUNSTECH_EB700(TECLAST_K3):
     name = 'Sunstech EB700 device interface'
     gui_name = 'EB700'
@@ -96,6 +102,7 @@ class SUNSTECH_EB700(TECLAST_K3):
 
     VENDOR_NAME = 'SUNEB700'
     WINDOWS_MAIN_MEM = 'USB-MSC'
+
 
 class STASH(TECLAST_K3):
 
@@ -109,6 +116,7 @@ class STASH(TECLAST_K3):
     VENDOR_NAME = 'STASH'
     WINDOWS_MAIN_MEM = WINDOWS_CARD_A_MEM = 'W950'
 
+
 class WEXLER(TECLAST_K3):
 
     name = 'Wexler device interface'
@@ -119,4 +127,3 @@ class WEXLER(TECLAST_K3):
 
     VENDOR_NAME = 'WEXLER'
     WINDOWS_MAIN_MEM = WINDOWS_CARD_A_MEM = 'T7001'
-

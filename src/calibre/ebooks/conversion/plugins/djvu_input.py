@@ -12,12 +12,14 @@ from io import BytesIO
 
 from calibre.customize.conversion import InputFormatPlugin
 
+
 class DJVUInput(InputFormatPlugin):
 
     name        = 'DJVU Input'
     author      = 'Anthon van der Neut'
     description = 'Convert OCR-ed DJVU files (.djvu) to HTML'
-    file_types  = set(['djvu', 'djv'])
+    file_types  = {'djvu', 'djv'}
+    commit_name = 'djvu_input'
 
     def convert(self, stream, options, file_ext, log, accelerators):
         from calibre.ebooks.txt.processor import convert_basic
@@ -60,4 +62,3 @@ class DJVUInput(InputFormatPlugin):
         meta_info_to_oeb_metadata(mi, oeb.metadata, log)
 
         return oeb
-

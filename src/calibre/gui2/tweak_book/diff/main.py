@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python2
 # vim:fileencoding=utf-8
 from __future__ import (unicode_literals, division, absolute_import,
                         print_function)
@@ -24,6 +24,7 @@ from calibre.gui2.tweak_book.widgets import Dialog
 from calibre.gui2.widgets2 import HistoryLineEdit2
 from calibre.utils.filenames import samefile
 from calibre.utils.icu import numeric_sort_key
+
 
 class BusyWidget(QWidget):  # {{{
 
@@ -55,12 +56,14 @@ class BusyWidget(QWidget):  # {{{
         p.end()
 # }}}
 
+
 class Cache(object):
 
     def __init__(self):
         self._left, self._right = {}, {}
         self.left, self.right = self._left.get, self._right.get
         self.set_left, self.set_right = self._left.__setitem__, self._right.__setitem__
+
 
 def changed_files(list_of_names1, list_of_names2, get_data1, get_data2):
     list_of_names1, list_of_names2 = frozenset(list_of_names1), frozenset(list_of_names2)
@@ -118,8 +121,19 @@ def get_decoded_raw(name):
             try:
                 raw = raw.decode(enc)
             except (LookupError, ValueError):
-                pass
+                try:
+                    raw = raw.decode('utf-8')
+                except ValueError:
+                    pass
     return raw, syntax
+
+
+def string_diff(left, right, left_syntax=None, right_syntax=None, left_name='left', right_name='right'):
+    left, right = unicode(left), unicode(right)
+    cache = Cache()
+    cache.set_left(left_name, left), cache.set_right(right_name, right)
+    changed_names = {} if left == right else {left_name:right_name}
+    return cache, {left_name:left_syntax, right_name:right_syntax}, changed_names, {}, set(), set()
 
 
 def file_diff(left, right):
@@ -130,6 +144,7 @@ def file_diff(left, right):
     cache.set_left(left, raw1), cache.set_right(right, raw2)
     changed_names = {} if raw1 == raw2 else {left:right}
     return cache, {left:syntax1, right:syntax2}, changed_names, {}, set(), set()
+
 
 def dir_diff(left, right):
     ldata, rdata, lsmap, rsmap = {}, {}, {}, {}
@@ -147,6 +162,7 @@ def dir_diff(left, right):
     syntax_map.update({name:rsmap[name] for name in added_names})
     syntax_map.update({name:lsmap[name] for name in removed_names})
     return cache, syntax_map, changed_names, renamed_names, removed_names, added_names
+
 
 def container_diff(left, right):
     left_names, right_names = set(left.name_path_map), set(right.name_path_map)
@@ -177,11 +193,13 @@ def container_diff(left, right):
     syntax_map.update({name:syntax(left, name) for name in removed_names})
     return cache, syntax_map, changed_names, renamed_names, removed_names, added_names
 
+
 def ebook_diff(path1, path2):
     from calibre.ebooks.oeb.polish.container import get_container
     left = get_container(path1, tweak_mode=True)
     right = get_container(path2, tweak_mode=True)
     return container_diff(left, right)
+
 
 class Diff(Dialog):
 
@@ -221,14 +239,14 @@ class Diff(Dialog):
         r = l.rowCount()
         self.bp = b = QToolButton(self)
         b.setIcon(QIcon(I('back.png')))
-        b.clicked.connect(partial(self.view.next_change, -1))
+        connect_lambda(b.clicked, self, lambda self: self.view.next_change(-1))
         b.setToolTip(_('Go to previous change') + ' [p]')
         b.setText(_('&Previous change')), b.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
         l.addWidget(b, r, 0)
 
         self.bn = b = QToolButton(self)
         b.setIcon(QIcon(I('forward.png')))
-        b.clicked.connect(partial(self.view.next_change, 1))
+        connect_lambda(b.clicked, self, lambda self: self.view.next_change(1))
         b.setToolTip(_('Go to next change') + ' [n]')
         b.setText(_('&Next change')), b.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
         l.addWidget(b, r, 1)
@@ -237,16 +255,16 @@ class Diff(Dialog):
         s.initialize('diff_search_history')
         l.addWidget(s, r, 2)
         s.setPlaceholderText(_('Search for text'))
-        s.returnPressed.connect(partial(self.do_search, False))
+        connect_lambda(s.returnPressed, self, lambda self: self.do_search(False))
         self.sbn = b = QToolButton(self)
         b.setIcon(QIcon(I('arrow-down.png')))
-        b.clicked.connect(partial(self.do_search, False))
+        connect_lambda(b.clicked, self, lambda self: self.do_search(False))
         b.setToolTip(_('Find next match'))
         b.setText(_('Next &match')), b.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
         l.addWidget(b, r, 3)
         self.sbp = b = QToolButton(self)
         b.setIcon(QIcon(I('arrow-up.png')))
-        b.clicked.connect(partial(self.do_search, True))
+        connect_lambda(b.clicked, self, lambda self: self.do_search(True))
         b.setToolTip(_('Find previous match'))
         b.setText(_('P&revious match')), b.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
         l.addWidget(b, r, 4)
@@ -331,6 +349,7 @@ class Diff(Dialog):
 
     def __enter__(self):
         self.stacks.setCurrentIndex(0)
+        self.busy.setVisible(True)
         self.busy.pi.startAnimation()
         QApplication.setOverrideCursor(QCursor(Qt.WaitCursor))
         QApplication.processEvents(QEventLoop.ExcludeUserInputEvents | QEventLoop.ExcludeSocketNotifiers)
@@ -369,6 +388,13 @@ class Diff(Dialog):
         if identical:
             self.reject()
 
+    def string_diff(self, left, right, **kw):
+        with self:
+            identical = self.apply_diff(kw.pop('identical_msg', None) or _('No differences found'), *string_diff(left, right, **kw))
+            self.view.finalize()
+        if identical:
+            self.reject()
+
     def dir_diff(self, left, right, identical_msg=None):
         with self:
             identical = self.apply_diff(identical_msg or _('The directories are identical'), *dir_diff(left, right))
@@ -379,12 +405,15 @@ class Diff(Dialog):
     def apply_diff(self, identical_msg, cache, syntax_map, changed_names, renamed_names, removed_names, added_names):
         self.view.clear()
         self.apply_diff_calls = calls = []
+
         def add(args, kwargs):
             self.view.add_diff(*args, **kwargs)
             calls.append((args, kwargs))
 
         if len(changed_names) + len(renamed_names) + len(removed_names) + len(added_names) < 1:
+            self.busy.setVisible(False)
             info_dialog(self, _('No changes found'), identical_msg, show=True)
+            self.busy.setVisible(True)
             return True
 
         kwargs = lambda name: {'context':self.context, 'beautify':self.beautify, 'syntax':syntax_map.get(name, None)}
@@ -429,6 +458,7 @@ class Diff(Dialog):
                 return
             return Dialog.keyPressEvent(self, ev)
 
+
 def compare_books(path1, path2, revert_msg=None, revert_callback=None, parent=None, names=None):
     d = Diff(parent=parent, revert_button_msg=revert_msg)
     if revert_msg is not None:
@@ -440,6 +470,7 @@ def compare_books(path1, path2, revert_msg=None, revert_callback=None, parent=No
     except:
         pass
     d.break_cycles()
+
 
 def main(args=sys.argv):
     from calibre.gui2 import Application
@@ -459,8 +490,10 @@ def main(args=sys.argv):
     d = Diff(show_as_window=True)
     func = getattr(d, attr)
     QTimer.singleShot(0, lambda : func(left, right))
-    d.exec_()
+    d.show()
+    app.exec_()
     return 0
+
 
 if __name__ == '__main__':
     main()

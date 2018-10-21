@@ -12,15 +12,17 @@ import re, os
 from calibre import fsync
 from calibre.devices.usbms.driver import USBMS
 
+
 def is_alex(device_info):
     return device_info[3] == u'Linux 2.6.28 with pxa3xx_u2d' and \
             device_info[4] == u'Seleucia Disk'
+
 
 class N516(USBMS):
 
     name           = 'N516 driver'
     gui_name       = 'N516'
-    description    = _('Communicate with the Hanvon N520 eBook reader.')
+    description    = _('Communicate with the Hanvon N520 e-book reader.')
     author         = 'John Schember'
     supported_platforms = ['windows', 'osx', 'linux']
 
@@ -42,11 +44,12 @@ class N516(USBMS):
     def can_handle(self, device_info, debug=False):
         return not is_alex(device_info)
 
+
 class KIBANO(N516):
 
     name = 'Kibano driver'
     gui_name = 'Kibano'
-    description    = _('Communicate with the Kibano eBook reader.')
+    description    = _('Communicate with the Kibano e-book reader.')
     FORMATS     = ['epub', 'pdf', 'txt']
     BCD         = [0x323]
 
@@ -55,6 +58,7 @@ class KIBANO(N516):
     # main memories
     WINDOWS_MAIN_MEM = WINDOWS_CARD_A_MEM = ['INTERNAL_SD_CARD',
                                              'EXTERNAL_SD_CARD']
+
 
 class THEBOOK(N516):
     name = 'The Book driver'
@@ -68,6 +72,7 @@ class THEBOOK(N516):
     WINDOWS_MAIN_MEM = WINDOWS_CARD_A_MEM = ['_FILE-STOR_GADGE',
             'FILE-STOR_GADGET']
 
+
 class LIBREAIR(N516):
     name = 'Libre Air Driver'
     gui_name = 'Libre Air'
@@ -80,11 +85,12 @@ class LIBREAIR(N516):
     WINDOWS_MAIN_MEM = WINDOWS_CARD_A_MEM = 'FILE-STOR_GADGET'
     EBOOK_DIR_MAIN = 'Books'
 
+
 class ALEX(N516):
 
     name = 'Alex driver'
     gui_name = 'SpringDesign Alex'
-    description    = _('Communicate with the SpringDesign Alex eBook reader.')
+    description    = _('Communicate with the SpringDesign Alex e-book reader.')
     author         = 'Kovid Goyal'
 
     FORMATS     = ['epub', 'fb2', 'pdf']
@@ -106,23 +112,23 @@ class ALEX(N516):
         return os.path.join(base, 'covers', name)
 
     def upload_cover(self, path, filename, metadata, filepath):
-        from calibre.ebooks import calibre_cover
-        from calibre.utils.magick.draw import thumbnail
+        from calibre.ebooks.covers import calibre_cover2
+        from calibre.utils.img import scale_image
         coverdata = getattr(metadata, 'thumbnail', None)
         if coverdata and coverdata[2]:
             cover = coverdata[2]
         else:
-            cover = calibre_cover(metadata.get('title', _('Unknown')),
+            cover = calibre_cover2(metadata.get('title', _('Unknown')),
                     metadata.get('authors', _('Unknown')))
 
-        cover = thumbnail(cover, width=self.THUMBNAIL_HEIGHT,
-                height=self.THUMBNAIL_HEIGHT, fmt='png')[-1]
+        cover = scale_image(cover, width=self.THUMBNAIL_HEIGHT,
+                height=self.THUMBNAIL_HEIGHT, as_png=True)[-1]
 
         cpath = self.alex_cpath(os.path.join(path, filename))
         cdir = os.path.dirname(cpath)
         if not os.path.exists(cdir):
             os.makedirs(cdir)
-        with open(cpath, 'wb') as coverfile:
+        with lopen(cpath, 'wb') as coverfile:
             coverfile.write(cover)
             fsync(coverfile)
 
@@ -140,6 +146,7 @@ class ALEX(N516):
             except:
                 pass
         self.report_progress(1.0, _('Removing books from device...'))
+
 
 class AZBOOKA(ALEX):
 
@@ -161,10 +168,11 @@ class AZBOOKA(ALEX):
     def upload_cover(self, path, filename, metadata, filepath):
         pass
 
+
 class EB511(USBMS):
     name           = 'Elonex EB 511 driver'
     gui_name       = 'EB 511'
-    description    = _('Communicate with the Elonex EB 511 eBook reader.')
+    description    = _('Communicate with the Elonex EB 511 e-book reader.')
     author         = 'Kovid Goyal'
     supported_platforms = ['windows', 'osx', 'linux']
 
@@ -181,10 +189,11 @@ class EB511(USBMS):
 
     OSX_MAIN_MEM_VOL_PAT = re.compile(r'/eReader')
 
+
 class ODYSSEY(N516):
     name  = 'Cybook Odyssey driver'
     gui_name       = 'Odyssey'
-    description    = _('Communicate with the Cybook Odyssey eBook reader.')
+    description    = _('Communicate with the Cybook Odyssey e-book reader.')
 
     BCD = [0x316]
     VENDOR_NAME      = ['LINUX', 'BOOKEEN']
@@ -198,4 +207,3 @@ class ODYSSEY(N516):
         if for_upload:
             return self.EBOOK_DIR_MAIN
         return ''
-

@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python2
 # vim:fileencoding=utf-8
 from __future__ import (unicode_literals, division, absolute_import,
                         print_function)
@@ -9,7 +9,7 @@ __copyright__ = '2013, Kovid Goyal <kovid at kovidgoyal.net>'
 import time, textwrap, json
 from bisect import bisect_right
 from base64 import b64encode
-from future_builtins import map
+from polyglot.builtins import map
 from threading import Thread
 from Queue import Queue, Empty
 from functools import partial
@@ -17,16 +17,15 @@ from urlparse import urlparse
 
 from PyQt5.Qt import (
     QWidget, QVBoxLayout, QApplication, QSize, QNetworkAccessManager, QMenu, QIcon,
-    QNetworkReply, QTimer, QNetworkRequest, QUrl, Qt, QNetworkDiskCache, QToolBar,
+    QNetworkReply, QTimer, QNetworkRequest, QUrl, Qt, QToolBar,
     pyqtSlot, pyqtSignal)
 from PyQt5.QtWebKitWidgets import QWebView, QWebInspector, QWebPage
 
 from calibre import prints
-from calibre.constants import iswindows
+from calibre.constants import FAKE_PROTOCOL, FAKE_HOST
 from calibre.ebooks.oeb.polish.parsing import parse
 from calibre.ebooks.oeb.base import serialize, OEB_DOCS
-from calibre.ptempfile import PersistentTemporaryDirectory
-from calibre.gui2 import error_dialog, open_url
+from calibre.gui2 import error_dialog, open_url, NO_URL_FORMATTING, secure_web_page
 from calibre.gui2.tweak_book import current_container, editors, tprefs, actions, TOP
 from calibre.gui2.viewer.documentview import apply_settings
 from calibre.gui2.viewer.config import config
@@ -35,6 +34,7 @@ from calibre.utils.ipc.simple_worker import offload_worker
 
 shutdown = object()
 
+
 def get_data(name):
     'Get the data for name. Returns a unicode string if name is a text document/stylesheet'
     if name in editors:
@@ -42,18 +42,27 @@ def get_data(name):
     return current_container().raw_data(name)
 
 # Parsing of html to add linenumbers {{{
+
+
 def parse_html(raw):
     root = parse(raw, decoder=lambda x:x.decode('utf-8'), line_numbers=True, linenumber_attribute='data-lnum')
     return serialize(root, 'text/html').encode('utf-8')
 
+
 class ParseItem(object):
 
-    __slots__ = ('name', 'length', 'fingerprint', 'parsed_data')
+    __slots__ = ('name', 'length', 'fingerprint', 'parsing_done', 'parsed_data')
 
     def __init__(self, name):
         self.name = name
         self.length, self.fingerprint = 0, None
         self.parsed_data = None
+        self.parsing_done = False
+
+    def __repr__(self):
+        return 'ParsedItem(name=%r, length=%r, fingerprint=%r, parsing_done=%r, parsed_data_is_None=%r)' % (
+            self.name, self.length, self.fingerprint, self.parsing_done, self.parsed_data is None)
+
 
 class ParseWorker(Thread):
 
@@ -100,6 +109,7 @@ class ParseWorker(Thread):
                 import traceback
                 traceback.print_exc()
             else:
+                pi.parsing_done = True
                 parsed_data = res['result']
                 if res['tb']:
                     prints("Parser error:")
@@ -114,9 +124,10 @@ class ParseWorker(Thread):
         if pi is None:
             self.parse_items[name] = pi = ParseItem(name)
         else:
-            if pi.length == ldata and pi.fingerprint == hdata:
+            if pi.parsing_done and pi.length == ldata and pi.fingerprint == hdata:
                 return
             pi.parsed_data = None
+            pi.parsing_done = False
         pi.length, pi.fingerprint = ldata, hdata
         self.requests.put((self.request_count, pi, data))
         self.request_count += 1
@@ -133,10 +144,13 @@ class ParseWorker(Thread):
     def is_alive(self):
         return Thread.is_alive(self) or (hasattr(self, 'worker') and self.worker.is_alive())
 
+
 parse_worker = ParseWorker()
 # }}}
 
 # Override network access to load data "live" from the editors {{{
+
+
 class NetworkReply(QNetworkReply):
 
     def __init__(self, parent, request, mime_type, name):
@@ -154,6 +168,12 @@ class NetworkReply(QNetworkReply):
                 data = data.encode('utf-8')
                 mime_type += '; charset=utf-8'
             self.__data = data
+            mime_type = {
+                # Prevent warning in console about mimetype of fonts
+                'application/vnd.ms-opentype':'application/x-font-ttf',
+                'application/x-font-truetype':'application/x-font-ttf',
+                'application/font-sfnt': 'application/x-font-ttf',
+            }.get(mime_type, mime_type)
             self.setHeader(QNetworkRequest.ContentTypeHeader, mime_type)
             self.setHeader(QNetworkRequest.ContentLengthHeader, len(self.__data))
             QTimer.singleShot(0, self.finalize_reply)
@@ -165,7 +185,7 @@ class NetworkReply(QNetworkReply):
         if data is None:
             return QTimer.singleShot(10, self.check_for_parse)
         self.__data = data
-        self.setHeader(QNetworkRequest.ContentTypeHeader, 'text/html; charset=utf-8')
+        self.setHeader(QNetworkRequest.ContentTypeHeader, 'application/xhtml+xml; charset=utf-8')
         self.setHeader(QNetworkRequest.ContentLengthHeader, len(self.__data))
         self.finalize_reply()
 
@@ -200,30 +220,11 @@ class NetworkReply(QNetworkReply):
 
 class NetworkAccessManager(QNetworkAccessManager):
 
-    OPERATION_NAMES = {getattr(QNetworkAccessManager, '%sOperation'%x) :
-            x.upper() for x in ('Head', 'Get', 'Put', 'Post', 'Delete',
-                'Custom')
-    }
-
-    def __init__(self, *args):
-        QNetworkAccessManager.__init__(self, *args)
-        self.current_root = None
-        self.cache = QNetworkDiskCache(self)
-        self.setCache(self.cache)
-        self.cache.setCacheDirectory(PersistentTemporaryDirectory(prefix='disk_cache_'))
-        self.cache.setMaximumCacheSize(0)
-
     def createRequest(self, operation, request, data):
-        url = unicode(request.url().toString(QUrl.None))
-        if operation == self.GetOperation and url.startswith('file://'):
-            path = url[7:]
-            if iswindows and path.startswith('/'):
-                path = path[1:]
+        qurl = request.url()
+        if operation == self.GetOperation and qurl.host() == FAKE_HOST:
+            name = qurl.path()[1:]
             c = current_container()
-            try:
-                name = c.abspath_to_name(path, root=self.current_root)
-            except ValueError:  # Happens on windows with absolute paths on different drives
-                name = None
             if c.has_name(name):
                 try:
                     return NetworkReply(self, request, c.mime_map.get(name, 'application/octet-stream'), name)
@@ -234,6 +235,7 @@ class NetworkAccessManager(QNetworkAccessManager):
 
 # }}}
 
+
 def uniq(vals):
     ''' Remove all duplicates from vals, while preserving order.  '''
     vals = vals or ()
@@ -241,12 +243,14 @@ def uniq(vals):
     seen_add = seen.add
     return tuple(x for x in vals if x not in seen and not seen_add(x))
 
+
 def find_le(a, x):
     'Find rightmost value in a less than or equal to x'
     try:
         return a[bisect_right(a, x)]
     except IndexError:
         return a[-1]
+
 
 class WebPage(QWebPage):
 
@@ -258,11 +262,8 @@ class WebPage(QWebPage):
         settings = self.settings()
         apply_settings(settings, config().parse())
         settings.setMaximumPagesInCache(0)
-        settings.setAttribute(settings.JavaEnabled, False)
-        settings.setAttribute(settings.PluginsEnabled, False)
+        secure_web_page(settings)
         settings.setAttribute(settings.PrivateBrowsingEnabled, True)
-        settings.setAttribute(settings.JavascriptCanOpenWindows, False)
-        settings.setAttribute(settings.JavascriptCanAccessClipboard, False)
         settings.setAttribute(settings.LinksIncludedInFocusChain, False)
         settings.setAttribute(settings.DeveloperExtrasEnabled, True)
         settings.setDefaultTextEncoding('utf-8')
@@ -275,14 +276,6 @@ class WebPage(QWebPage):
         self.setLinkDelegationPolicy(self.DelegateAllLinks)
         self.mainFrame().javaScriptWindowObjectCleared.connect(self.init_javascript)
         self.init_javascript()
-
-    @dynamic_property
-    def current_root(self):
-        def fget(self):
-            return self.networkAccessManager().current_root
-        def fset(self, val):
-            self.networkAccessManager().current_root = val
-        return property(fget=fget, fset=fset)
 
     def javaScriptConsoleMessage(self, msg, lineno, source_id):
         prints('preview js:%s:%s:'%(unicode(source_id), lineno), unicode(msg))
@@ -364,6 +357,7 @@ class WebView(QWebView):
         self.setPage(self._page)
         self.inspector.setPage(self._page)
         self.clear()
+        self.setAcceptDrops(False)
 
     def sizeHint(self):
         return self._size_hint
@@ -376,6 +370,7 @@ class WebView(QWebView):
         def fget(self):
             mf = self.page().mainFrame()
             return (mf.scrollBarValue(Qt.Horizontal), mf.scrollBarValue(Qt.Vertical))
+
         def fset(self, val):
             mf = self.page().mainFrame()
             mf.setScrollBarValue(Qt.Horizontal, val[0])
@@ -391,16 +386,9 @@ class WebView(QWebView):
             The preview will update automatically as you make changes.
 
             <p style="font-size:x-small; color: gray">Note that this is a quick preview
-            only, it is not intended to simulate an actual ebook reader. Some
-            aspects of your ebook will not work, such as, page breaks and
-            page margins.
-
+            only, it is not intended to simulate an actual e-book reader. Some
+            aspects of your e-book will not work, such as page breaks and page margins.
             '''))
-        self.page().current_root = None
-
-    def setUrl(self, qurl):
-        self.page().current_root = current_container().root
-        return QWebView.setUrl(self, qurl)
 
     def inspect(self):
         self.inspector.parent().show()
@@ -412,7 +400,7 @@ class WebView(QWebView):
         p = self.page()
         mf = p.mainFrame()
         r = mf.hitTestContent(ev.pos())
-        url = unicode(r.linkUrl().toString(QUrl.None)).strip()
+        url = unicode(r.linkUrl().toString(NO_URL_FORMATTING)).strip()
         ca = self.pageAction(QWebPage.Copy)
         if ca.isEnabled():
             menu.addAction(ca)
@@ -421,6 +409,7 @@ class WebView(QWebView):
         if url.partition(':')[0].lower() in {'http', 'https'}:
             menu.addAction(_('Open link'), partial(open_url, r.linkUrl()))
         menu.exec_(ev.globalPos())
+
 
 class Preview(QWidget):
 
@@ -485,18 +474,24 @@ class Preview(QWidget):
         self.search = HistoryLineEdit2(self)
         self.search.initialize('tweak_book_preview_search')
         self.search.setPlaceholderText(_('Search in preview'))
-        self.search.returnPressed.connect(partial(self.find, 'next'))
+        connect_lambda(self.search.returnPressed, self, lambda self: self.find('next'))
         self.bar.addSeparator()
         self.bar.addWidget(self.search)
         for d in ('next', 'prev'):
             ac = actions['find-%s-preview' % d]
-            ac.triggered.connect(partial(self.find, d))
+            ac.triggered.connect(getattr(self, 'find_' + d))
             self.bar.addAction(ac)
 
     def find(self, direction):
         text = unicode(self.search.text())
         self.view.findText(text, QWebPage.FindWrapsAroundDocument | (
             QWebPage.FindBackward if direction == 'prev' else QWebPage.FindFlags(0)))
+
+    def find_next(self):
+        self.find('next')
+
+    def find_prev(self):
+        self.find('prev')
 
     def request_sync(self, tagname, href, lnum):
         if self.current_name:
@@ -538,13 +533,19 @@ class Preview(QWidget):
             error_dialog(self, _('Failed to launch worker'), _(
                 'Failed to launch the worker process used for rendering the preview'), det_msg=tb, show=True)
 
+    def name_to_qurl(self, name=None):
+        name = name or self.current_name
+        qurl = QUrl()
+        qurl.setScheme(FAKE_PROTOCOL), qurl.setAuthority(FAKE_HOST), qurl.setPath('/' + name)
+        return qurl
+
     def show(self, name):
         if name != self.current_name:
             self.refresh_timer.stop()
             self.current_name = name
             self.report_worker_launch_error()
             parse_worker.add_request(name)
-            self.view.setUrl(QUrl.fromLocalFile(current_container().name_to_abspath(name)))
+            self.view.setUrl(self.name_to_qurl())
             return True
 
     def refresh(self):
@@ -555,7 +556,7 @@ class Preview(QWidget):
             self.report_worker_launch_error()
             parse_worker.add_request(self.current_name)
             # Tell webkit to reload all html and associated resources
-            current_url = QUrl.fromLocalFile(current_container().name_to_abspath(self.current_name))
+            current_url = self.name_to_qurl()
             self.refresh_starting.emit()
             if current_url != self.view.url():
                 # The container was changed
@@ -567,10 +568,6 @@ class Preview(QWidget):
     def clear(self):
         self.view.clear()
         self.current_name = None
-
-    @property
-    def current_root(self):
-        return self.view.page().current_root
 
     @property
     def is_visible(self):

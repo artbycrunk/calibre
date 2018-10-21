@@ -7,6 +7,7 @@ import re, os, shutil
 from calibre import CurrentDir
 from calibre.customize import Plugin
 
+
 class ConversionOption(object):
 
     '''
@@ -46,6 +47,7 @@ class ConversionOption(object):
                 long_switch=self.long_switch, short_switch=self.short_switch,
                 choices=self.choices)
 
+
 class OptionRecommendation(object):
     LOW  = 1
     MED  = 2
@@ -77,11 +79,10 @@ class OptionRecommendation(object):
                                                     self.option.choices:
             raise ValueError('OpRec: %s: Recommended value not in choices'%
                              self.option.name)
-        if not (isinstance(self.recommended_value, (int, float, str, unicode))
-            or self.recommended_value is None):
-            raise ValueError('OpRec: %s:'%self.option.name +
-                             repr(self.recommended_value) +
-                             ' is not a string or a number')
+        if not (isinstance(self.recommended_value, (int, float, str, unicode)) or self.recommended_value is None):
+            raise ValueError('OpRec: %s:'%self.option.name + repr(
+                self.recommended_value) + ' is not a string or a number')
+
 
 class DummyReporter(object):
 
@@ -90,6 +91,7 @@ class DummyReporter(object):
 
     def __call__(self, percent, msg=''):
         pass
+
 
 def gui_configuration_widget(name, parent, get_option_by_name,
         get_option_help, db, book_id, for_output=True):
@@ -123,6 +125,7 @@ def gui_configuration_widget(name, parent, get_option_by_name,
 
 
 class InputFormatPlugin(Plugin):
+
     '''
     InputFormatPlugins are responsible for converting a document into
     HTML+OPF+CSS+etc.
@@ -130,9 +133,11 @@ class InputFormatPlugin(Plugin):
     The main action happens in :meth:`convert`.
     '''
 
-    type = _('Conversion Input')
+    type = _('Conversion input')
     can_be_disabled = False
     supported_platforms = ['windows', 'osx', 'linux']
+    commit_name = None  # unique name under which options for this plugin are saved
+    ui_data = None
 
     #: Set of file types for which this plugin should be run
     #: For example: ``set(['azw', 'mobi', 'prc'])``
@@ -145,7 +150,7 @@ class InputFormatPlugin(Plugin):
     #: a list of images.
     is_image_collection = False
 
-    #: Number of CPU cores used by this plugin
+    #: Number of CPU cores used by this plugin.
     #: A value of -1 means that it uses all available cores
     core_usage = 1
 
@@ -161,7 +166,7 @@ class InputFormatPlugin(Plugin):
     #: Options shared by all Input format plugins. Do not override
     #: in sub-classes. Use :attr:`options` instead. Every option must be an
     #: instance of :class:`OptionRecommendation`.
-    common_options = set([
+    common_options = {
         OptionRecommendation(name='input_encoding',
             recommended_value=None, level=OptionRecommendation.LOW,
             help=_('Specify the character encoding of the input document. If '
@@ -169,9 +174,7 @@ class InputFormatPlugin(Plugin):
                    'document itself. Particularly useful for documents that '
                    'do not declare an encoding or that have erroneous '
                    'encoding declarations.')
-        ),
-
-    ])
+        )}
 
     #: Options to customize the behavior of this plugin. Every option must be an
     #: instance of :class:`OptionRecommendation`.
@@ -262,7 +265,7 @@ class InputFormatPlugin(Plugin):
         '''
         Called to create the widget used for configuring this plugin in the
         calibre GUI. The widget must be an instance of the PluginWidget class.
-        See the builting input plugins for examples.
+        See the builtin input plugins for examples.
         '''
         name = self.name.lower().replace(' ', '_')
         return gui_configuration_widget(name, parent, get_option_by_name,
@@ -270,17 +273,20 @@ class InputFormatPlugin(Plugin):
 
 
 class OutputFormatPlugin(Plugin):
+
     '''
     OutputFormatPlugins are responsible for converting an OEB document
-    (OPF+HTML) into an output ebook.
+    (OPF+HTML) into an output e-book.
 
     The OEB document can be assumed to be encoded in UTF-8.
     The main action happens in :meth:`convert`.
     '''
 
-    type = _('Conversion Output')
+    type = _('Conversion output')
     can_be_disabled = False
     supported_platforms = ['windows', 'osx', 'linux']
+    commit_name = None  # unique name under which options for this plugin are saved
+    ui_data = None
 
     #: The file type (extension without leading period) that this
     #: plugin outputs
@@ -289,26 +295,25 @@ class OutputFormatPlugin(Plugin):
     #: Options shared by all Input format plugins. Do not override
     #: in sub-classes. Use :attr:`options` instead. Every option must be an
     #: instance of :class:`OptionRecommendation`.
-    common_options = set([
+    common_options = {
         OptionRecommendation(name='pretty_print',
             recommended_value=False, level=OptionRecommendation.LOW,
             help=_('If specified, the output plugin will try to create output '
             'that is as human readable as possible. May not have any effect '
             'for some output plugins.')
-        ),
-        ])
+        )}
 
     #: Options to customize the behavior of this plugin. Every option must be an
     #: instance of :class:`OptionRecommendation`.
-    options = set([])
+    options = set()
 
     #: A set of 3-tuples of the form
     #: (option_name, recommended_value, recommendation_level)
-    recommendations = set([])
+    recommendations = set()
 
     @property
     def description(self):
-        return _('Convert ebooks to the %s format')%self.file_type
+        return _('Convert e-books to the %s format')%self.file_type
 
     def __init__(self, *args):
         Plugin.__init__(self, *args)
@@ -317,7 +322,7 @@ class OutputFormatPlugin(Plugin):
     def convert(self, oeb_book, output, input_plugin, opts, log):
         '''
         Render the contents of `oeb_book` (which is an instance of
-        :class:`calibre.ebooks.oeb.OEBBook` to the file specified by output.
+        :class:`calibre.ebooks.oeb.OEBBook`) to the file specified by output.
 
         :param output: Either a file like object or a string. If it is a string
                        it is the path to a directory that may or may not exist. The output
@@ -336,6 +341,13 @@ class OutputFormatPlugin(Plugin):
     def is_periodical(self):
         return self.oeb.metadata.publication_type and \
             unicode(self.oeb.metadata.publication_type[0]).startswith('periodical:')
+
+    def specialize_options(self, log, opts, input_fmt):
+        '''
+        Can be used to change the values of conversion options, as used by the
+        conversion pipeline.
+        '''
+        pass
 
     def specialize_css_for_output(self, log, opts, item, stylizer):
         '''
@@ -360,7 +372,3 @@ class OutputFormatPlugin(Plugin):
         name = self.name.lower().replace(' ', '_')
         return gui_configuration_widget(name, parent, get_option_by_name,
                 get_option_help, db, book_id, for_output=True)
-
-
-
-

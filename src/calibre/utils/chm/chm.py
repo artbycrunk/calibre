@@ -1,19 +1,19 @@
-## Copyright (C) 2003-2006 Rubens Ramos <rubensr@users.sourceforge.net>
+# Copyright (C) 2003-2006 Rubens Ramos <rubensr@users.sourceforge.net>
 
-## Based on code by:
-## Copyright (C) 2003  Razvan Cojocaru <razvanco@gmx.net>
+# Based on code by:
+# Copyright (C) 2003  Razvan Cojocaru <razvanco@gmx.net>
 
-## pychm is free software; you can redistribute it and/or
-## modify it under the terms of the GNU General Public License as
-## published by the Free Software Foundation; either version 2 of the
-## License, or (at your option) any later version.
+# pychm is free software; you can redistribute it and/or
+# modify it under the terms of the GNU General Public License as
+# published by the Free Software Foundation; either version 2 of the
+# License, or (at your option) any later version.
 
-## This program is distributed in the hope that it will be useful,
-## but WITHOUT ANY WARRANTY; without even the implied warranty of
-## MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
-## General Public License for more details.
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+# General Public License for more details.
 
-## $Id: chm.py,v 1.12 2006/08/07 12:31:51 rubensr Exp $
+# $Id: chm.py,v 1.12 2006/08/07 12:31:51 rubensr Exp $
 
 '''
    chm - A high-level front end for the chmlib python module.
@@ -44,8 +44,8 @@ charset_table = {
     161 : 'iso8859_7',  # GREEK_CHARSET
     177 : 'iso8859_8',  # HEBREW_CHARSET
     162 : 'iso8859_9',  # TURKISH_CHARSET
-    222 : 'iso8859_11', # THAI_CHARSET - hmm not in python 2.2...
-    186 : 'iso8859_13', # BALTIC_CHARSET
+    222 : 'iso8859_11',  # THAI_CHARSET - hmm not in python 2.2...
+    186 : 'iso8859_13',  # BALTIC_CHARSET
     204 : 'cp1251',     # RUSSIAN_CHARSET
     255 : 'cp437',      # OEM_CHARSET
     128 : 'cp932',      # SHIFTJIS_CHARSET
@@ -188,6 +188,7 @@ locale_table = {
     0x042a : ('cp1258',        "Vietnamese", "Vietnamese")
 }
 
+
 class CHMFile:
     "A class to manage access to CHM files."
     filename = ""
@@ -209,11 +210,11 @@ class CHMFile:
         such as the index file name and the topics file. It returns 1 on
         success, and 0 if it fails.
         '''
-        if (self.filename != None):
+        if (self.filename is not None):
             self.CloseCHM()
 
         self.file = chmlib.chm_open(archiveName)
-        if (self.file == None):
+        if (self.file is None):
             return 0
 
         self.filename = archiveName
@@ -226,7 +227,7 @@ class CHMFile:
         This function will close the CHM file, if it is open. All variables
         are also reset.
         '''
-        if (self.filename != None):
+        if (self.filename is not None):
             chmlib.chm_close(self.file)
             self.file = None
             self.filename = ''
@@ -243,8 +244,8 @@ class CHMFile:
         from LoadCHM.
         '''
 
-        #extra.is_searchable crashed...
-        #self.searchable = extra.is_searchable (self.file)
+        # extra.is_searchable crashed...
+        # self.searchable = extra.is_searchable (self.file)
         self.searchable = False
         self.lcid = None
 
@@ -253,7 +254,7 @@ class CHMFile:
             sys.stderr.write('GetArchiveInfo: #SYSTEM does not exist\n')
             return 0
 
-        size, text = chmlib.chm_retrieve_object(self.file, ui, 4l, ui.length)
+        size, text = chmlib.chm_retrieve_object(self.file, ui, 4, ui.length)
         if (size == 0):
             sys.stderr.write('GetArchiveInfo: file size = 0\n')
             return 0
@@ -319,7 +320,7 @@ class CHMFile:
         self.GetWindowsInfo()
 
         if not self.lcid:
-            self.lcid = extra.get_lcid (self.file)
+            self.lcid = extra.get_lcid(self.file)
 
         return 1
 
@@ -328,7 +329,7 @@ class CHMFile:
         This auxiliary function reads and returns the topics tree file
         contents for the CHM archive.
         '''
-        if (self.topics == None):
+        if (self.topics is None):
             return None
 
         if self.topics:
@@ -336,7 +337,7 @@ class CHMFile:
             if (res != chmlib.CHM_RESOLVE_SUCCESS):
                 return None
 
-        size, text = chmlib.chm_retrieve_object(self.file, ui, 0l, ui.length)
+        size, text = chmlib.chm_retrieve_object(self.file, ui, 0, ui.length)
         if (size == 0):
             sys.stderr.write('GetTopicsTree: file size = 0\n')
             return None
@@ -347,7 +348,7 @@ class CHMFile:
         This auxiliary function reads and returns the index tree file
         contents for the CHM archive.
         '''
-        if (self.index == None):
+        if (self.index is None):
             return None
 
         if self.index:
@@ -355,7 +356,7 @@ class CHMFile:
             if (res != chmlib.CHM_RESOLVE_SUCCESS):
                 return None
 
-        size, text = chmlib.chm_retrieve_object(self.file, ui, 0l, ui.length)
+        size, text = chmlib.chm_retrieve_object(self.file, ui, 0, ui.length)
         if (size == 0):
             sys.stderr.write('GetIndex: file size = 0\n')
             return None
@@ -369,13 +370,13 @@ class CHMFile:
         The UnitInfo is used to retrieve the document contents
         '''
         if self.file:
-            #path = os.path.abspath(document)
+            # path = os.path.abspath(document)
             path = document
             return chmlib.chm_resolve_object(self.file, path)
         else:
             return (1, None)
 
-    def RetrieveObject(self, ui, start = -1, length = -1):
+    def RetrieveObject(self, ui, start=-1, length=-1):
         '''Retrieves the contents of a document.
         This function takes a UnitInfo and two optional arguments, the first
         being the start address and the second is the length. These define
@@ -387,7 +388,7 @@ class CHMFile:
             else:
                 len = length
             if start == -1:
-                st = 0l
+                st = 0
             else:
                 st = long(start)
             return chmlib.chm_retrieve_object(self.file, ui, st, len)
@@ -404,7 +405,7 @@ class CHMFile:
         indicating if the search results were partial, and the second
         item being a dictionary containing the results.'''
         if text and text != '' and self.file:
-            return extra.search (self.file, text, wholewords,
+            return extra.search(self.file, text, wholewords,
                                  titleonly)
         else:
             return None
@@ -477,7 +478,7 @@ class CHMFile:
         if (result != chmlib.CHM_RESOLVE_SUCCESS):
             return -1
 
-        size, text = chmlib.chm_retrieve_object(self.file, ui, 0l, 8)
+        size, text = chmlib.chm_retrieve_object(self.file, ui, 0, 8)
         if (size < 8):
             return -2
 
@@ -488,7 +489,7 @@ class CHMFile:
         if num_entries < 1:
             return -3
 
-        size, text = chmlib.chm_retrieve_object(self.file, ui, 8l, entry_size)
+        size, text = chmlib.chm_retrieve_object(self.file, ui, 8, entry_size)
         if (size < entry_size):
             return -4
 
@@ -501,7 +502,7 @@ class CHMFile:
         if (result != chmlib.CHM_RESOLVE_SUCCESS):
             return -5
 
-        size, text = chmlib.chm_retrieve_object(self.file, ui, 0l, ui.length)
+        size, text = chmlib.chm_retrieve_object(self.file, ui, 0, ui.length)
         if (size == 0):
             return -6
 

@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python2
 # vim:fileencoding=UTF-8:ts=4:sw=4:sta:et:sts=4:ai
 
 __license__   = 'GPL v3'
@@ -14,7 +14,8 @@ from calibre.gui2.preferences import ConfigWidgetBase, test_widget
 from calibre.gui2.preferences.template_functions_ui import Ui_Form
 from calibre.gui2.widgets import PythonHighlighter
 from calibre.utils.formatter_functions import (formatter_functions,
-                        compile_user_function, load_user_template_functions)
+                        compile_user_function, compile_user_template_functions,
+                        load_user_template_functions)
 
 
 class ConfigWidget(ConfigWidgetBase, Ui_Form):
@@ -25,7 +26,7 @@ class ConfigWidget(ConfigWidgetBase, Ui_Form):
 
         help_text = _('''
         <p>Here you can add and remove functions used in template processing. A
-        template function is written in python. It takes information from the
+        template function is written in Python. It takes information from the
         book, processes it in some way, then returns a string result. Functions
         defined here are usable in templates in the same way that builtin
         functions are usable. The function must be named <b>evaluate</b>, and
@@ -38,13 +39,13 @@ class ConfigWidget(ConfigWidgetBase, Ui_Form):
         evaluate the current template. You can use this to do recursive
         template evaluation.</li>
         <li><b>kwargs</b>: a dictionary of metadata. Field values are in this
-        dictionary.
-        <li><b>mi</b>: a Metadata instance. Used to get field information.
+        dictionary.</li>
+        <li><b>mi</b>: a <i>Metadata</i> instance. Used to get field information.
         This parameter can be None in some cases, such as when evaluating
         non-book templates.</li>
         <li><b>locals</b>: the local variables assigned to by the current
         template program.</li>
-        <li><b>your parameters</b>: You must supply one or more formal
+        <li><b>your parameters</b>: you must supply one or more formal
         parameters. The number must match the arg count box, unless arg count is
         -1 (variable number or arguments), in which case the last argument must
         be *args. At least one argument is required, and is usually the value of
@@ -158,7 +159,7 @@ class ConfigWidget(ConfigWidgetBase, Ui_Form):
             box = warning_dialog(self.gui, _('Template functions'),
                          _('Argument count should be -1 or greater than zero. '
                            'Setting it to zero means that this function cannot '
-                           'be used in single function mode.'), det_msg = '',
+                           'be used in single function mode.'), det_msg='',
                          show=False)
             box.bb.setStandardButtons(box.bb.standardButtons() | QDialogButtonBox.Cancel)
             box.det_msg_toggle.setVisible(False)
@@ -214,6 +215,7 @@ class ConfigWidget(ConfigWidgetBase, Ui_Form):
     def replace_button_clicked(self):
         self.delete_button_clicked()
         self.create_button_clicked()
+
     def refresh_gui(self, gui):
         pass
 
@@ -223,8 +225,11 @@ class ConfigWidget(ConfigWidgetBase, Ui_Form):
         for name, cls in self.funcs.iteritems():
             if name not in self.builtins:
                 pref_value.append((cls.name, cls.doc, cls.arg_count, cls.program_text))
-        self.db.prefs.set('user_template_functions', pref_value)
-        load_user_template_functions(self.db.library_id, pref_value)
+        self.db.new_api.set_pref('user_template_functions', pref_value)
+        funcs = compile_user_template_functions(pref_value)
+        self.db.new_api.set_user_template_functions(funcs)
+        self.gui.library_view.model().refresh()
+        load_user_template_functions(self.db.library_id, [], funcs)
         return False
 
 
@@ -232,4 +237,3 @@ if __name__ == '__main__':
     from PyQt5.Qt import QApplication
     app = QApplication([])
     test_widget('Advanced', 'TemplateFunctions')
-

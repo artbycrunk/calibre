@@ -132,16 +132,16 @@ class Matches(QAbstractItemModel):
                 return ('<p>%s</p>' % result.description)
             elif col == 2:
                 if result.drm_free_only:
-                    return ('<p>' + _('This store only distributes ebooks without DRM.') + '</p>')
+                    return ('<p>' + _('This store only distributes e-books without DRM.') + '</p>')
                 else:
-                    return ('<p>' + _('This store distributes ebooks with DRM. It may have some titles without DRM, but you will need to check on a per title basis.') + '</p>')
+                    return ('<p>' + _('This store distributes e-books with DRM. It may have some titles without DRM, but you will need to check on a per title basis.') + '</p>')  # noqa
             elif col == 3:
-                return ('<p>' + _('This store is headquartered in %s. This is a good indication of what market the store caters to. However, this does not necessarily mean that the store is limited to that market only.') % result.headquarters + '</p>')
+                return ('<p>' + _('This store is headquartered in %s. This is a good indication of what market the store caters to. However, this does not necessarily mean that the store is limited to that market only.') % result.headquarters + '</p>')  # noqa
             elif col == 4:
                 if result.affiliate:
                     return ('<p>' + _('Buying from this store supports the calibre developer: %s.') % result.author + '</p>')
             elif col == 5:
-                return ('<p>' + _('This store distributes ebooks in the following formats: %s') % ', '.join(result.formats) + '</p>')
+                return ('<p>' + _('This store distributes e-books in the following formats: %s') % ', '.join(result.formats) + '</p>')
         return None
 
     def setData(self, index, data, role):
@@ -230,7 +230,7 @@ class SearchFilter(SearchQueryParser):
         if location not in self.USABLE_LOCATIONS:
             return set([])
         matches = set([])
-        all_locs = set(self.USABLE_LOCATIONS) - set(['all'])
+        all_locs = set(self.USABLE_LOCATIONS) - {'all'}
         locations = all_locs if location == 'all' else [location]
         q = {
              'affiliate': lambda x: x.affiliate,
@@ -248,14 +248,14 @@ class SearchFilter(SearchQueryParser):
                 accessor = q[locvalue]
                 if query == 'true':
                     if locvalue in ('affiliate', 'drm', 'enabled'):
-                        if accessor(sr) == True:
+                        if accessor(sr) == True:  # noqa
                             matches.add(sr)
                     elif accessor(sr) is not None:
                         matches.add(sr)
                     continue
                 if query == 'false':
                     if locvalue in ('affiliate', 'drm', 'enabled'):
-                        if accessor(sr) == False:
+                        if accessor(sr) == False:  # noqa
                             matches.add(sr)
                     elif accessor(sr) is None:
                         matches.add(sr)

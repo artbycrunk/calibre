@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python2
 # vim:fileencoding=UTF-8:ts=4:sw=4:sta:et:sts=4:ai
 from __future__ import (unicode_literals, division, absolute_import,
                         print_function)
@@ -8,6 +8,7 @@ __copyright__ = '2011, Kovid Goyal <kovid@kovidgoyal.net>'
 __docformat__ = 'restructuredtext en'
 
 SPOOL_SIZE = 30*1024*1024
+
 
 def _get_next_series_num_for_list(series_indices, unwrap=True):
     from calibre.utils.config_base import tweaks
@@ -39,6 +40,7 @@ def _get_next_series_num_for_list(series_indices, unwrap=True):
         return float(tweaks['series_index_auto_increment'])
     return 1.0
 
+
 def _get_series_values(val):
     import re
     series_index_pat = re.compile(r'(.*)\s+\[([.0-9]+)\]$')
@@ -53,6 +55,7 @@ def _get_series_values(val):
         except:
             pass
     return (val, None)
+
 
 def get_data_as_dict(self, prefix=None, authors_as_string=False, ids=None, convert_to_local_tz=True):
     '''

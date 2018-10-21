@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python2
 # vim:fileencoding=UTF-8:ts=4:sw=4:sta:et:sts=4:fdm=marker:ai
 from __future__ import (unicode_literals, division, absolute_import,
                         print_function)
@@ -9,9 +9,10 @@ __docformat__ = 'restructuredtext en'
 
 import threading
 from functools import wraps
-from future_builtins import map
+from polyglot.builtins import map
 
 from calibre.constants import plugins
+
 
 class ThreadingViolation(Exception):
 
@@ -19,6 +20,7 @@ class ThreadingViolation(Exception):
         Exception.__init__(self,
                 'You cannot use the freetype plugin from a thread other than the '
                 ' thread in which startup() was called')
+
 
 def same_thread(func):
     @wraps(func)
@@ -28,7 +30,9 @@ def same_thread(func):
         return func(self, *args, **kwargs)
     return check_thread
 
+
 FreeTypeError = getattr(plugins['freetype'][0], 'FreeTypeError', Exception)
+
 
 class Face(object):
 
@@ -63,6 +67,7 @@ class Face(object):
         for char in text:
             yield self.face.glyph_id(ord(char))
 
+
 class FreeType(object):
 
     def __init__(self):
@@ -76,5 +81,3 @@ class FreeType(object):
     @same_thread
     def load_font(self, data):
         return Face(self.ft.load_font(data))
-
-

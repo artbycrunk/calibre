@@ -1,17 +1,21 @@
-#!/usr/bin/env python
+#!/usr/bin/env python2
 # vim:fileencoding=UTF-8:ts=4:sw=4:sta:et:sts=4:ai
-from __future__ import with_statement
+from __future__ import with_statement, print_function
 
 __license__   = 'GPL v3'
 __copyright__ = '2009, Kovid Goyal <kovid@kovidgoyal.net>'
 __docformat__ = 'restructuredtext en'
 
-import os, tempfile, shutil, subprocess, glob, re, time, textwrap, cPickle, shlex, json, errno
+import os, tempfile, shutil, subprocess, glob, re, time, textwrap, shlex, json, errno, hashlib, sys
+from collections import defaultdict
 from locale import normalize as normalize_locale
 from functools import partial
 
-from setup import Command, __appname__, __version__, require_git_master
+from setup import Command, __appname__, __version__, require_git_master, build_cache_dir, edit_file
 from setup.parallel_build import parallel_check_output
+from polyglot.builtins import iteritems
+is_ci = os.environ.get('CI', '').lower() == 'true'
+
 
 def qt_sources():
     qtdir = '/usr/src/qt5'
@@ -21,6 +25,7 @@ def qt_sources():
             'qtbase/src/widgets/dialogs/qcolordialog.cpp',
             'qtbase/src/widgets/dialogs/qfontdialog.cpp',
     ]))
+
 
 class POT(Command):  # {{{
 
@@ -32,7 +37,9 @@ class POT(Command):  # {{{
         kw['cwd'] = kw.get('cwd', self.TRANSLATIONS)
         if hasattr(cmd, 'format'):
             cmd = shlex.split(cmd)
-        return subprocess.check_call(['tx'] + cmd, **kw)
+        cmd = ['tx', '--traceback'] + cmd
+        self.info(' '.join(cmd))
+        return subprocess.check_call(cmd, **kw)
 
     def git(self, cmd, **kw):
         kw['cwd'] = kw.get('cwd', self.TRANSLATIONS)
@@ -41,11 +48,11 @@ class POT(Command):  # {{{
         f = getattr(subprocess, ('call' if kw.pop('use_call', False) else 'check_call'))
         return f(['git'] + cmd, **kw)
 
-    def upload_pot(self, pot, resource='main'):
+    def upload_pot(self, resource):
         self.tx(['push', '-r', 'calibre.'+resource, '-s'], cwd=self.TRANSLATIONS)
 
     def source_files(self):
-        ans = []
+        ans = [self.a(self.j(self.MANUAL, x)) for x in ('custom.py', 'conf.py')]
         for root, _, files in os.walk(self.j(self.SRC, __appname__)):
             for name in files:
                 if name.endswith('.py'):
@@ -84,6 +91,18 @@ class POT(Command):  # {{{
 
         return '\n'.join(ans)
 
+    def get_content_server_strings(self):
+        self.info('Generating translation template for content_server')
+        from calibre import walk
+        from calibre.utils.rapydscript import create_pot
+        files = (f for f in walk(self.j(self.SRC, 'pyj')) if f.endswith('.pyj'))
+        pottext = create_pot(files).encode('utf-8')
+        dest = self.j(self.TRANSLATIONS, 'content-server', 'content-server.pot')
+        with open(dest, 'wb') as f:
+            f.write(pottext)
+        self.upload_pot(resource='content_server')
+        self.git(['add', dest])
+
     def get_user_manual_docs(self):
         self.info('Generating translation templates for user_manual')
         base = tempfile.mkdtemp()
@@ -112,14 +131,28 @@ class POT(Command):  # {{{
                         self.info('Failed to add file_filter to config file')
                         raise SystemExit(1)
                 self.git('add .tx/config')
-            self.upload_pot(dest, resource=slug)
+            self.upload_pot(resource=slug)
             self.git(['add', dest])
         shutil.rmtree(base)
 
-    def run(self, opts):
-        require_git_master()
-        self.get_user_manual_docs()
-        pot_header = textwrap.dedent('''\
+    def get_website_strings(self):
+        self.info('Generating translation template for website')
+        self.wn_path = os.path.expanduser('~/work/srv/main/static/generate.py')
+        data = subprocess.check_output([self.wn_path, '--pot'])
+        bdir = os.path.join(self.TRANSLATIONS, 'website')
+        if not os.path.exists(bdir):
+            os.makedirs(bdir)
+        pot = os.path.join(bdir, 'website.pot')
+        with open(pot, 'wb') as f:
+            f.write(self.pot_header().encode('utf-8'))
+            f.write(b'\n')
+            f.write(data)
+        self.info('Website translations:', os.path.abspath(pot))
+        self.upload_pot(resource='website')
+        self.git(['add', os.path.abspath(pot)])
+
+    def pot_header(self, appname=__appname__, version=__version__):
+        return textwrap.dedent('''\
         # Translation template file..
         # Copyright (C) %(year)s Kovid Goyal
         # Kovid Goyal <kovid@kovidgoyal.net>, %(year)s.
@@ -137,12 +170,18 @@ class POT(Command):  # {{{
         "Content-Type: text/plain; charset=UTF-8\\n"
         "Content-Transfer-Encoding: 8bit\\n"
 
-        ''')%dict(appname=__appname__, version=__version__,
+        ''')%dict(appname=appname, version=version,
                 year=time.strftime('%Y'),
                 time=time.strftime('%Y-%m-%d %H:%M+%Z'))
 
+    def run(self, opts):
+        require_git_master()
+        self.get_website_strings()
+        self.get_content_server_strings()
+        self.get_user_manual_docs()
         files = self.source_files()
         qt_inputs = qt_sources()
+        pot_header = self.pot_header()
 
         with tempfile.NamedTemporaryFile() as fl:
             fl.write('\n'.join(files))
@@ -177,8 +216,7 @@ class POT(Command):  # {{{
             with open(pot, 'wb') as f:
                 f.write(src)
             self.info('Translations template:', os.path.abspath(pot))
-            self.upload_pot(os.path.abspath(pot))
-
+            self.upload_pot(resource='main')
             self.git(['add', os.path.abspath(pot)])
 
         if self.git('diff-index --cached --quiet --ignore-submodules HEAD --', use_call=True) != 0:
@@ -188,10 +226,44 @@ class POT(Command):  # {{{
         return pot
 # }}}
 
+
 class Translations(POT):  # {{{
     description='''Compile the translations'''
     DEST = os.path.join(os.path.dirname(POT.SRC), 'resources', 'localization',
             'locales')
+
+    @property
+    def cache_dir(self):
+        ans = self.j(build_cache_dir(), 'translations')
+        if not hasattr(self, 'cache_dir_created'):
+            self.cache_dir_created = True
+            try:
+                os.mkdir(ans)
+            except EnvironmentError as err:
+                if err.errno != errno.EEXIST:
+                    raise
+        return ans
+
+    def cache_name(self, f):
+        f = os.path.relpath(f, self.d(self.SRC))
+        return f.replace(os.sep, '.').replace('/', '.').lstrip('.')
+
+    def read_cache(self, f):
+        cname = self.cache_name(f)
+        try:
+            with open(self.j(self.cache_dir, cname), 'rb') as f:
+                data = f.read()
+                return data[:20], data[20:]
+        except EnvironmentError as err:
+            if err.errno != errno.ENOENT:
+                raise
+        return None, None
+
+    def write_cache(self, data, h, f):
+        cname = self.cache_name(f)
+        assert len(h) == 20
+        with open(self.j(self.cache_dir, cname), 'wb') as f:
+            f.write(h), f.write(data)
 
     def po_files(self):
         return glob.glob(os.path.join(self.TRANSLATIONS, __appname__, '*.po'))
@@ -201,53 +273,157 @@ class Translations(POT):  # {{{
         return locale, os.path.join(self.DEST, locale, 'messages.mo')
 
     def run(self, opts):
-        l = {}
-        exec(compile(open(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'lc_data.py'))
-             .read(), os.path.join(os.path.dirname(os.path.abspath(__file__)), 'lc_data.py'), 'exec'), l, l)
-        lcdata = {k:{k1:v1 for k1, v1 in v} for k, v in l['data']}
-        self.iso639_errors = []
-        jobs = []
-        for f in self.po_files():
-            locale, dest = self.mo_file(f)
+        self.compile_main_translations()
+        self.compile_content_server_translations()
+        self.freeze_locales()
+        self.compile_user_manual_translations()
+        self.compile_website_translations()
+
+    def compile_group(self, files, handle_stats=None, file_ok=None, action_per_file=None):
+        from calibre.constants import islinux
+        jobs, ok_files = [], []
+        hashmap = {}
+
+        def stats_cache(src, data=None):
+            cname = self.cache_name(src) + '.stats.json'
+            with open(self.j(self.cache_dir, cname), ('rb' if data is None else 'wb')) as f:
+                if data is None:
+                    return json.load(f)
+                json.dump(data, f)
+
+        for src, dest in files:
             base = os.path.dirname(dest)
             if not os.path.exists(base):
                 os.makedirs(base)
-            jobs.append(['msgfmt', '-o', dest, f])
-            iscpo = {'bn':'bn_IN', 'zh_HK':'zh_CN'}.get(locale, locale)
-            iso639 = self.j(self.TRANSLATIONS, 'iso_639', '%s.po'%iscpo)
+            data, h = self.hash_and_data(src)
+            current_hash = h.digest()
+            saved_hash, saved_data = self.read_cache(src)
+            if current_hash == saved_hash:
+                with open(dest, 'wb') as d:
+                    d.write(saved_data)
+                    if handle_stats is not None:
+                        handle_stats(src, stats_cache(src))
+            else:
+                if file_ok is None or file_ok(data, src):
+                    self.info('\t' + os.path.relpath(src, self.j(self.d(self.SRC), 'translations')))
+                    if islinux:
+                        msgfmt = ['msgfmt']
+                    else:
+                        msgfmt = [sys.executable, self.j(self.SRC, 'calibre', 'translations', 'msgfmt.py')]
+                    jobs.append(msgfmt + ['--statistics', '-o', dest, src])
+                    ok_files.append((src, dest))
+                    hashmap[src] = current_hash
+            if action_per_file is not None:
+                action_per_file(src)
 
-            if os.path.exists(iso639) and self.check_iso639(iso639):
-                dest = self.j(self.d(dest), 'iso639.mo')
-                if self.newer(dest, iso639):
-                    jobs.append(['msgfmt', '-o', dest, iso639])
-            elif locale not in {
-                'en_GB', 'en_CA', 'en_AU', 'si', 'ur', 'sc', 'ltg', 'nds',
-                'te', 'yi', 'fo', 'sq', 'ast', 'ml', 'ku', 'fr_CA', 'him',
-                'jv', 'ka', 'fur', 'ber', 'my', 'fil', 'hy', 'ug'}:
-                self.warn('No ISO 639 translations for locale:', locale)
+        for (src, dest), line in zip(ok_files, parallel_check_output(jobs, self.info)):
+            self.write_cache(open(dest, 'rb').read(), hashmap[src], src)
+            nums = tuple(map(int, re.findall(r'\d+', line)))
+            stats_cache(src, nums)
+            if handle_stats is not None:
+                handle_stats(src, nums)
 
+    def compile_main_translations(self):
+        l = {}
+        lc_dataf = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'lc_data.py')
+        exec(compile(open(lc_dataf, 'rb').read(), lc_dataf, 'exec'), l, l)
+        lcdata = {k:{k1:v1 for k1, v1 in v} for k, v in l['data']}
+        self.iso639_errors = []
+        self.info('Compiling main UI translation files...')
+        fmap = {f:self.mo_file(f) for f in self.po_files()}
+        files = [(f, fmap[f][1]) for f in self.po_files()]
+
+        def action_per_file(f):
+            locale, dest = fmap[f]
             ln = normalize_locale(locale).partition('.')[0]
             if ln in lcdata:
                 ld = lcdata[ln]
-                lcdest = self.j(self.d(dest), 'lcdata.pickle')
+                lcdest = self.j(self.d(dest), 'lcdata.calibre_msgpack')
+                from calibre.utils.serialize import msgpack_dumps
                 with open(lcdest, 'wb') as lcf:
-                    lcf.write(cPickle.dumps(ld, -1))
-        self.info('\nCompiling %d translation files...' % len(jobs))
-        tuple(parallel_check_output(jobs, self.info))
+                    lcf.write(msgpack_dumps(ld))
+
+        stats = {}
+
+        def handle_stats(f, nums):
+            trans = nums[0]
+            total = trans if len(nums) == 1 else (trans + nums[1])
+            locale = fmap[f][0]
+            stats[locale] = min(1.0, float(trans)/total)
+
+        self.compile_group(files, handle_stats=handle_stats, action_per_file=action_per_file)
+        self.info('Compiling ISO639 files...')
+
+        files = []
+        skip_iso = {
+            'en_GB', 'en_CA', 'en_AU', 'si', 'ur', 'sc', 'ltg', 'nds',
+            'te', 'yi', 'fo', 'sq', 'ast', 'ml', 'ku', 'fr_CA', 'him',
+            'jv', 'ka', 'fur', 'ber', 'my', 'fil', 'hy', 'ug'}
+        for f, (locale, dest) in iteritems(fmap):
+            iscpo = {'bn':'bn_IN', 'zh_HK':'zh_CN'}.get(locale, locale)
+            iso639 = self.j(self.TRANSLATIONS, 'iso_639', '%s.po'%iscpo)
+            if os.path.exists(iso639):
+                files.append((iso639, self.j(self.d(dest), 'iso639.mo')))
+            elif locale not in skip_iso:
+                self.warn('No ISO 639 translations for locale:', locale)
+        self.compile_group(files, file_ok=self.check_iso639)
 
         if self.iso639_errors:
             for err in self.iso639_errors:
                 print (err)
             raise SystemExit(1)
 
-        self.write_stats()
-        self.freeze_locales()
-        self.compile_user_manual_translations()
+        dest = self.stats
+        base = self.d(dest)
+        try:
+            os.mkdir(base)
+        except EnvironmentError as err:
+            if err.errno != errno.EEXIST:
+                raise
+        from calibre.utils.serialize import msgpack_dumps
+        with open(dest, 'wb') as f:
+            f.write(msgpack_dumps(stats))
 
-    def check_iso639(self, path):
+    def hash_and_data(self, f):
+        with open(f, 'rb') as s:
+            data = s.read()
+        h = hashlib.sha1(data)
+        h.update(f.encode('utf-8'))
+        return data, h
+
+    def compile_content_server_translations(self):
+        self.info('Compiling content-server translations')
+        from calibre.utils.rapydscript import msgfmt
+        from calibre.utils.zipfile import ZipFile, ZIP_DEFLATED, ZipInfo, ZIP_STORED
+        with ZipFile(self.j(self.RESOURCES, 'content-server', 'locales.zip'), 'w', ZIP_DEFLATED) as zf:
+            for src in glob.glob(os.path.join(self.TRANSLATIONS, 'content-server', '*.po')):
+                data, h = self.hash_and_data(src)
+                current_hash = h.digest()
+                saved_hash, saved_data = self.read_cache(src)
+                if current_hash == saved_hash:
+                    raw = saved_data
+                else:
+                    self.info('\tParsing ' + os.path.basename(src))
+                    raw = None
+                    po_data = data.decode('utf-8')
+                    data = json.loads(msgfmt(po_data))
+                    translated_entries = {k:v for k, v in iteritems(data['entries']) if v and sum(map(len, v))}
+                    data[u'entries'] = translated_entries
+                    data[u'hash'] = h.hexdigest()
+                    cdata = b'{}'
+                    if translated_entries:
+                        raw = json.dumps(data, ensure_ascii=False, sort_keys=True)
+                        if isinstance(raw, type(u'')):
+                            raw = raw.encode('utf-8')
+                        cdata = raw
+                    self.write_cache(cdata, current_hash, src)
+                if raw:
+                    zi = ZipInfo(os.path.basename(src).rpartition('.')[0])
+                    zi.compress_type = ZIP_STORED if is_ci else ZIP_DEFLATED
+                    zf.writestr(zi, raw)
+
+    def check_iso639(self, raw, path):
         from calibre.utils.localization import langnames_to_langcodes
-        with open(path, 'rb') as f:
-            raw = f.read()
         rmap = {}
         msgid = None
         has_errors = False
@@ -280,38 +456,70 @@ class Translations(POT):  # {{{
 
     @property
     def stats(self):
-        return self.j(self.d(self.DEST), 'stats.pickle')
+        return self.j(self.d(self.DEST), 'stats.calibre_msgpack')
 
-    def write_stats(self):
-        files = self.po_files()
-        dest = self.stats
-        if not self.newer(dest, files):
-            return
-        self.info('Calculating translation statistics...')
+    def compile_website_translations(self):
+        from calibre.utils.zipfile import ZipFile, ZipInfo, ZIP_STORED
+        from calibre.ptempfile import TemporaryDirectory
+        from calibre.utils.localization import get_iso639_translator, get_language, get_iso_language
+        self.info('Compiling website translations...')
+        srcbase = self.j(self.d(self.SRC), 'translations', 'website')
+        fmap = {}
+        files = []
         stats = {}
-        jobs = (
-            ['msgfmt', '--statistics', '-o', os.devnull, x] for x in files
-        )
-        for f, line in zip(files, parallel_check_output(jobs, self.info)):
-            nums = tuple(map(int, re.findall(r'\d+', line)))
+        done = []
+
+        def handle_stats(src, nums):
+            locale = fmap[src]
             trans = nums[0]
             total = trans if len(nums) == 1 else (trans + nums[1])
-            locale = self.mo_file(f)[0]
-            stats[locale] = min(1.0, float(trans)/total)
+            stats[locale] = int(round(100 * trans / total))
 
-        base = self.d(dest)
-        try:
-            os.mkdir(base)
-        except EnvironmentError as err:
-            if err.errno != errno.EEXIST:
-                raise
-        cPickle.dump(stats, open(dest, 'wb'), -1)
+        with TemporaryDirectory() as tdir, ZipFile(self.j(srcbase, 'locales.zip'), 'w', ZIP_STORED) as zf:
+            for f in os.listdir(srcbase):
+                if f.endswith('.po'):
+                    l = f.partition('.')[0]
+                    pf = l.split('_')[0]
+                    if pf in {'en'}:
+                        continue
+                    d = os.path.join(tdir, l + '.mo')
+                    f = os.path.join(srcbase, f)
+                    fmap[f] = l
+                    files.append((f, d))
+            self.compile_group(files, handle_stats=handle_stats)
+
+            for locale, translated in iteritems(stats):
+                if translated >= 20:
+                    with open(os.path.join(tdir, locale + '.mo'), 'rb') as f:
+                        raw = f.read()
+                    zi = ZipInfo(os.path.basename(f.name))
+                    zi.compress_type = ZIP_STORED
+                    zf.writestr(zi, raw)
+                    done.append(locale)
+            dl = done + ['en']
+
+            lang_names = {}
+            for l in dl:
+                if l == 'en':
+                    t = get_language
+                else:
+                    t = get_iso639_translator(l).ugettext
+                    t = partial(get_iso_language, t)
+                lang_names[l] = {x: t(x) for x in dl}
+            zi = ZipInfo('lang-names.json')
+            zi.compress_type = ZIP_STORED
+            zf.writestr(zi, json.dumps(lang_names, ensure_ascii=False).encode('utf-8'))
+        dest = self.j(self.d(self.stats), 'website-languages.txt')
+        with open(dest, 'wb') as f:
+            f.write(' '.join(sorted(done)))
 
     def compile_user_manual_translations(self):
         self.info('Compiling user manual translations...')
         srcbase = self.j(self.d(self.SRC), 'translations', 'manual')
         destbase = self.j(self.d(self.SRC), 'manual', 'locale')
         complete = {}
+        all_stats = defaultdict(lambda : {'translated': 0, 'untranslated': 0})
+        files = []
         for x in os.listdir(srcbase):
             q = self.j(srcbase, x)
             if not os.path.isdir(q):
@@ -320,27 +528,27 @@ class Translations(POT):  # {{{
             if os.path.exists(dest):
                 shutil.rmtree(dest)
             os.makedirs(dest)
-            jobs = []
             for po in os.listdir(q):
                 if not po.endswith('.po'):
                     continue
-                jobs.append([
-                    'msgfmt', '--statistics', '-o', self.j(
-                        dest, po.rpartition('.')[0] + '.mo'), self.j(q, po)])
-            stats = tuple(parallel_check_output(jobs, self.info))
-            translated = untranslated = 0
-            for line in stats:
-                nums = tuple(map(int, re.findall(r'\d+', line)))
-                translated += nums[0]
-                if len(nums) > 1:
-                    untranslated += nums[1]
-            stats = {'translated':translated, 'untranslated':untranslated}
-            with open(self.j(self.d(dest), 'stats.json'), 'wb') as f:
+                mofile = self.j(dest, po.rpartition('.')[0] + '.mo')
+                files.append((self.j(q, po), mofile))
+
+        def handle_stats(src, nums):
+            locale = self.b(self.d(src))
+            stats = all_stats[locale]
+            stats['translated'] += nums[0]
+            if len(nums) > 1:
+                stats['untranslated'] += nums[1]
+
+        self.compile_group(files, handle_stats=handle_stats)
+        for locale, stats in iteritems(all_stats):
+            with open(self.j(srcbase, locale, 'stats.json'), 'wb') as f:
                 json.dump(stats, f)
-            total = translated + untranslated
+            total = stats['translated'] + stats['untranslated']
             # Raise the 30% threshold in the future
-            if total and (translated / float(total)) > 0.3:
-                complete[x] = stats
+            if total and (stats['translated'] / float(total)) > 0.3:
+                complete[locale] = stats
         with open(self.j(destbase, 'completed.json'), 'wb') as f:
             json.dump(complete, f, indent=True, sort_keys=True)
 
@@ -353,8 +561,10 @@ class Translations(POT):  # {{{
         destbase = self.j(self.d(self.SRC), 'manual', 'locale')
         if os.path.exists(destbase):
             shutil.rmtree(destbase)
+        shutil.rmtree(self.cache_dir)
 
 # }}}
+
 
 class GetTranslations(Translations):  # {{{
 
@@ -364,36 +574,124 @@ class GetTranslations(Translations):  # {{{
     def is_modified(self):
         return bool(subprocess.check_output('git status --porcelain'.split(), cwd=self.TRANSLATIONS))
 
+    def add_options(self, parser):
+        parser.add_option('-e', '--check-for-errors', default=False, action='store_true',
+                          help='Check for errors in .po files')
+
     def run(self, opts):
         require_git_master()
+        if opts.check_for_errors:
+            self.check_all()
+            return
         self.tx('pull -a')
+        if not self.is_modified:
+            self.info('No translations were updated')
+            return
+        self.upload_to_vcs()
+        self.check_all()
+
+    def check_all(self):
+        self.check_for_errors()
+        self.check_for_user_manual_errors()
         if self.is_modified:
-            self.check_for_errors()
-            self.upload_to_vcs()
-        else:
-            print ('No translations were updated')
+            self.upload_to_vcs('Fixed translations')
+
+    def check_for_user_manual_errors(self):
+        self.info('Checking user manual translations...')
+        srcbase = self.j(self.d(self.SRC), 'translations', 'manual')
+        import polib
+        changes = defaultdict(set)
+        for lang in os.listdir(srcbase):
+            if lang.startswith('en_') or lang == 'en':
+                continue
+            q = self.j(srcbase, lang)
+            if not os.path.isdir(q):
+                continue
+            for po in os.listdir(q):
+                if not po.endswith('.po'):
+                    continue
+                f = polib.pofile(os.path.join(q, po))
+                changed = False
+                for entry in f.translated_entries():
+                    if '`generated/en/' in entry.msgstr:
+                        changed = True
+                        entry.msgstr = entry.msgstr.replace('`generated/en/', '`generated/' + lang + '/')
+                        bname = os.path.splitext(po)[0]
+                        slug = 'user_manual_' + bname
+                        changes[slug].add(lang)
+                if changed:
+                    f.save()
+        for slug, languages in iteritems(changes):
+            print('Pushing fixes for languages: %s in %s' % (', '.join(languages), slug))
+            self.tx('push -r calibre.%s -t -l %s' % (slug, ','.join(languages)))
 
     def check_for_errors(self):
+        self.info('Checking for errors in .po files...')
+        groups = 'calibre content-server website'.split()
+        for group in groups:
+            self.check_group(group)
+        self.check_website()
+        for group in groups:
+            self.push_fixes(group)
+
+    def push_fixes(self, group):
+        languages = set()
+        for line in subprocess.check_output('git status --porcelain'.split(), cwd=self.TRANSLATIONS).decode('utf-8').splitlines():
+            parts = line.strip().split()
+            if len(parts) > 1 and 'M' in parts[0] and parts[-1].startswith(group + '/') and parts[-1].endswith('.po'):
+                languages.add(os.path.basename(parts[-1]).partition('.')[0])
+        if languages:
+            pot = 'main' if group == 'calibre' else group.replace('-', '_')
+            print('Pushing fixes for %s.pot languages: %s' % (pot, ', '.join(languages)))
+            self.tx('push -r calibre.{} -t -l '.format(pot) + ','.join(languages))
+
+    def check_group(self, group):
+        files = glob.glob(os.path.join(self.TRANSLATIONS, group, '*.po'))
+        cmd = ['msgfmt', '-o', os.devnull, '--check-format']
+        # Disabled because too many such errors, and not that critical anyway
+        # if group == 'calibre':
+        #     cmd += ['--check-accelerators=&']
+
+        def check(f):
+            p = subprocess.Popen(cmd + [f], stderr=subprocess.PIPE)
+            errs = p.stderr.read()
+            p.wait()
+            return errs
+
+        def check_for_control_chars(f):
+            raw = open(f, 'rb').read().decode('utf-8')
+            pat = re.compile(type(u'')(r'[\0-\x08\x0b\x0c\x0e-\x1f\x7f\x80-\x9f]'))
+            errs = []
+            for i, line in enumerate(raw.splitlines()):
+                if pat.search(line) is not None:
+                    errs.append('There are ASCII control codes on line number: {}'.format(i + 1))
+            return '\n'.join(errs)
+
+        for f in files:
+            errs = check(f)
+            if errs:
+                print(f)
+                print(errs)
+                edit_file(f)
+                if check(f):
+                    raise SystemExit('Aborting as not all errors were fixed')
+            errs = check_for_control_chars(f)
+            if errs:
+                print(f, 'has ASCII control codes in it')
+                print(errs)
+                raise SystemExit(1)
+
+    def check_website(self):
         errors = os.path.join(tempfile.gettempdir(), 'calibre-translation-errors')
         if os.path.exists(errors):
             shutil.rmtree(errors)
         os.mkdir(errors)
-        tpath = self.j(self.TRANSLATIONS, __appname__)
-        pofilter = ('pofilter', '-i', tpath, '-o', errors,
-                '-t', 'accelerators', '-t', 'escapes', '-t', 'variables',
-                # '-t', 'xmltags',
-                # '-t', 'brackets',
-                # '-t', 'emails',
-                # '-t', 'doublequoting',
-                # '-t', 'filepaths',
-                # '-t', 'numbers',
-                '-t', 'options',
-                # '-t', 'urls',
-                '-t', 'printf')
+        tpath = self.j(self.TRANSLATIONS, 'website')
+        pofilter = ('pofilter', '-i', tpath, '-o', errors, '-t', 'xmltags')
         subprocess.check_call(pofilter)
         errfiles = glob.glob(errors+os.sep+'*.po')
         if errfiles:
-            subprocess.check_call(['gvim', '-f', '-p', '--']+errfiles)
+            subprocess.check_call(['vim', '-f', '-p', '--']+errfiles)
             for f in errfiles:
                 with open(f, 'r+b') as f:
                     raw = f.read()
@@ -403,30 +701,22 @@ class GetTranslations(Translations):  # {{{
                     f.write(raw)
 
             subprocess.check_call(['pomerge', '-t', tpath, '-i', errors, '-o', tpath])
-            languages = []
-            for f in glob.glob(self.j(errors, '*.po')):
-                lc = os.path.basename(f).rpartition('.')[0]
-                languages.append(lc)
-            if languages:
-                print('Pushing fixes for languages: %s' % (', '.join(languages)))
-                self.tx('push -r calibre.main -t -l ' + ','.join(languages))
-            return True
-        return False
 
-    def upload_to_vcs(self):
-        print ('Uploading updated translations to version control')
+    def upload_to_vcs(self, msg=None):
+        self.info('Uploading updated translations to version control')
         cc = partial(subprocess.check_call, cwd=self.TRANSLATIONS)
         cc('git add */*.po'.split())
-        cc('git commit -am'.split() + ['Updated translations'])
+        cc('git commit -am'.split() + [msg or 'Updated translations'])
         cc('git push'.split())
 
 # }}}
+
 
 class ISO639(Command):  # {{{
 
     description = 'Compile language code maps for performance'
     DEST = os.path.join(os.path.dirname(POT.SRC), 'resources', 'localization',
-            'iso639.pickle')
+            'iso639.calibre_msgpack')
 
     def run(self, opts):
         src = self.j(self.d(self.SRC), 'setup', 'iso_639_3.xml')
@@ -476,7 +766,9 @@ class ISO639(Command):  # {{{
         x = {'by_2':by_2, 'by_3b':by_3b, 'by_3t':by_3t, 'codes2':codes2,
                 'codes3b':codes3b, 'codes3t':codes3t, '2to3':m2to3,
                 '3to2':m3to2, '3bto3t':m3bto3t, 'name_map':nm}
-        cPickle.dump(x, open(dest, 'wb'), -1)
+        from calibre.utils.serialize import msgpack_dumps
+        with open(dest, 'wb') as f:
+            f.write(msgpack_dumps(x))
 
     def clean(self):
         if os.path.exists(self.DEST):
@@ -484,11 +776,12 @@ class ISO639(Command):  # {{{
 
 # }}}
 
+
 class ISO3166(ISO639):  # {{{
 
     description = 'Compile country code maps for performance'
     DEST = os.path.join(os.path.dirname(POT.SRC), 'resources', 'localization',
-            'iso3166.pickle')
+            'iso3166.calibre_msgpack')
 
     def run(self, opts):
         src = self.j(self.d(self.SRC), 'setup', 'iso3166.xml')
@@ -515,5 +808,7 @@ class ISO3166(ISO639):  # {{{
             if three:
                 three_map[three] = two
         x = {'names':name_map, 'codes':frozenset(codes), 'three_map':three_map}
-        cPickle.dump(x, open(dest, 'wb'), -1)
+        from calibre.utils.serialize import msgpack_dumps
+        with open(dest, 'wb') as f:
+            f.write(msgpack_dumps(x))
 # }}}

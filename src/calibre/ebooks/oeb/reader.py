@@ -2,6 +2,7 @@
 Container-/OPF-based input OEBBook reader.
 """
 from __future__ import with_statement
+from __future__ import print_function
 
 __license__   = 'GPL v3'
 __copyright__ = '2008, Marshall T. Vandegrift <llasram@gmail.com>'
@@ -31,6 +32,7 @@ from calibre.constants import __appname__, __version__
 from calibre import guess_type, xml_replace_entities
 
 __all__ = ['OEBReader']
+
 
 class OEBReader(object):
     """Read an OEBPS 1.x or OPF/OPS 2.0 file collection."""
@@ -136,7 +138,11 @@ class OEBReader(object):
         from calibre.ebooks.metadata.opf2 import OPF
         from calibre.ebooks.oeb.transforms.metadata import meta_info_to_oeb_metadata
         stream = cStringIO.StringIO(etree.tostring(opf, xml_declaration=True, encoding='utf-8'))
-        mi = OPF(stream).to_book_metadata()
+        o = OPF(stream)
+        pwm = o.primary_writing_mode
+        if pwm:
+            self.oeb.metadata.primary_writing_mode = pwm
+        mi = o.to_book_metadata()
         if not mi.language:
             mi.language = get_lang().replace('_', '-')
         self.oeb.metadata.add('language', mi.language)
@@ -189,8 +195,7 @@ class OEBReader(object):
             new = set()
             for item in unchecked:
                 data = None
-                if (item.media_type in cdoc or
-                        item.media_type[-4:] in ('/xml', '+xml')):
+                if (item.media_type in cdoc or item.media_type[-4:] in ('/xml', '+xml')):
                     try:
                         data = item.data
                     except:
@@ -201,8 +206,7 @@ class OEBReader(object):
                 if data is None:
                     continue
 
-                if (item.media_type in OEB_DOCS or
-                        item.media_type[-4:] in ('/xml', '+xml')):
+                if (item.media_type in OEB_DOCS or item.media_type[-4:] in ('/xml', '+xml')):
                     hrefs = [r[2] for r in iterlinks(data)]
                     for href in hrefs:
                         if isinstance(href, bytes):
@@ -315,7 +319,10 @@ class OEBReader(object):
             extras.update(new)
             unchecked = new
         version = int(self.oeb.version[0])
+        removed_items_to_ignore = getattr(self.oeb, 'removed_items_to_ignore', ())
         for item in sorted(extras):
+            if item.href in removed_items_to_ignore:
+                continue
             if version >= 2:
                 self.logger.warn(
                     'Spine-referenced file %r not in spine' % item.href)
@@ -395,6 +402,8 @@ class OEBReader(object):
                 continue
             href = item.abshref(urlnormalize(href[0])) if href and href[0] else ''
             path, _ = urldefrag(href)
+            if path and path not in self.oeb.manifest.hrefs:
+                path = urlnormalize(path)
             if href and path not in self.oeb.manifest.hrefs:
                 self.logger.warn('TOC reference %r not found' % href)
                 gc = xpath(child, 'ncx:navPoint')
@@ -707,10 +716,11 @@ def main(argv=sys.argv):
     for arg in argv[1:]:
         oeb = reader(OEBBook(), arg)
         for name, doc in oeb.to_opf1().values():
-            print etree.tostring(doc, pretty_print=True)
+            print(etree.tostring(doc, pretty_print=True))
         for name, doc in oeb.to_opf2(page_map=True).values():
-            print etree.tostring(doc, pretty_print=True)
+            print(etree.tostring(doc, pretty_print=True))
     return 0
+
 
 if __name__ == '__main__':
     sys.exit(main())

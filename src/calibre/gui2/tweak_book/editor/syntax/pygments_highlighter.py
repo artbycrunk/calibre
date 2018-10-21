@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python2
 # vim:fileencoding=utf-8
 from __future__ import (unicode_literals, division, absolute_import,
                         print_function)
@@ -15,6 +15,7 @@ from calibre.gui2.tweak_book.editor.syntax.base import SyntaxHighlighter
 from calibre.gui2.tweak_book.editor.syntax.utils import format_for_pygments_token, NULL_FMT
 
 NORMAL = 0
+
 
 def create_lexer(base_class):
     '''
@@ -96,6 +97,7 @@ def create_lexer(base_class):
         'lex_a_line':lex_a_line,
     })
 
+
 class State(object):
 
     __slots__ = ('parse', 'pygments_stack')
@@ -132,11 +134,13 @@ class PygmentsUserData(QTextBlockUserData):
         self.state = State() if state is None else state
         self.doc_name = doc_name
 
+
 def create_formats(highlighter):
     cache = {}
     theme = highlighter.theme.copy()
     theme[None] = NULL_FMT
     return partial(format_for_pygments_token, theme, cache)
+
 
 def create_highlighter(name, lexer_class):
     return type(str(name), (SyntaxHighlighter,), {

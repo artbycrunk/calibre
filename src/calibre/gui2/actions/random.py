@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python2
 # vim:fileencoding=UTF-8:ts=4:sw=4:sta:et:sts=4:ai
 from __future__ import (unicode_literals, division, absolute_import,
                         print_function)
@@ -11,11 +11,12 @@ import random
 
 from calibre.gui2.actions import InterfaceAction
 
+
 class PickRandomAction(InterfaceAction):
 
     name = 'Pick Random Book'
     action_spec = (_('Pick a random book'), 'random.png',
-            'Select a random book from your calibre library', ())
+            _('Select a random book from your calibre library'), ())
     dont_add_to = frozenset(['context-menu-device'])
 
     def genesis(self):
@@ -24,6 +25,7 @@ class PickRandomAction(InterfaceAction):
     def location_selected(self, loc):
         enabled = loc == 'library'
         self.qaction.setEnabled(enabled)
+        self.menuless_qaction.setEnabled(enabled)
 
     def pick_random(self):
         pick = random.randint(0, self.gui.library_view.model().rowCount(None))

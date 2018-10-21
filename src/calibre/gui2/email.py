@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python2
 # vim:fileencoding=UTF-8:ts=4:sw=4:sta:et:sts=4:ai
 from __future__ import print_function
 
@@ -26,8 +26,9 @@ from calibre.constants import preferred_encoding
 from calibre.gui2 import config, Dispatcher, warning_dialog, error_dialog, gprefs
 from calibre.library.save_to_disk import get_components
 from calibre.utils.config import tweaks, prefs
-from calibre.utils.icu import sort_key
+from calibre.utils.icu import primary_sort_key
 from calibre.gui2.threaded_jobs import ThreadedJob
+
 
 class Worker(Thread):
 
@@ -52,7 +53,7 @@ class Worker(Thread):
 class Sendmail(object):
 
     MAX_RETRIES = 1
-    TIMEOUT = 15 * 60  # seconds
+    TIMEOUT = 25 * 60  # seconds
 
     def __init__(self):
         self.calculate_rate_limit()
@@ -62,9 +63,11 @@ class Sendmail(object):
         self.rate_limit = 1
         opts = email_config().parse()
         rh = opts.relay_host
-        if rh and (
-            'gmail.com' in rh or 'live.com' in rh):
-            self.rate_limit = tweaks['public_smtp_relay_delay']
+        if rh:
+            for suffix in tweaks['public_smtp_relay_host_suffixes']:
+                if rh.lower().endswith(suffix):
+                    self.rate_limit = tweaks['public_smtp_relay_delay']
+                    break
 
     def __call__(self, attachment, aname, to, subject, text, log=None,
             abort=None, notifications=None):
@@ -115,15 +118,23 @@ class Sendmail(object):
             eto = []
             for x in to.split(','):
                 eto.append(extract_email_address(x.strip()))
+
+            def safe_debug(*args, **kwargs):
+                try:
+                    return log.debug(*args, **kwargs)
+                except Exception:
+                    pass
+
             sendmail(msg, efrom, eto, localhost=None,
                         verbose=1,
                         relay=opts.relay_host,
                         username=opts.relay_username,
                         password=unhexlify(opts.relay_password).decode('utf-8'), port=opts.relay_port,
                         encryption=opts.encryption,
-                        debug_output=log.debug)
+                        debug_output=safe_debug)
         finally:
             self.last_send_time = time.time()
+
 
 gui_sendmail = Sendmail()
 
@@ -149,13 +160,13 @@ def email_news(mi, remove, get_fmts, done, job_manager):
         files = [f for f in files if f is not None]
         if not files:
             continue
+        if opts.tags.get(account, False) and not ({t.strip() for t in opts.tags[account].split(',')} & set(mi.tags)):
+            continue
         attachment = files[0]
         to_s = [account]
         subjects = [_('News:')+' '+mi.title]
-        texts    = [
-                _('Attached is the %s periodical downloaded by calibre.')
-                    % (mi.title,)
-                ]
+        texts    = [_(
+            'Attached is the %s periodical downloaded by calibre.') % (mi.title,)]
         attachment_names = [ascii_filename(mi.title)+os.path.splitext(attachment)[1]]
         attachments = [attachment]
         jobnames = [mi.title]
@@ -169,8 +180,10 @@ def email_news(mi, remove, get_fmts, done, job_manager):
         sent_mails.append(to_s[0])
     return sent_mails
 
+
 plugboard_email_value = 'email'
 plugboard_email_formats = ['epub', 'mobi', 'azw3']
+
 
 class SelectRecipients(QDialog):  # {{{
 
@@ -255,7 +268,11 @@ class SelectRecipients(QDialog):  # {{{
     def init_list(self):
         opts = email_config().parse()
         self.items = []
-        for key in sorted(opts.accounts or (), key=sort_key):
+
+        def sk(account):
+            return primary_sort_key(opts.aliases.get(account) or account)
+
+        for key in sorted(opts.accounts or (), key=sk):
             self.create_item(opts.aliases.get(key, key), key)
 
     def accept(self):
@@ -276,12 +293,14 @@ class SelectRecipients(QDialog):  # {{{
                 ans.append((to, fmts, subject))
         return ans
 
+
 def select_recipients(parent=None):
     d = SelectRecipients(parent)
     if d.exec_() == d.Accepted:
         return d.ans
     return ()
 # }}}
+
 
 class EmailMixin(object):  # {{{
 
@@ -336,7 +355,7 @@ class EmailMixin(object):  # {{{
                 det_msg.extend('\t' + titles[bid] for bid in ids)
                 det_msg.append('\n')
             warning_dialog(self, _('Could not send'),
-                           _('Could not send books to some recipients. Click Show Details for more information'),
+                           _('Could not send books to some recipients. Click "Show details" for more information'),
                            det_msg='\n'.join(det_msg), show=True)
 
     def send_by_mail(self, to, fmts, delete_from_library, subject='', send_ids=None,
@@ -466,6 +485,7 @@ class EmailMixin(object):  # {{{
                 index_is_id=True)
         remove = [id_] if config['delete_news_from_library_on_upload'] \
                 else []
+
         def get_fmts(fmts):
             files, auto = self.library_view.model().\
                     get_preferred_formats_from_ids([id_], fmts,
@@ -481,8 +501,8 @@ class EmailMixin(object):  # {{{
 
 # }}}
 
+
 if __name__ == '__main__':
     from PyQt5.Qt import QApplication
     app = QApplication([])  # noqa
     print (select_recipients())
-

@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python2
 # vim:fileencoding=UTF-8:ts=4:sw=4:sta:et:sts=4:ai
 from __future__ import with_statement
 
@@ -12,17 +12,20 @@ from calibre.customize.conversion import InputFormatPlugin, OptionRecommendation
 from calibre.constants import numeric_version
 from calibre import walk
 
+
 class RecipeDisabled(Exception):
     pass
+
 
 class RecipeInput(InputFormatPlugin):
 
     name        = 'Recipe Input'
     author      = 'Kovid Goyal'
     description = _('Download periodical content from the internet')
-    file_types  = set(['recipe', 'downloaded_recipe'])
+    file_types  = {'recipe', 'downloaded_recipe'}
+    commit_name = 'recipe_input'
 
-    recommendations = set([
+    recommendations = {
         ('chapter', None, OptionRecommendation.HIGH),
         ('dont_split_on_page_breaks', True, OptionRecommendation.HIGH),
         ('use_auto_toc', False, OptionRecommendation.HIGH),
@@ -30,9 +33,9 @@ class RecipeInput(InputFormatPlugin):
         ('input_profile', 'default', OptionRecommendation.HIGH),
         ('page_breaks_before', None, OptionRecommendation.HIGH),
         ('insert_metadata', False, OptionRecommendation.HIGH),
-        ])
+        }
 
-    options = set([
+    options = {
         OptionRecommendation(name='test', recommended_value=False,
             help=_(
             'Useful for recipe development. Forces'
@@ -50,7 +53,7 @@ class RecipeInput(InputFormatPlugin):
             help=_('Do not download latest version of builtin recipes from the calibre server')),
         OptionRecommendation(name='lrf', recommended_value=False,
             help='Optimize fetching for subsequent conversion to LRF.'),
-        ])
+        }
 
     def convert(self, recipe_or_file, opts, file_ext, log,
             accelerators):
@@ -66,7 +69,23 @@ class RecipeInput(InputFormatPlugin):
             recipe.needs_subscription = False
             self.recipe_object = recipe(opts, log, self.report_progress)
         else:
-            if os.access(recipe_or_file, os.R_OK):
+            if os.environ.get('CALIBRE_RECIPE_URN'):
+                from calibre.web.feeds.recipes.collection import get_custom_recipe, get_builtin_recipe_by_id
+                urn = os.environ['CALIBRE_RECIPE_URN']
+                log('Downloading recipe urn: ' + urn)
+                rtype, recipe_id = urn.partition(':')[::2]
+                if not recipe_id:
+                    raise ValueError('Invalid recipe urn: ' + urn)
+                if rtype == 'custom':
+                    self.recipe_source = get_custom_recipe(recipe_id)
+                else:
+                    self.recipe_source = get_builtin_recipe_by_id(urn, log=log, download_recipe=True)
+                if not self.recipe_source:
+                    raise ValueError('Could not find recipe with urn: ' + urn)
+                if not isinstance(self.recipe_source, bytes):
+                    self.recipe_source = self.recipe_source.encode('utf-8')
+                recipe = compile_recipe(self.recipe_source)
+            elif os.access(recipe_or_file, os.R_OK):
                 self.recipe_source = open(recipe_or_file, 'rb').read()
                 recipe = compile_recipe(self.recipe_source)
                 log('Using custom recipe')
@@ -130,6 +149,7 @@ class RecipeInput(InputFormatPlugin):
 
     def postprocess_book(self, oeb, opts, log):
         if self.recipe_object is not None:
+            self.recipe_object.internal_postprocess_book(oeb, opts, log)
             self.recipe_object.postprocess_book(oeb, opts, log)
 
     def specialize(self, oeb, opts, log, output_fmt):
@@ -144,4 +164,3 @@ class RecipeInput(InputFormatPlugin):
         if isinstance(raw, unicode):
             raw = raw.encode('utf-8')
         zf.writestr('download.recipe', raw)
-

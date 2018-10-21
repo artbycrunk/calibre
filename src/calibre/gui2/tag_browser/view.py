@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python2
 # vim:fileencoding=UTF-8:ts=4:sw=4:sta:et:sts=4:ai
 from __future__ import (unicode_literals, division, absolute_import,
                         print_function)
@@ -7,65 +7,108 @@ __license__   = 'GPL v3'
 __copyright__ = '2011, Kovid Goyal <kovid@kovidgoyal.net>'
 __docformat__ = 'restructuredtext en'
 
-import cPickle, os
+import cPickle, os, re
 from functools import partial
 from itertools import izip
 
-from PyQt5.Qt import (QStyledItemDelegate, Qt, QTreeView, pyqtSignal, QSize,
-        QIcon, QApplication, QMenu, QPoint, QModelIndex, QToolTip, QCursor,
-        QDrag)
+from PyQt5.Qt import (
+    QStyledItemDelegate, Qt, QTreeView, pyqtSignal, QSize, QIcon, QApplication,
+    QMenu, QPoint, QToolTip, QCursor, QDrag, QRect, QModelIndex,
+    QLinearGradient, QPalette, QColor, QPen, QBrush, QFont
+)
 
 from calibre import sanitize_file_name_unicode
 from calibre.constants import config_dir
+from calibre.ebooks.metadata import rating_to_stars
 from calibre.gui2.tag_browser.model import (TagTreeItem, TAG_SEARCH_STATES,
-        TagsModel, DRAG_IMAGE_ROLE)
-from calibre.gui2 import config, gprefs, choose_files, pixmap_to_data
+        TagsModel, DRAG_IMAGE_ROLE, COUNT_ROLE)
+from calibre.gui2 import config, gprefs, choose_files, pixmap_to_data, rating_font, empty_index
 from calibre.utils.icu import sort_key
+
 
 class TagDelegate(QStyledItemDelegate):  # {{{
 
     def __init__(self, *args, **kwargs):
         QStyledItemDelegate.__init__(self, *args, **kwargs)
-        self.old_look = gprefs['tag_browser_old_look']
+        self.old_look = False
+        self.rating_pat = re.compile(r'[%s]' % rating_to_stars(3, True))
+        self.rating_font = QFont(rating_font())
+
+    def draw_average_rating(self, item, style, painter, option, widget):
+        rating = item.average_rating
+        if rating is None:
+            return
+        r = style.subElementRect(style.SE_ItemViewItemDecoration, option, widget)
+        icon = option.icon
+        painter.save()
+        nr = r.adjusted(0, 0, 0, 0)
+        nr.setBottom(r.bottom()-int(r.height()*(rating/5.0)))
+        painter.setClipRect(nr)
+        bg = option.palette.window()
+        if self.old_look:
+            bg = option.palette.alternateBase() if option.features&option.Alternate else option.palette.base()
+        painter.fillRect(r, bg)
+        style.proxy().drawPrimitive(style.PE_PanelItemViewItem, option, painter, widget)
+        painter.setOpacity(0.3)
+        icon.paint(painter, r, option.decorationAlignment, icon.Normal, icon.On)
+        painter.restore()
+
+    def draw_icon(self, style, painter, option, widget):
+        r = style.subElementRect(style.SE_ItemViewItemDecoration, option, widget)
+        icon = option.icon
+        icon.paint(painter, r, option.decorationAlignment, icon.Normal, icon.On)
+
+    def draw_text(self, style, painter, option, widget, index, item):
+        tr = style.subElementRect(style.SE_ItemViewItemText, option, widget)
+        text = index.data(Qt.DisplayRole)
+        hover = option.state & style.State_MouseOver
+        if hover or gprefs['tag_browser_show_counts']:
+            count = unicode(index.data(COUNT_ROLE))
+            width = painter.fontMetrics().boundingRect(count).width()
+            r = QRect(tr)
+            r.setRight(r.right() - 1), r.setLeft(r.right() - width - 4)
+            painter.drawText(r, Qt.AlignCenter | Qt.TextSingleLine, count)
+            tr.setRight(r.left() - 1)
+        else:
+            tr.setRight(tr.right() - 1)
+        is_rating = item.type == TagTreeItem.TAG and not self.rating_pat.sub('', text)
+        if is_rating:
+            painter.setFont(self.rating_font)
+        flags = Qt.AlignVCenter | Qt.AlignLeft | Qt.TextSingleLine
+        lr = QRect(tr)
+        lr.setRight(lr.right() * 2)
+        br = painter.boundingRect(lr, flags, text)
+        if br.width() > tr.width():
+            g = QLinearGradient(tr.topLeft(), tr.topRight())
+            c = option.palette.color(QPalette.WindowText)
+            g.setColorAt(0, c), g.setColorAt(0.8, c)
+            c = QColor(c)
+            c.setAlpha(0)
+            g.setColorAt(1, c)
+            pen = QPen()
+            pen.setBrush(QBrush(g))
+            painter.setPen(pen)
+        painter.drawText(tr, flags, text)
 
     def paint(self, painter, option, index):
-        item = index.data(Qt.UserRole)
-        QStyledItemDelegate.paint(self, painter, option, index)
+        QStyledItemDelegate.paint(self, painter, option, empty_index)
         widget = self.parent()
         style = QApplication.style() if widget is None else widget.style()
         self.initStyleOption(option, index)
+        item = index.data(Qt.UserRole)
+        self.draw_icon(style, painter, option, widget)
+        painter.save()
+        self.draw_text(style, painter, option, widget, index, item)
+        painter.restore()
         if item.boxed:
             r = style.subElementRect(style.SE_ItemViewItemFocusRect, option,
                     widget)
-            painter.save()
             painter.drawLine(r.bottomLeft(), r.bottomRight())
-            painter.restore()
-        if item.type != TagTreeItem.TAG:
-            return
-        if (item.tag.state == 0 and config['show_avg_rating'] and
-                item.tag.avg_rating is not None):
-            r = style.subElementRect(style.SE_ItemViewItemDecoration,
-                    option, widget)
-            icon = option.icon
-            painter.save()
-            rating = item.tag.avg_rating
-            nr = r.adjusted(0, 0, 0, 0)
-            nr.setBottom(r.bottom()-int(r.height()*(rating/5.0)))
-            painter.setClipRect(nr)
-            bg = option.palette.window()
-            if self.old_look:
-                bg = (option.palette.alternateBase() if
-                        option.features&option.Alternate else
-                        option.palette.base())
-            painter.fillRect(r, bg)
-            style.proxy().drawPrimitive(style.PE_PanelItemViewItem, option,
-                    painter, widget)
-            painter.setOpacity(0.3)
-            icon.paint(painter, r, option.decorationAlignment, icon.Normal,
-                    icon.On)
-            painter.restore()
+        if item.type == TagTreeItem.TAG and item.tag.state == 0 and config['show_avg_rating']:
+            self.draw_average_rating(item, style, painter, option, widget)
 
     # }}}
+
 
 class TagsView(QTreeView):  # {{{
 
@@ -84,7 +127,7 @@ class TagsView(QTreeView):  # {{{
     search_item_renamed     = pyqtSignal()
     drag_drop_finished      = pyqtSignal(object)
     restriction_error       = pyqtSignal()
-    tag_item_delete         = pyqtSignal(object, object, object)
+    tag_item_delete         = pyqtSignal(object, object, object, object)
 
     def __init__(self, parent=None):
         QTreeView.__init__(self, parent=None)
@@ -119,6 +162,12 @@ class TagsView(QTreeView):  # {{{
         self._model.user_categories_edited.connect(self.user_categories_edited,
                 type=Qt.QueuedConnection)
         self._model.drag_drop_finished.connect(self.drag_drop_finished)
+        self.set_look_and_feel()
+        # Allowing keyboard focus looks bad in the Qt Fusion style and is useless
+        # anyway since the enter/spacebar keys do nothing
+        self.setFocusPolicy(Qt.NoFocus)
+
+    def set_look_and_feel(self):
         stylish_tb = '''
                 QTreeView {
                     background-color: palette(window);
@@ -129,8 +178,8 @@ class TagsView(QTreeView):  # {{{
         self.setStyleSheet('''
                 QTreeView::item {
                     border: 1px solid transparent;
-                    padding-top:0.8ex;
-                    padding-bottom:0.8ex;
+                    padding-top:PADex;
+                    padding-bottom:PADex;
                 }
 
                 QTreeView::item:hover {
@@ -138,12 +187,10 @@ class TagsView(QTreeView):  # {{{
                     border: 1px solid #bfcde4;
                     border-radius: 6px;
                 }
-        ''' + ('' if gprefs['tag_browser_old_look'] else stylish_tb))
-        if gprefs['tag_browser_old_look']:
-            self.setAlternatingRowColors(True)
-        # Allowing keyboard focus looks bad in the Qt Fusion style and is useless
-        # anyway since the enter/spacebar keys do nothing
-        self.setFocusPolicy(Qt.NoFocus)
+        '''.replace('PAD', str(gprefs['tag_browser_item_padding'])) + (
+            '' if gprefs['tag_browser_old_look'] else stylish_tb))
+        self.setAlternatingRowColors(gprefs['tag_browser_old_look'])
+        self.itemDelegate().old_look = gprefs['tag_browser_old_look']
 
     @property
     def hidden_categories(self):
@@ -166,9 +213,17 @@ class TagsView(QTreeView):  # {{{
     def get_state(self):
         state_map = {}
         expanded_categories = []
-        for row, category in enumerate(self._model.category_nodes):
-            if self.isExpanded(self._model.index(row, 0, QModelIndex())):
-                expanded_categories.append(category.category_key)
+        hide_empty_categories = self.model().prefs['tag_browser_hide_empty_categories']
+        crmap = self._model.category_row_map()
+        for category in self._model.category_nodes:
+            if (category.category_key in self.hidden_categories or (
+                hide_empty_categories and len(category.child_tags()) == 0)):
+                continue
+            row = crmap.get(category.category_key)
+            if row is not None:
+                index = self._model.index(row, 0, QModelIndex())
+                if self.isExpanded(index):
+                    expanded_categories.append(category.category_key)
             states = [c.tag.state for c in category.child_tags()]
             names = [(c.tag.name, c.tag.category) for c in category.child_tags()]
             state_map[category.category_key] = dict(izip(names, states))
@@ -208,15 +263,14 @@ class TagsView(QTreeView):  # {{{
 
     def user_categories_edited(self, user_cats, nkey):
         state_map = self.get_state()[1]
-        self.db.prefs.set('user_categories', user_cats)
+        self.db.new_api.set_pref('user_categories', user_cats)
         self._model.rebuild_node_tree(state_map=state_map)
         p = self._model.find_category_node('@'+nkey)
         self.show_item_at_path(p)
 
     @property
     def match_all(self):
-        return (self.alter_tb and
-                self.alter_tb.match_menu.actions()[1].isChecked())
+        return (self.alter_tb and self.alter_tb.match_menu.actions()[1].isChecked())
 
     def sort_changed(self, action):
         for i, ac in enumerate(self.alter_tb.sort_menu.actions()):
@@ -279,6 +333,11 @@ class TagsView(QTreeView):  # {{{
         joiner = ' and ' if self.match_all else ' or '
         return joiner.join(tokens)
 
+    def toggle_current_index(self):
+        ci = self.currentIndex()
+        if ci.isValid():
+            self.toggle(ci)
+
     def toggle(self, index):
         self._toggle(index, None)
 
@@ -297,14 +356,15 @@ class TagsView(QTreeView):  # {{{
             self.clear()
 
     def context_menu_handler(self, action=None, category=None,
-                             key=None, index=None, search_state=None):
+                             key=None, index=None, search_state=None,
+                             use_vl=None):
         if not action:
             return
         try:
             if action == 'set_icon':
                 try:
                     path = choose_files(self, 'choose_category_icon',
-                                _('Change Icon for: %s')%key, filters=[
+                                _('Change icon for: %s')%key, filters=[
                                 ('Images', ['png', 'gif', 'jpg', 'jpeg'])],
                             all_files=False, select_only_single_file=True)
                     if path:
@@ -313,8 +373,7 @@ class TagsView(QTreeView):  # {{{
                         d = os.path.join(config_dir, 'tb_icons')
                         if not os.path.exists(d):
                             os.makedirs(d)
-                        with open(os.path.join(d, 'icon_'+
-                            sanitize_file_name_unicode(key)+'.png'), 'wb') as f:
+                        with open(os.path.join(d, 'icon_' + sanitize_file_name_unicode(key)+'.png'), 'wb') as f:
                             f.write(pixmap_to_data(p, format='PNG'))
                             path = os.path.basename(f.name)
                         self._model.set_custom_category_icon(key, unicode(path))
@@ -328,11 +387,22 @@ class TagsView(QTreeView):  # {{{
                 self.recount()
                 return
 
-            if action == 'edit_item':
+            if action == 'edit_item_no_vl':
+                item = self.model().get_node(index)
+                item.use_vl = False
                 self.edit(index)
                 return
-            if action == 'delete_item':
-                self.tag_item_delete.emit(key, index.id, index.original_name)
+            if action == 'edit_item_in_vl':
+                item = self.model().get_node(index)
+                item.use_vl = True
+                self.edit(index)
+                return
+            if action == 'delete_item_in_vl':
+                self.tag_item_delete.emit(key, index.id, index.original_name,
+                                          self.model().get_book_ids_to_use())
+                return
+            if action == 'delete_item_no_vl':
+                self.tag_item_delete.emit(key, index.id, index.original_name, None)
                 return
             if action == 'open_editor':
                 self.tags_list_edit.emit(category, key)
@@ -396,7 +466,7 @@ class TagsView(QTreeView):  # {{{
                     gprefs['tags_browser_partition_method'] = category
             elif action == 'defaults':
                 self.hidden_categories.clear()
-            self.db.prefs.set('tag_browser_hidden_categories', list(self.hidden_categories))
+            self.db.new_api.set_pref('tag_browser_hidden_categories', list(self.hidden_categories))
             if reset_filter_categories:
                 self._model.set_categories_filter(None)
             self._model.rebuild_node_tree()
@@ -441,15 +511,26 @@ class TagsView(QTreeView):  # {{{
                     # the possibility of renaming that item.
                     if tag.is_editable:
                         # Add the 'rename' items
+                        if self.model().get_in_vl():
+                            self.context_menu.addAction(self.rename_icon,
+                                                    _('Rename %s in virtual library')%display_name(tag),
+                                    partial(self.context_menu_handler, action='edit_item_in_vl',
+                                            index=index))
                         self.context_menu.addAction(self.rename_icon,
-                                                    _('Rename %s')%display_name(tag),
-                            partial(self.context_menu_handler, action='edit_item',
-                                    index=index))
+                                                _('Rename %s')%display_name(tag),
+                                partial(self.context_menu_handler, action='edit_item_no_vl',
+                                        index=index))
                         if key in ('tags', 'series', 'publisher') or \
                                 self._model.db.field_metadata.is_custom_field(key):
+                            if self.model().get_in_vl():
+                                self.context_menu.addAction(self.delete_icon,
+                                                    _('Delete %s in virtual library')%display_name(tag),
+                                partial(self.context_menu_handler, action='delete_item_in_vl',
+                                    key=key, index=tag))
+
                             self.context_menu.addAction(self.delete_icon,
                                                     _('Delete %s')%display_name(tag),
-                                partial(self.context_menu_handler, action='delete_item',
+                                partial(self.context_menu_handler, action='delete_item_no_vl',
                                     key=key, index=tag))
                         if key == 'authors':
                             self.context_menu.addAction(_('Edit sort for %s')%display_name(tag),
@@ -460,10 +541,11 @@ class TagsView(QTreeView):  # {{{
                                             action='edit_author_link', index=tag.id))
 
                         # is_editable is also overloaded to mean 'can be added
-                        # to a user category'
+                        # to a User category'
                         m = self.context_menu.addMenu(self.user_category_icon,
-                                        _('Add %s to user category')%display_name(tag))
-                        nt = self.model().category_node_tree
+                                        _('Add %s to User category')%display_name(tag))
+                        nt = self.model().user_category_node_tree
+
                         def add_node_tree(tree_dict, m, path):
                             p = path[:]
                             for k in sorted(tree_dict.keys(), key=sort_key):
@@ -482,7 +564,7 @@ class TagsView(QTreeView):  # {{{
                     elif key == 'search' and tag.is_searchable:
                         self.context_menu.addAction(self.rename_icon,
                                                     _('Rename %s')%display_name(tag),
-                            partial(self.context_menu_handler, action='edit_item',
+                            partial(self.context_menu_handler, action='edit_item_no_vl',
                                     index=index))
                         self.context_menu.addAction(self.delete_icon,
                                 _('Delete search %s')%display_name(tag),
@@ -512,14 +594,14 @@ class TagsView(QTreeView):  # {{{
                     if item.can_be_edited:
                         self.context_menu.addAction(self.rename_icon,
                             _('Rename %s')%item.py_name,
-                            partial(self.context_menu_handler, action='edit_item',
+                            partial(self.context_menu_handler, action='edit_item_no_vl',
                                     index=index))
                     self.context_menu.addAction(self.user_category_icon,
                             _('Add sub-category to %s')%item.py_name,
                             partial(self.context_menu_handler,
                                     action='add_subcategory', key=key))
                     self.context_menu.addAction(self.delete_icon,
-                            _('Delete user category %s')%item.py_name,
+                            _('Delete User category %s')%item.py_name,
                             partial(self.context_menu_handler,
                                     action='delete_user_category', key=key))
                     self.context_menu.addSeparator()
@@ -551,9 +633,8 @@ class TagsView(QTreeView):  # {{{
                                     search_state=TAG_SEARCH_STATES['mark_minus']))
                 # Offer specific editors for tags/series/publishers/saved searches
                 self.context_menu.addSeparator()
-                if key in ['tags', 'publisher', 'series'] or \
-                            (self.db.field_metadata[key]['is_custom'] and
-                             self.db.field_metadata[key]['datatype'] != 'composite'):
+                if key in ['tags', 'publisher', 'series'] or (
+                        self.db.field_metadata[key]['is_custom'] and self.db.field_metadata[key]['datatype'] != 'composite'):
                     self.context_menu.addAction(_('Manage %s')%category,
                             partial(self.context_menu_handler, action='open_editor',
                                     category=tag.original_name if tag else None,
@@ -562,25 +643,26 @@ class TagsView(QTreeView):  # {{{
                     self.context_menu.addAction(_('Manage %s')%category,
                             partial(self.context_menu_handler, action='edit_author_sort'))
                 elif key == 'search':
-                    self.context_menu.addAction(_('Manage Saved Searches'),
+                    self.context_menu.addAction(_('Manage Saved searches'),
                         partial(self.context_menu_handler, action='manage_searches',
                                 category=tag.name if tag else None))
 
-                self.context_menu.addSeparator()
-                self.context_menu.addAction(_('Change category icon'),
-                        partial(self.context_menu_handler, action='set_icon', key=key))
-                self.context_menu.addAction(_('Restore default icon'),
-                        partial(self.context_menu_handler, action='clear_icon', key=key))
+                if tag is None:
+                    self.context_menu.addSeparator()
+                    self.context_menu.addAction(_('Change category icon'),
+                            partial(self.context_menu_handler, action='set_icon', key=key))
+                    self.context_menu.addAction(_('Restore default icon'),
+                            partial(self.context_menu_handler, action='clear_icon', key=key))
 
-                # Always show the user categories editor
+                # Always show the User categories editor
                 self.context_menu.addSeparator()
                 if key.startswith('@') and \
                         key[1:] in self.db.prefs.get('user_categories', {}).keys():
-                    self.context_menu.addAction(_('Manage User Categories'),
+                    self.context_menu.addAction(_('Manage User categories'),
                             partial(self.context_menu_handler, action='manage_categories',
                                     category=key[1:]))
                 else:
-                    self.context_menu.addAction(_('Manage User Categories'),
+                    self.context_menu.addAction(_('Manage User categories'),
                             partial(self.context_menu_handler, action='manage_categories',
                                     category=None))
 
@@ -616,9 +698,22 @@ class TagsView(QTreeView):  # {{{
             da.setToolTip('*')
             pa.setToolTip('*')
 
+        if index.isValid() and self.model().rowCount(index) > 0:
+            self.context_menu.addSeparator()
+            self.context_menu.addAction(_('E&xpand all children'), partial(self.expand_node_and_descendants, index))
+
+        self.context_menu.addAction(_('Collapse all levels'), self.collapseAll)
+
         if not self.context_menu.isEmpty():
             self.context_menu.popup(self.mapToGlobal(point))
         return True
+
+    def expand_node_and_descendants(self, index):
+        if not index.isValid():
+            return
+        self.expand(index)
+        for r in xrange(self.model().rowCount(index)):
+            self.expand_node_and_descendants(index.child(r, 0))
 
     def collapse_menu_hovered(self, action):
         tip = action.toolTip()
@@ -658,10 +753,8 @@ class TagsView(QTreeView):  # {{{
                     fm_src = self.db.metadata_for_field(md.column_name)
                     if md.column_name in ['authors', 'publisher', 'series'] or \
                             (fm_src['is_custom'] and (
-                             (fm_src['datatype'] in ['series', 'text', 'enumeration'] and
-                              not fm_src['is_multiple']) or
-                             (fm_src['datatype'] == 'composite' and
-                              fm_src['display'].get('make_category', False)))):
+                             (fm_src['datatype'] in ['series', 'text', 'enumeration'] and not fm_src['is_multiple']) or (
+                                 fm_src['datatype'] == 'composite' and fm_src['display'].get('make_category', False)))):
                         self.setDropIndicatorShown(True)
 
     def clear(self):
@@ -674,6 +767,10 @@ class TagsView(QTreeView):  # {{{
             idx = idx.parent()
         return self.isExpanded(idx)
 
+    def recount_with_position_based_index(self):
+        self._model.use_position_based_index_on_next_recount = True
+        self.recount()
+
     def recount(self, *args):
         '''
         Rebuild the category tree, expand any categories that were expanded,
@@ -685,7 +782,12 @@ class TagsView(QTreeView):  # {{{
         ci = self.currentIndex()
         if not ci.isValid():
             ci = self.indexAt(QPoint(10, 10))
-        path = self.model().path_for_index(ci) if self.is_visible(ci) else None
+        use_pos = self._model.use_position_based_index_on_next_recount
+        self._model.use_position_based_index_on_next_recount = False
+        if use_pos:
+            path = self._model.path_for_index(ci) if self.is_visible(ci) else None
+        else:
+            path = self._model.named_path_for_index(ci) if self.is_visible(ci) else None
         expanded_categories, state_map = self.get_state()
         self._model.rebuild_node_tree(state_map=state_map)
         self.blockSignals(True)
@@ -693,7 +795,13 @@ class TagsView(QTreeView):  # {{{
             idx = self._model.index_for_category(category)
             if idx is not None and idx.isValid():
                 self.expand(idx)
-        self.show_item_at_path(path)
+        if path is not None:
+            if use_pos:
+                self.show_item_at_path(path)
+            else:
+                index = self._model.index_for_named_path(path)
+                if index.isValid():
+                    self.show_item_at_index(index)
         self.blockSignals(False)
 
     def show_item_at_path(self, path, box=False,

@@ -1,5 +1,6 @@
-#!/usr/bin/env python
+#!/usr/bin/env python2
 
+from __future__ import print_function
 __license__   = 'GPL v3'
 __copyright__ = '2011, Davide Cavalca <davide125 at tiscali.it>'
 '''
@@ -9,6 +10,7 @@ lwn.net
 from calibre.web.feeds.news import BasicNewsRecipe
 import re
 import sys
+
 
 class WeeklyLWN(BasicNewsRecipe):
     title = 'LWN.net Weekly Edition'
@@ -30,7 +32,7 @@ class WeeklyLWN(BasicNewsRecipe):
     # masthead_url = 'http://lwn.net/images/lcorner.png'
     publication_type = 'magazine'
 
-    keep_only_tags = [dict(attrs={'class':['PageHeadline','ArticleText']})]
+    keep_only_tags = [dict(attrs={'class': ['PageHeadline', 'ArticleText']})]
     remove_tags = [dict(name=['h2', 'form'])]
 
     preprocess_regexps = [
@@ -82,44 +84,49 @@ class WeeklyLWN(BasicNewsRecipe):
         articles = {}
         ans = []
 
-        section = soup.title.string
+        section = self.tag_to_string(soup.title)
         subsection = None
 
         while True:
-            curr = curr.findNext(attrs={'class': ['SummaryHL', 'Cat1HL', 'Cat2HL']})
+            curr = curr.findNext(
+                attrs={'class': ['SummaryHL', 'Cat1HL', 'Cat2HL']})
 
             if curr is None:
                 break
 
-            text = curr.contents[0].string
+            text = self.tag_to_string(curr.contents[0])
 
-            if 'Cat2HL' in curr.attrMap['class']:
+            if 'Cat2HL' in curr['class']:
                 subsection = text
 
-            elif 'Cat1HL' in curr.attrMap['class']:
+            elif 'Cat1HL' in curr['class']:
                 section = text
                 subsection = None
 
-            elif 'SummaryHL' in curr.attrMap['class']:
+            elif 'SummaryHL' in curr['class']:
                 article_title = text
+                if not article_title:
+                    article_title = _('Undefined article title')
 
                 if subsection:
                     section_title = "%s: %s" % (section, subsection)
                 else:
                     section_title = section
 
-                # Most articles have anchors in their titles, *except* the security vulnerabilities
-                article_anchor = curr.findNext(name='a', attrs={'href': re.compile('^/Articles/')})
+                # Most articles have anchors in their titles, *except* the
+                # security vulnerabilities
+                article_anchor = curr.find(
+                    name='a', attrs={'href': re.compile('^/Articles/')})
 
                 if article_anchor:
                     article_url = article_anchor.get('href')
                     if not article_url:
-                        print >>sys.stderr, 'article_url is None for article_anchor "%s": "%s"' \
-                                % (str(article_anchor), article_title)
+                        print('article_url is None for article_anchor "%s": "%s"'
+                            % (str(article_anchor), article_title), file=sys.stderr)
                         continue
 
                 else:
-                    print >>sys.stderr, 'article_anchor is None for "%s"; skipping' % article_title
+                    self.log.warn('article_anchor is None for "%s"; skipping' % article_title)
                     article_url = None
                     continue
 
@@ -129,19 +136,19 @@ class WeeklyLWN(BasicNewsRecipe):
                     ans.append(section_title)
 
                 articles[section_title].append({
-                        'url': article_url,
-                        'title': article_title,
-                        'description': '', 'content': '', 'date': '',
-                    })
+                    'url': article_url,
+                    'title': article_title,
+                    'description': '', 'content': '', 'date': '',
+                })
 
             else:
-                print >>sys.stderr, "lwn_weekly.recipe: something bad happened; should not be able to reach this"
+                self.log.error("lwn_weekly.recipe: something bad happened; should not be able to reach this")
 
-        ans = [(section2, articles[section2]) for section2 in ans if section2 in articles]
+        ans = [(section2, articles[section2])
+               for section2 in ans if section2 in articles]
         # from pprint import pprint
         # pprint(ans)
 
         return ans
 
 # vim: expandtab:ts=4:sw=4
-

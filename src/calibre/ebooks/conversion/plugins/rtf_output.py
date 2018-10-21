@@ -8,11 +8,13 @@ import os
 
 from calibre.customize.conversion import OutputFormatPlugin
 
+
 class RTFOutput(OutputFormatPlugin):
 
     name = 'RTF Output'
     author = 'John Schember'
     file_type = 'rtf'
+    commit_name = 'rtf_output'
 
     def convert(self, oeb_book, output_path, input_plugin, opts, log):
         from calibre.ebooks.rtf.rtfml import RTFMLizer

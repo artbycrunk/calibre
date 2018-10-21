@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 
 from __future__ import (unicode_literals, division, absolute_import, print_function)
-store_version = 4  # Needed for dynamic plugin loading
+store_version = 5  # Needed for dynamic plugin loading
 
 __license__ = 'GPL 3'
 __copyright__ = '2011, 2013, John Schember <john@nachtimwald.com>'
@@ -23,10 +23,12 @@ from calibre.gui2.store.search_result import SearchResult
 
 web_url = 'http://m.gutenberg.org/'
 
+
 def fix_url(url):
     if url and url.startswith('//'):
         url = 'http:' + url
     return url
+
 
 def search(query, max_results=10, timeout=60, write_raw_to=None):
     url = 'http://m.gutenberg.org/ebooks/search.opds/?query=' + urllib.quote_plus(query)
@@ -49,11 +51,8 @@ def search(query, max_results=10, timeout=60, write_raw_to=None):
 
             # We could use the <link rel="alternate" type="text/html" ...> tag from the
             # detail odps page but this is easier.
-            id = ''.join(data.xpath('./*[local-name() = "id"]/text()')).strip()
-            s.detail_item = fix_url(url_slash_cleaner('%s/ebooks/%s' % (web_url, re.sub('[^\d]', '', id))))
-            if not s.detail_item:
-                continue
-
+            id = fix_url(''.join(data.xpath('./*[local-name() = "id"]/text()')).strip())
+            s.detail_item = url_slash_cleaner('%s/ebooks/%s' % (web_url, re.sub('[^\d]', '', id)))
             s.title = ' '.join(data.xpath('./*[local-name() = "title"]//text()')).strip()
             s.author = ', '.join(data.xpath('./*[local-name() = "content"]//text()')).strip()
             if not s.title or not s.author:
@@ -87,6 +86,7 @@ def search(query, max_results=10, timeout=60, write_raw_to=None):
                             s.cover_data = base64.b64decode(href.replace('data:image/png;base64,', ''))
 
             yield s
+
 
 class GutenbergStore(BasicStoreConfig, OpenSearchOPDSStore):
 
@@ -122,3 +122,8 @@ class GutenbergStore(BasicStoreConfig, OpenSearchOPDSStore):
         '''
         for result in search(query, max_results, timeout):
             yield result
+
+if __name__ == '__main__':
+    import sys
+    for result in search(' '.join(sys.argv[1:]), write_raw_to='/t/gutenberg.html'):
+        print (result)

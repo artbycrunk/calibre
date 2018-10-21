@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python2
 # vim:fileencoding=UTF-8:ts=4:sw=4:sta:et:sts=4:ai
 from __future__ import (unicode_literals, division, absolute_import,
                         print_function)
@@ -19,6 +19,7 @@ zeroes = lambda x: b'\0'*x
 nulls = lambda x: b'\xff'*x
 short = lambda x: pack(b'>H', x)
 
+
 class Header(OrderedDict):
 
     HEADER_NAME = b''
@@ -28,7 +29,7 @@ class Header(OrderedDict):
 
     ALIGN_BLOCK = False
     POSITIONS = {}  # Mapping of position field to field whose position should
-                    # be stored in the position field
+    # be stored in the position field
     SHORT_FIELDS = set()
 
     def __init__(self):

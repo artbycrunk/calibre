@@ -10,14 +10,16 @@ import re, string
 from operator import attrgetter
 
 from PyQt5.Qt import (Qt, QAbstractItemModel, QPixmap, QModelIndex, QSize,
-                      pyqtSignal)
+                      pyqtSignal, QIcon, QApplication)
 
+from calibre import force_unicode
 from calibre.gui2 import FunctionDispatcher
 from calibre.gui2.store.search_result import SearchResult
 from calibre.gui2.store.search.download_thread import DetailsThreadPool, \
     CoverThreadPool
 from calibre.utils.icu import sort_key
 from calibre.utils.search_query_parser import SearchQueryParser
+
 
 def comparable_price(text):
     # this keep thousand and fraction separators
@@ -38,20 +40,16 @@ class Matches(QAbstractItemModel):
 
     HEADERS = [_('Cover'), _('Title'), _('Price'), _('DRM'), _('Store'), _('Download'), _('Affiliate')]
     HTML_COLS = (1, 4)
+    IMG_COLS = (0, 3, 5, 6)
 
     def __init__(self, cover_thread_count=2, detail_thread_count=4):
         QAbstractItemModel.__init__(self)
 
-        self.DRM_LOCKED_ICON = QPixmap(I('drm-locked.png')).scaledToHeight(64,
-                Qt.SmoothTransformation)
-        self.DRM_UNLOCKED_ICON = QPixmap(I('drm-unlocked.png')).scaledToHeight(64,
-                Qt.SmoothTransformation)
-        self.DRM_UNKNOWN_ICON = QPixmap(I('dialog_question.png')).scaledToHeight(64,
-                Qt.SmoothTransformation)
-        self.DONATE_ICON = QPixmap(I('donate.png')).scaledToHeight(16,
-                Qt.SmoothTransformation)
-        self.DOWNLOAD_ICON = QPixmap(I('arrow-down.png')).scaledToHeight(16,
-                Qt.SmoothTransformation)
+        self.DRM_LOCKED_ICON = QIcon(I('drm-locked.png'))
+        self.DRM_UNLOCKED_ICON = QIcon(I('drm-unlocked.png'))
+        self.DRM_UNKNOWN_ICON = QIcon(I('dialog_question.png'))
+        self.DONATE_ICON = QIcon(I('donate.png'))
+        self.DOWNLOAD_ICON = QIcon(I('arrow-down.png'))
 
         # All matches. Used to determine the order to display
         # self.matches because the SearchFilter returns
@@ -89,7 +87,7 @@ class Matches(QAbstractItemModel):
 
     def add_result(self, result, store_plugin):
         if result not in self.all_matches:
-            self.layoutAboutToBeChanged.emit()
+            self.modelAboutToBeReset.emit()
             self.all_matches.append(result)
             self.search_filter.add_search_result(result)
             if result.cover_url:
@@ -98,8 +96,8 @@ class Matches(QAbstractItemModel):
             else:
                 result.cover_queued = False
             self.details_pool.add_task(result, store_plugin, self.got_result_details_dispatcher)
-            self.filter_results()
-            self.layoutChanged.emit()
+            self._filter_results()
+            self.modelReset.emit()
 
     def get_result(self, index):
         row = index.row()
@@ -111,8 +109,7 @@ class Matches(QAbstractItemModel):
     def has_results(self):
         return len(self.matches) > 0
 
-    def filter_results(self):
-        self.layoutAboutToBeChanged.emit()
+    def _filter_results(self):
         # Only use the search filter's filtered results when there is a query
         # and it is a filterable query. This allows for the stores best guess
         # matches to come though.
@@ -122,7 +119,11 @@ class Matches(QAbstractItemModel):
             self.matches = list(self.search_filter.universal_set())
         self.total_changed.emit(self.rowCount())
         self.sort(self.sort_col, self.sort_order, False)
-        self.layoutChanged.emit()
+
+    def filter_results(self):
+        self.modelAboutToBeReset.emit()
+        self._filter_results()
+        self.modelReset.emit()
 
     def got_result_details(self, result):
         if not result.cover_queued and result.cover_url:
@@ -152,15 +153,15 @@ class Matches(QAbstractItemModel):
         # Remove filter identifiers
         # Remove the prefix.
         for loc in ('all', 'author', 'author2', 'authors', 'title', 'title2'):
-            query = re.sub(r'%s:"(?P<a>[^\s"]+)"' % loc, '\g<a>', query)
+            query = re.sub(r'%s:"(?P<a>[^\s"]+)"' % loc, r'\g<a>', query)
             query = query.replace('%s:' % loc, '')
         # Remove the prefix and search text.
         for loc in ('cover', 'download', 'downloads', 'drm', 'format', 'formats', 'price', 'store'):
             query = re.sub(r'%s:"[^"]"' % loc, '', query)
             query = re.sub(r'%s:[^\s]*' % loc, '', query)
         # Remove whitespace
-        query = re.sub('\s', '', query)
-        mod_query = re.sub('\s', '', mod_query)
+        query = re.sub(r'\s', '', query)
+        mod_query = re.sub(r'\s', '', mod_query)
         # If mod_query and query are the same then there were no filter modifiers
         # so this isn't a filterable query.
         if mod_query == query:
@@ -205,13 +206,14 @@ class Matches(QAbstractItemModel):
             elif col == 2:
                 return (result.price)
             elif col == 4:
-                return ('%s<br>%s' % (result.store_name, result.formats))
+                return ('<span>%s<br>%s</span>' % (result.store_name, result.formats))
             return None
         elif role == Qt.DecorationRole:
             if col == 0 and result.cover_data:
                 p = QPixmap()
                 p.loadFromData(result.cover_data)
-                return (p)
+                p.setDevicePixelRatio(QApplication.instance().devicePixelRatio())
+                return p
             if col == 3:
                 if result.drm == SearchResult.DRM_LOCKED:
                     return (self.DRM_LOCKED_ICON)
@@ -229,7 +231,13 @@ class Matches(QAbstractItemModel):
             if col == 1:
                 return ('<p>%s</p>' % result.title)
             elif col == 2:
-                return ('<p>' + _('Detected price as: %s. Check with the store before making a purchase to verify this price is correct. This price often does not include promotions the store may be running.') % result.price + '</p>')  # noqa
+                if result.price:
+                    return ('<p>' + _(
+                        'Detected price as: %s. Check with the store before making a purchase'
+                        ' to verify this price is correct. This price often does not include'
+                        ' promotions the store may be running.') % result.price + '</p>')
+                return '<p>' + _(
+                    'No price was found')
             elif col == 3:
                 if result.drm == SearchResult.DRM_LOCKED:
                     return ('<p>' + _('This book as been detected as having DRM restrictions. This book may not work with your reader and you will have limitations placed upon you as to what you can do with this book. Check with the store before making any purchases to ensure you can actually read this book.') + '</p>')  # noqa
@@ -384,7 +392,7 @@ class SearchFilter(SearchQueryParser):
         if location not in self.USABLE_LOCATIONS:
             return set([])
         matches = set([])
-        all_locs = set(self.USABLE_LOCATIONS) - set(['all'])
+        all_locs = set(self.USABLE_LOCATIONS) - {'all'}
         locations = all_locs if location == 'all' else [location]
         q = {
              'affiliate': attrgetter('affiliate'),
@@ -469,5 +477,5 @@ class SearchFilter(SearchQueryParser):
     def field_trimmer(self, field):
         ''' Remove common joiner words and punctuation to improve matching,
         punctuation is removed first, so that a.and.b becomes a b '''
+        field = force_unicode(field)
         return self.joiner_pat.sub(' ', field.translate(self.punctuation_table))
-

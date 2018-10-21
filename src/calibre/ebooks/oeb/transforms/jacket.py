@@ -1,6 +1,7 @@
-#!/usr/bin/env python
+#!/usr/bin/env python2
 # vim:fileencoding=UTF-8:ts=4:sw=4:sta:et:sts=4:ai
 from __future__ import with_statement
+from __future__ import print_function
 
 __license__   = 'GPL v3'
 __copyright__ = '2009, Kovid Goyal <kovid@kovidgoyal.net>'
@@ -15,14 +16,15 @@ from lxml import etree
 from calibre import guess_type, strftime
 from calibre.constants import iswindows
 from calibre.ebooks.BeautifulSoup import BeautifulSoup
-from calibre.ebooks.oeb.base import XPath, XHTML_NS, XHTML, xml2text, urldefrag
-from calibre.library.comments import comments_to_html
-from calibre.utils.date import is_date_undefined
+from calibre.ebooks.oeb.base import XPath, XHTML_NS, XHTML, xml2text, urldefrag, urlnormalize
+from calibre.library.comments import comments_to_html, markdown
+from calibre.utils.date import is_date_undefined, as_local_time
 from calibre.utils.icu import sort_key
 from calibre.ebooks.chardet import strip_encoding_declarations
-from calibre.ebooks.metadata import fmt_sidx
+from calibre.ebooks.metadata import fmt_sidx, rating_to_stars
 
 JACKET_XPATH = '//h:meta[@name="calibre-content" and @content="jacket"]'
+
 
 class SafeFormatter(Formatter):
 
@@ -32,11 +34,8 @@ class SafeFormatter(Formatter):
         except KeyError:
             return ''
 
-class Jacket(object):
-    '''
-    Book jacket manipulation. Remove first image and insert comments at start of
-    book.
-    '''
+
+class Base(object):
 
     def remove_images(self, item, limit=1):
         path = XPath('//h:img[@src]')
@@ -45,16 +44,25 @@ class Jacket(object):
             if removed >= limit:
                 break
             href  = item.abshref(img.get('src'))
-            image = self.oeb.manifest.hrefs.get(href, None)
+            image = self.oeb.manifest.hrefs.get(href)
+            if image is None:
+                href = urlnormalize(href)
+                image = self.oeb.manifest.hrefs.get(href)
             if image is not None:
                 self.oeb.manifest.remove(image)
+                self.oeb.guide.remove_by_href(href)
                 img.getparent().remove(img)
                 removed += 1
         return removed
 
+
+class RemoveFirstImage(Base):
+
     def remove_first_image(self):
         deleted_item = None
         for item in self.oeb.spine:
+            if XPath(JACKET_XPATH)(item.data):
+                continue
             removed = self.remove_images(item)
             if removed > 0:
                 self.log('Removed first image')
@@ -67,11 +75,30 @@ class Jacket(object):
                         self.oeb.manifest.remove(item)
                         deleted_item = item
                 break
+        else:
+            self.log.warn('Could not find first image to remove')
         if deleted_item is not None:
             for item in list(self.oeb.toc):
                 href = urldefrag(item.href)[0]
                 if href == deleted_item.href:
                     self.oeb.toc.remove(item)
+            self.oeb.guide.remove_by_href(deleted_item.href)
+
+    def __call__(self, oeb, opts, metadata):
+        '''
+        Add metadata in jacket.xhtml if specified in opts
+        If not specified, remove previous jacket instance
+        '''
+        self.oeb, self.opts, self.log = oeb, opts, oeb.log
+        if opts.remove_first_image:
+            self.remove_first_image()
+
+
+class Jacket(Base):
+    '''
+    Book jacket manipulation. Remove first image and insert comments at start of
+    book.
+    '''
 
     def insert_metadata(self, mi):
         self.log('Inserting metadata into book...')
@@ -123,12 +150,11 @@ class Jacket(object):
         '''
         self.oeb, self.opts, self.log = oeb, opts, oeb.log
         self.remove_existing_jacket()
-        if opts.remove_first_image:
-            self.remove_first_image()
         if opts.insert_metadata:
             self.insert_metadata(metadata)
 
 # Render Jacket {{{
+
 
 def get_rating(rating, rchar, e_rchar):
     ans = ''
@@ -144,18 +170,24 @@ def get_rating(rating, rchar, e_rchar):
     ans = ("%s%s") % (rchar * int(num), e_rchar * (5 - int(num)))
     return ans
 
+
 class Series(unicode):
 
     def __new__(self, series, series_index):
         if series and series_index is not None:
-            roman = _('Number {1} of <em>{0}</em>').format(
+            roman = _('{1} of <em>{0}</em>').format(
                 escape(series), escape(fmt_sidx(series_index, use_roman=True)))
-            series = escape(series + ' [%s]'%fmt_sidx(series_index, use_roman=False))
+            combined = _('{1} of <em>{0}</em>').format(
+                escape(series), escape(fmt_sidx(series_index, use_roman=False)))
         else:
-            series = roman = escape(series or u'')
-        s = unicode.__new__(self, series)
+            combined = roman = escape(series or u'')
+        s = unicode.__new__(self, combined)
         s.roman = roman
+        s.name = escape(series or u'')
+        s.number = escape(fmt_sidx(series_index or 1.0, use_roman=False))
+        s.roman_number = escape(fmt_sidx(series_index or 1.0, use_roman=True))
         return s
+
 
 class Tags(unicode):
 
@@ -165,6 +197,7 @@ class Tags(unicode):
         t.alphabetical = ', '.join(sorted(tags, key=sort_key))
         t.tags_list = tags
         return t
+
 
 def render_jacket(mi, output_profile,
         alt_title=_('Unknown'), alt_tags=[], alt_comments='',
@@ -193,7 +226,8 @@ def render_jacket(mi, output_profile,
         if is_date_undefined(mi.pubdate):
             pubdate = ''
         else:
-            pubdate = strftime(u'%Y', mi.pubdate.timetuple())
+            dt = as_local_time(mi.pubdate)
+            pubdate = strftime(u'%Y', dt.timetuple())
     except:
         pubdate = ''
 
@@ -229,12 +263,32 @@ def render_jacket(mi, output_profile,
                     searchable_tags=' '.join(escape(t)+'ttt' for t in tags.tags_list),
                     )
         for key in mi.custom_field_keys():
+            m = mi.get_user_metadata(key, False) or {}
             try:
                 display_name, val = mi.format_field_extended(key)[:2]
-                key = key.replace('#', '_')
-                args[key] = escape(val)
-                args[key+'_label'] = escape(display_name)
-            except:
+                dkey = key.replace('#', '_')
+                dt = m.get('datatype')
+                if dt == 'series':
+                    args[dkey] = Series(mi.get(key), mi.get(key + '_index'))
+                elif dt == 'rating':
+                    args[dkey] = rating_to_stars(mi.get(key), m.get('display', {}).get('allow_half_stars', False))
+                elif dt == 'comments':
+                    val = val or ''
+                    display = m.get('display', {})
+                    ctype = display.get('interpret_as') or 'html'
+                    if ctype == 'long-text':
+                        val = '<pre style="white-space:pre-wrap">%s</pre>' % escape(val)
+                    elif ctype == 'short-text':
+                        val = '<span>%s</span>' % escape(val)
+                    elif ctype == 'markdown':
+                        val = markdown(val)
+                    else:
+                        val = comments_to_html(val)
+                    args[dkey] = val
+                else:
+                    args[dkey] = escape(val)
+                args[dkey+'_label'] = escape(display_name)
+            except Exception:
                 # if the val (custom column contents) is None, don't add to args
                 pass
 
@@ -312,6 +366,7 @@ def render_jacket(mi, output_profile,
 
 # }}}
 
+
 def linearize_jacket(oeb):
     for x in oeb.spine[:4]:
         if XPath(JACKET_XPATH)(x.data):
@@ -320,6 +375,7 @@ def linearize_jacket(oeb):
             for e in XPath('//h:td')(x.data):
                 e.tag = XHTML('span')
             break
+
 
 def referenced_images(root):
     for img in XPath('//h:img[@src]')(root):
@@ -330,4 +386,3 @@ def referenced_images(root):
                 path = path[1:]
             if os.path.exists(path):
                 yield img, path
-

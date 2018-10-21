@@ -1,5 +1,6 @@
-#!/usr/bin/env python
+#!/usr/bin/env python2
 # vim:fileencoding=UTF-8:ts=4:sw=4:sta:et:sts=4:ai
+from __future__ import print_function
 
 __license__   = 'GPL v3'
 __copyright__ = '2010, Kovid Goyal <kovid@kovidgoyal.net>'
@@ -20,8 +21,7 @@ from calibre.customize.ui import metadata_writers, device_plugins, disabled_devi
 from calibre.library.save_to_disk import plugboard_any_format_value, \
                     plugboard_any_device_value, plugboard_save_to_disk_value, \
                     find_plugboard
-from calibre.library.server.content import plugboard_content_server_value, \
-                                        plugboard_content_server_formats
+from calibre.srv.content import plugboard_content_server_value, plugboard_content_server_formats
 from calibre.gui2.email import plugboard_email_value, plugboard_email_formats
 from calibre.utils.formatter import validation_formatter
 
@@ -156,11 +156,11 @@ class ConfigWidget(ConfigWidgetBase, Ui_Form):
         self.current_device = unicode(txt)
         fpb = self.current_plugboards.get(self.current_format, None)
         if fpb is None:
-            print 'edit_device_changed: none format!'
+            print('edit_device_changed: none format!')
             return
         dpb = fpb.get(self.current_device, None)
         if dpb is None:
-            print 'edit_device_changed: none device!'
+            print('edit_device_changed: none device!')
             return
         self.set_fields()
         for i,op in enumerate(dpb):
@@ -179,7 +179,7 @@ class ConfigWidget(ConfigWidgetBase, Ui_Form):
         txt = unicode(txt)
         fpb = self.current_plugboards.get(txt, None)
         if fpb is None:
-            print 'edit_format_changed: none editable format!'
+            print('edit_format_changed: none editable format!')
             return
         self.current_format = txt
         self.check_if_writer_disabled(txt)
@@ -392,7 +392,7 @@ class ConfigWidget(ConfigWidgetBase, Ui_Form):
         self.changed_signal.emit()
 
     def commit(self):
-        self.db.prefs.set('plugboards', self.current_plugboards)
+        self.db.new_api.set_pref('plugboards', self.current_plugboards)
         return ConfigWidgetBase.commit(self)
 
     def refresh_gui(self, gui):
@@ -403,4 +403,3 @@ if __name__ == '__main__':
     from PyQt5.Qt import QApplication
     app = QApplication([])
     test_widget('Import/Export', 'Plugboard')
-

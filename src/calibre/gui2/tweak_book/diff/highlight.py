@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python2
 # vim:fileencoding=utf-8
 from __future__ import (unicode_literals, division, absolute_import,
                         print_function)
@@ -14,6 +14,7 @@ from calibre.gui2.tweak_book import tprefs
 from calibre.gui2.tweak_book.editor.text import get_highlighter as calibre_highlighter, SyntaxHighlighter
 from calibre.gui2.tweak_book.editor.themes import get_theme, highlight_to_char_format
 from calibre.gui2.tweak_book.editor.syntax.utils import format_for_pygments_token, NULL_FMT
+
 
 class QtHighlighter(QTextDocument):
 
@@ -39,13 +40,18 @@ class QtHighlighter(QTextDocument):
                 cursor.insertText(block.text())
                 dest_block = cursor.block()
                 c = QTextCursor(dest_block)
-                for af in block.layout().additionalFormats():
+                try:
+                    afs = block.layout().additionalFormats()
+                except AttributeError:
+                    afs = ()
+                for af in afs:
                     start = dest_block.position() + af.start
                     c.setPosition(start), c.setPosition(start + af.length, c.KeepAnchor)
                     c.setCharFormat(af.format)
                 cursor.insertBlock()
                 cursor.setCharFormat(NULL_FMT)
                 block = block.next()
+
 
 class NullHighlighter(object):
 
@@ -56,6 +62,7 @@ class NullHighlighter(object):
         for i in xrange(lo, hi):
             cursor.insertText(self.lines[i])
             cursor.insertBlock()
+
 
 def pygments_lexer(filename):
     try:
@@ -71,12 +78,14 @@ def pygments_lexer(filename):
             return glff('a.py')
         return None
 
+
 class PygmentsHighlighter(object):
 
     def __init__(self, text, lexer):
         theme, cache = get_theme(tprefs['editor_theme']), {}
         theme = {k:highlight_to_char_format(v) for k, v in theme.iteritems()}
         theme[None] = NULL_FMT
+
         def fmt(token):
             return format_for_pygments_token(theme, cache, token)
 
@@ -96,6 +105,7 @@ class PygmentsHighlighter(object):
             for fmt, text in self.lines[i]:
                 cursor.insertText(text, fmt)
             cursor.setCharFormat(NULL_FMT)
+
 
 def get_highlighter(parent, text, syntax):
     hlclass = calibre_highlighter(syntax)

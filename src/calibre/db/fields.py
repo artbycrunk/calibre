@@ -1,31 +1,33 @@
-#!/usr/bin/env python
+#!/usr/bin/env python2
 # vim:fileencoding=UTF-8:ts=4:sw=4:sta:et:sts=4:ai
 from __future__ import (unicode_literals, division, absolute_import,
                         print_function)
-# from future_builtins import map
+# from polyglot.builtins import map
 
 __license__   = 'GPL v3'
 __copyright__ = '2011, Kovid Goyal <kovid@kovidgoyal.net>'
 __docformat__ = 'restructuredtext en'
 
-from locale import atof
 from threading import Lock
 from collections import defaultdict, Counter
 from functools import partial
 
 from calibre.db.tables import ONE_ONE, MANY_ONE, MANY_MANY, null
 from calibre.db.write import Writer
-from calibre.db.utils import force_to_bool
-from calibre.ebooks.metadata import title_sort, author_to_author_sort
+from calibre.db.utils import force_to_bool, atof
+from calibre.ebooks.metadata import title_sort, author_to_author_sort, rating_to_stars
 from calibre.utils.config_base import tweaks
 from calibre.utils.icu import sort_key
 from calibre.utils.date import UNDEFINED_DATE, clean_date_for_sort, parse_date
 from calibre.utils.localization import calibre_langcode_to_name
 
+
 def bool_sort_key(bools_are_tristate):
     return (lambda x:{True: 1, False: 2, None: 3}.get(x, 3)) if bools_are_tristate else lambda x:{True: 1, False: 2, None: 2}.get(x, 2)
 
+
 IDENTITY = lambda x: x
+
 
 class InvalidLinkTable(Exception):
 
@@ -33,13 +35,14 @@ class InvalidLinkTable(Exception):
         Exception.__init__(self, name)
         self.field_name = name
 
+
 class Field(object):
 
     is_many = False
     is_many_many = False
     is_composite = False
 
-    def __init__(self, name, table, bools_are_tristate):
+    def __init__(self, name, table, bools_are_tristate, get_template_functions):
         self.name, self.table = name, table
         dt = self.metadata['datatype']
         self.has_text_data = dt in {'text', 'comments', 'series', 'enumeration'}
@@ -78,11 +81,15 @@ class Field(object):
         self.default_value = {} if name == 'identifiers' else () if self.is_multiple else None
         self.category_formatter = type(u'')
         if dt == 'rating':
-            self.category_formatter = lambda x:'\u2605'*int(x/2)
+            if self.metadata['display'].get('allow_half_stars', False):
+                self.category_formatter = lambda x: rating_to_stars(x, True)
+            else:
+                self.category_formatter = rating_to_stars
         elif name == 'languages':
             self.category_formatter = calibre_langcode_to_name
         self.writer = Writer(self)
         self.series_field = None
+        self.get_template_functions = get_template_functions
 
     @property
     def metadata(self):
@@ -164,6 +171,7 @@ class Field(object):
                 ans.append(c)
         return ans
 
+
 class OneToOneField(Field):
 
     def for_book(self, book_id, default_value=None):
@@ -191,13 +199,14 @@ class OneToOneField(Field):
         for book_id in candidates:
             yield cbm.get(book_id, default_value), {book_id}
 
+
 class CompositeField(OneToOneField):
 
     is_composite = True
     SIZE_SUFFIX_MAP = {suffix:i for i, suffix in enumerate(('', 'K', 'M', 'G', 'T', 'P', 'E'))}
 
-    def __init__(self, name, table, bools_are_tristate):
-        OneToOneField.__init__(self, name, table, bools_are_tristate)
+    def __init__(self, name, table, bools_are_tristate, get_template_functions):
+        OneToOneField.__init__(self, name, table, bools_are_tristate, get_template_functions)
 
         self._render_cache = {}
         self._lock = Lock()
@@ -257,7 +266,8 @@ class CompositeField(OneToOneField):
         ' INTERNAL USE ONLY. DO NOT USE THIS OUTSIDE THIS CLASS! '
         ans = formatter.safe_format(
             self.metadata['display']['composite_template'], mi, _('TEMPLATE ERROR'),
-            mi, column_name=self._composite_name, template_cache=template_cache).strip()
+            mi, column_name=self._composite_name, template_cache=template_cache,
+            template_functions=self.get_template_functions()).strip()
         with self._lock:
             self._render_cache[book_id] = ans
         return ans
@@ -337,9 +347,10 @@ class CompositeField(OneToOneField):
                 ans.add(book_id)
         return ans
 
+
 class OnDeviceField(OneToOneField):
 
-    def __init__(self, name, table, bools_are_tristate):
+    def __init__(self, name, table, bools_are_tristate, get_template_functions):
         self.name = name
         self.book_on_device_func = None
         self.is_multiple = False
@@ -400,6 +411,7 @@ class OnDeviceField(OneToOneField):
             val_map[self.for_book(book_id, default_value=default_value)].add(book_id)
         for val, book_ids in val_map.iteritems():
             yield val, book_ids
+
 
 class LazySortMap(object):
 
@@ -467,6 +479,7 @@ class ManyToOneField(Field):
         except KeyError:
             raise InvalidLinkTable(self.name)
 
+
 class ManyToManyField(Field):
 
     is_many = True
@@ -532,6 +545,7 @@ class ManyToManyField(Field):
         except KeyError:
             raise InvalidLinkTable(self.name)
 
+
 class IdentifiersField(ManyToManyField):
 
     def for_book(self, book_id, default_value=None):
@@ -567,6 +581,7 @@ class IdentifiersField(ManyToManyField):
                 ans.append(c)
         return ans
 
+
 class AuthorsField(ManyToManyField):
 
     def author_data(self, author_id):
@@ -585,6 +600,7 @@ class AuthorsField(ManyToManyField):
     def author_sort_for_book(self, book_id):
         return ' & '.join(self.table.asort_map[k] for k in
                           self.table.book_col_map[book_id])
+
 
 class FormatsField(ManyToManyField):
 
@@ -616,6 +632,7 @@ class FormatsField(ManyToManyField):
                 ans.append(c)
         return ans
 
+
 class LazySeriesSortMap(object):
 
     __slots__ = ('default_sort_key', 'sort_key_func', 'id_map', 'cache')
@@ -636,12 +653,14 @@ class LazySeriesSortMap(object):
                 val = self.cache[(item_id, lang)] = self.default_sort_key
             return val
 
+
 class SeriesField(ManyToOneField):
 
     def sort_keys_for_books(self, get_metadata, lang_map):
         sso = tweaks['title_series_sorting']
         ssk = self._sort_key
         ts = title_sort
+
         def sk(val, lang):
             return ssk(ts(val, order=sso, lang=lang))
         sk_map = LazySeriesSortMap(self._default_sort_key, sk, self.table.id_map)
@@ -669,6 +688,24 @@ class SeriesField(ManyToOneField):
                 lang = c.most_common(1)[0][0]
         val = self.table.id_map[item_id]
         return title_sort(val, order=tss, lang=lang)
+
+    def iter_searchable_values_for_sort(self, candidates, lang_map, default_value=None):
+        cbm = self.table.col_book_map
+        sso = tweaks['title_series_sorting']
+        ts = title_sort
+        empty = set()
+        lang_map = {k:v[0] if v else None for k, v in lang_map.iteritems()}
+        for item_id, val in self.table.id_map.iteritems():
+            book_ids = cbm.get(item_id, empty).intersection(candidates)
+            if book_ids:
+                lang_counts = Counter()
+                for book_id in book_ids:
+                    lang = lang_map.get(book_id)
+                    if lang:
+                        lang_counts[lang[0]] += 1
+                lang = lang_counts.most_common(1)[0][0] if lang_counts else None
+                yield ts(val, order=sso, lang=lang), book_ids
+
 
 class TagsField(ManyToManyField):
 
@@ -698,7 +735,8 @@ class TagsField(ManyToManyField):
                 ans.append(c)
         return ans
 
-def create_field(name, table, bools_are_tristate):
+
+def create_field(name, table, bools_are_tristate, get_template_functions):
     cls = {
             ONE_ONE: OneToOneField,
             MANY_ONE: ManyToOneField,
@@ -718,5 +756,4 @@ def create_field(name, table, bools_are_tristate):
         cls = CompositeField
     elif table.metadata['datatype'] == 'series':
         cls = SeriesField
-    return cls(name, table, bools_are_tristate)
-
+    return cls(name, table, bools_are_tristate, get_template_functions)

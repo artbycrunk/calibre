@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python2
 # vim:fileencoding=utf-8
 from __future__ import (unicode_literals, division, absolute_import,
                         print_function)
@@ -9,6 +9,7 @@ __copyright__ = '2013, Kovid Goyal <kovid at kovidgoyal.net>'
 from calibre.ebooks.metadata.book import TOP_LEVEL_IDENTIFIERS, ALL_METADATA_FIELDS
 
 from calibre.utils.formatter import TemplateFormatter
+
 
 class SafeFormat(TemplateFormatter):
 

@@ -2,6 +2,7 @@
 Transform XHTML/OPS-ish content into Mobipocket HTML 3.2.
 '''
 from __future__ import with_statement
+from __future__ import print_function
 
 __license__   = 'GPL v3'
 __copyright__ = '2008, Marshall T. Vandegrift <llasram@gmail.cam>'
@@ -14,34 +15,39 @@ from calibre.ebooks.oeb.base import XHTML, XHTML_NS, urlnormalize
 from calibre.ebooks.oeb.stylizer import Stylizer
 from calibre.ebooks.oeb.transforms.flatcss import KeyMapper
 from calibre.ebooks.mobi.utils import convert_color_for_font_tag
-from calibre.utils.magick.draw import identify_data
+from calibre.utils.imghdr import identify
 
 MBP_NS = 'http://mobipocket.com/ns/mbp'
+
+
 def MBP(name):
     return '{%s}%s' % (MBP_NS, name)
 
+
 MOBI_NSMAP = {None: XHTML_NS, 'mbp': MBP_NS}
 INLINE_TAGS = {'span', 'a', 'code', 'u', 's', 'big', 'strike', 'tt', 'font', 'q', 'i', 'b', 'em', 'strong', 'sup', 'sub'}
-HEADER_TAGS = set(['h1', 'h2', 'h3', 'h4', 'h5', 'h6'])
+HEADER_TAGS = {'h1', 'h2', 'h3', 'h4', 'h5', 'h6'}
 # GR: Added 'caption' to both sets
-NESTABLE_TAGS = set(['ol', 'ul', 'li', 'table', 'tr', 'td', 'th', 'caption'])
-TABLE_TAGS = set(['table', 'tr', 'td', 'th', 'caption'])
+NESTABLE_TAGS = {'ol', 'ul', 'li', 'table', 'tr', 'td', 'th', 'caption'}
+TABLE_TAGS = {'table', 'tr', 'td', 'th', 'caption'}
 
-SPECIAL_TAGS = set(['hr', 'br'])
-CONTENT_TAGS = set(['img', 'hr', 'br'])
+SPECIAL_TAGS = {'hr', 'br'}
+CONTENT_TAGS = {'img', 'hr', 'br'}
 
 NOT_VTAGS = HEADER_TAGS | NESTABLE_TAGS | TABLE_TAGS | SPECIAL_TAGS | \
     CONTENT_TAGS
-LEAF_TAGS = set(['base', 'basefont', 'frame', 'link', 'meta', 'area', 'br',
-'col', 'hr', 'img', 'input', 'param'])
-PAGE_BREAKS = set(['always', 'left', 'right'])
+LEAF_TAGS = {'base', 'basefont', 'frame', 'link', 'meta', 'area', 'br',
+'col', 'hr', 'img', 'input', 'param'}
+PAGE_BREAKS = {'always', 'left', 'right'}
 
 COLLAPSE = re.compile(r'[ \t\r\n\v]+')
+
 
 def asfloat(value):
     if not isinstance(value, (int, long, float)):
         return 0.0
     return float(value)
+
 
 def isspace(text):
     if not text:
@@ -50,7 +56,9 @@ def isspace(text):
         return False
     return text.isspace()
 
+
 class BlockState(object):
+
     def __init__(self, body):
         self.body = body
         self.nested = []
@@ -63,7 +71,9 @@ class BlockState(object):
         self.istate = None
         self.content = False
 
+
 class FormatState(object):
+
     def __init__(self):
         self.rendered = False
         self.left = 0.
@@ -102,6 +112,7 @@ class FormatState(object):
 
 
 class MobiMLizer(object):
+
     def __init__(self, ignore_tables=False):
         self.ignore_tables = ignore_tables
 
@@ -227,7 +238,7 @@ class MobiMLizer(object):
             try:
                 etree.SubElement(para, XHTML(tag), attrib=istate.attrib)
             except:
-                print 'Invalid subelement:', para, tag, istate.attrib
+                print('Invalid subelement:', para, tag, istate.attrib)
                 raise
         elif tag in TABLE_TAGS:
             para.attrib['valign'] = 'top'
@@ -445,8 +456,8 @@ class MobiMLizer(object):
                             href)
                 else:
                     try:
-                        width, height = identify_data(item.data)[:2]
-                    except:
+                        width, height = identify(item.data)[1:]
+                    except Exception:
                         self.oeb.logger.warn('Invalid image:', href)
                     else:
                         if 'width' not in istate.attrib and 'height' not in \
@@ -468,9 +479,13 @@ class MobiMLizer(object):
                                     pass
                                 istate.attrib['height'] = str(int(height))
                         item.unload_data_from_memory()
-        elif tag == 'hr' and asfloat(style['width']) > 0:
-            prop = style['width'] / self.profile.width
-            istate.attrib['width'] = "%d%%" % int(round(prop * 100))
+        elif tag == 'hr' and asfloat(style['width']) > 0 and style._get('width') not in {'100%', 'auto'}:
+            raww = style._get('width')
+            if hasattr(raww, 'strip') and '%' in raww:
+                istate.attrib['width'] = raww
+            else:
+                prop = style['width'] / self.profile.width
+                istate.attrib['width'] = "%d%%" % int(round(prop * 100))
         elif display == 'table':
             tag = 'table'
         elif display == 'table-row':

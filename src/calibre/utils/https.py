@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python2
 # vim:fileencoding=utf-8
 from __future__ import (unicode_literals, division, absolute_import,
                         print_function)
@@ -6,14 +6,13 @@ from __future__ import (unicode_literals, division, absolute_import,
 __license__ = 'GPL v3'
 __copyright__ = '2014, Kovid Goyal <kovid at kovidgoyal.net>'
 
-import ssl, socket, re, sys
+import ssl, socket, re
 from contextlib import closing
 
 from calibre import get_proxies
 from calibre.constants import ispy3
-# On OS X PROTOCOL_TLSv1_2 is not available because the SSL library shipped
-# with OS X is too old
-has_ssl_verify = sys.version_info[:3] > (2, 7, 8)
+has_ssl_verify = hasattr(ssl, 'create_default_context') and hasattr(ssl, '_create_unverified_context')
+
 
 class HTTPError(ValueError):
 
@@ -23,6 +22,7 @@ class HTTPError(ValueError):
         ValueError.__init__(self, msg)
         self.code = code
         self.url = url
+
 
 if ispy3:
     from urllib.parse import urlparse
@@ -35,7 +35,11 @@ if has_ssl_verify:
     class HTTPSConnection(httplib.HTTPSConnection):
 
         def __init__(self, ssl_version, *args, **kwargs):
-            kwargs['context'] = ssl.create_default_context(cafile=kwargs.pop('cert_file'))
+            cafile = kwargs.pop('cert_file', None)
+            if cafile is None:
+                kwargs['context'] = ssl._create_unverified_context()
+            else:
+                kwargs['context'] = ssl.create_default_context(cafile=cafile)
             httplib.HTTPSConnection.__init__(self, *args, **kwargs)
 else:
     # Check certificate hostname {{{
@@ -152,20 +156,25 @@ else:
             self.sock = ssl.wrap_socket(sock, cert_reqs=ssl.CERT_REQUIRED, ca_certs=self.cert_file, ssl_version=self.calibre_ssl_version)
             getattr(ssl, 'match_hostname', match_hostname)(self.sock.getpeercert(), self.host)
 
+
 def get_https_resource_securely(
-    url, cacerts='calibre-ebook-root-CA.crt', timeout=60, max_redirects=5, ssl_version=None, headers=None):
+    url, cacerts='calibre-ebook-root-CA.crt', timeout=60, max_redirects=5, ssl_version=None, headers=None, get_response=False):
     '''
     Download the resource pointed to by url using https securely (verify server
     certificate).  Ensures that redirects, if any, are also downloaded
     securely. Needs a CA certificates bundle (in PEM format) to verify the
     server's certificates.
+
+    You can pass cacerts=None to download using SSL but without verifying the server certificate.
     '''
     if ssl_version is None:
         try:
             ssl_version = ssl.PROTOCOL_TLSv1_2
         except AttributeError:
             ssl_version = ssl.PROTOCOL_TLSv1  # old python
-    cacerts = P(cacerts, allow_user_override=False)
+    cert_file = None
+    if cacerts is not None:
+        cert_file = P(cacerts, allow_user_override=False)
     p = urlparse(url)
     if p.scheme != 'https':
         raise ValueError('URL %s scheme must be https, not %r' % (url, p.scheme))
@@ -185,7 +194,7 @@ def get_https_resource_securely(
                 # Invalid proxy, ignore
                 pass
 
-    c = HTTPSConnection(ssl_version, hostname, port, cert_file=cacerts, timeout=timeout)
+    c = HTTPSConnection(ssl_version, hostname, port, cert_file=cert_file, timeout=timeout)
     if has_proxy:
         c.set_tunnel(p.hostname, p.port)
 
@@ -203,12 +212,13 @@ def get_https_resource_securely(
             if newurl is None:
                 raise ValueError('%s returned a redirect response with no Location header' % url)
             return get_https_resource_securely(
-                newurl, cacerts=cacerts, timeout=timeout, max_redirects=max_redirects-1, ssl_version=ssl_version)
+                newurl, cacerts=cacerts, timeout=timeout, max_redirects=max_redirects-1, ssl_version=ssl_version, get_response=get_response)
         if response.status != httplib.OK:
             raise HTTPError(url, response.status)
+        if get_response:
+            return response
         return response.read()
 
-if __name__ == '__main__':
-    # print (len(get_url_secure('https://status.calibre-ebook.com/dist/win32')))
-    print (get_https_resource_securely('https://status.calibre-ebook.com/latest'))
 
+if __name__ == '__main__':
+    print (get_https_resource_securely('https://code.calibre-ebook.com/latest'))

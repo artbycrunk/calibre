@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python2
 # vim:fileencoding=UTF-8:ts=4:sw=4:sta:et:sts=4:ai
 from __future__ import (unicode_literals, division, absolute_import,
                         print_function)
@@ -9,16 +9,19 @@ __docformat__ = 'restructuredtext en'
 
 import os, tempfile, shutil, time
 from threading import Thread, Event
+from polyglot.builtins import map
 
-from PyQt5.Qt import (QFileSystemWatcher, QObject, Qt, pyqtSignal, QTimer)
+from PyQt5.Qt import (QFileSystemWatcher, QObject, Qt, pyqtSignal, QTimer, QApplication, QCursor)
 
 from calibre import prints
-from calibre.ptempfile import PersistentTemporaryDirectory
+from calibre.db.adding import filter_filename, compile_rule
 from calibre.ebooks import BOOK_EXTENSIONS
 from calibre.gui2 import gprefs
 from calibre.gui2.dialogs.duplicates import DuplicatesQuestion
+from calibre.utils.tdir_in_cache import tdir_in_cache
 
 AUTO_ADDED = frozenset(BOOK_EXTENSIONS) - {'pdr', 'mbp', 'tan'}
+
 
 class AllAllowed(object):
 
@@ -27,6 +30,16 @@ class AllAllowed(object):
 
     def __contains__(self, x):
         return x not in self.disallowed
+
+
+def allowed_formats():
+    ' Return an object that can be used to test if a format (lowercase) is allowed for auto-adding '
+    if gprefs['auto_add_everything']:
+        allowed = AllAllowed()
+    else:
+        allowed = AUTO_ADDED - frozenset(gprefs['blocked_auto_formats'])
+    return allowed
+
 
 class Worker(Thread):
 
@@ -37,23 +50,39 @@ class Worker(Thread):
         self.wake_up = Event()
         self.path, self.callback = path, callback
         self.staging = set()
-        if gprefs['auto_add_everything']:
-            self.allowed = AllAllowed()
-        else:
-            self.allowed = AUTO_ADDED - frozenset(gprefs['blocked_auto_formats'])
+        self.allowed = allowed_formats()
+        self.read_rules()
+
+    def read_rules(self):
+        try:
+            self.compiled_rules = tuple(map(compile_rule, gprefs.get('add_filter_rules', ())))
+        except Exception:
+            self.compiled_rules = ()
+            import traceback
+            traceback.print_exc()
+
+    def is_filename_allowed(self, filename):
+        allowed = filter_filename(self.compiled_rules, filename)
+        if allowed is None:
+            ext = os.path.splitext(filename)[1][1:].lower()
+            allowed = ext in self.allowed
+        return allowed
 
     def run(self):
-        self.tdir = PersistentTemporaryDirectory('_auto_adder')
-        while self.keep_running:
-            self.wake_up.wait()
-            self.wake_up.clear()
-            if not self.keep_running:
-                break
-            try:
-                self.auto_add()
-            except:
-                import traceback
-                traceback.print_exc()
+        self.tdir = tdir_in_cache('aa')
+        try:
+            while self.keep_running:
+                self.wake_up.wait()
+                self.wake_up.clear()
+                if not self.keep_running:
+                    break
+                try:
+                    self.auto_add()
+                except:
+                    import traceback
+                    traceback.print_exc()
+        finally:
+            shutil.rmtree(self.tdir, ignore_errors=True)
 
     def auto_add(self):
         from calibre.utils.ipc.simple_worker import fork_job, WorkerError
@@ -62,21 +91,27 @@ class Worker(Thread):
 
         files = [x for x in os.listdir(self.path) if
                     # Must not be in the process of being added to the db
-                    x not in self.staging
+                    x not in self.staging and
                     # Firefox creates 0 byte placeholder files when downloading
-                    and os.stat(os.path.join(self.path, x)).st_size > 0
+                    os.stat(os.path.join(self.path, x)).st_size > 0 and
                     # Must be a file
-                    and os.path.isfile(os.path.join(self.path, x))
+                    os.path.isfile(os.path.join(self.path, x)) and
                     # Must have read and write permissions
-                    and os.access(os.path.join(self.path, x), os.R_OK|os.W_OK)
+                    os.access(os.path.join(self.path, x), os.R_OK|os.W_OK) and
                     # Must be a known ebook file type
-                    and os.path.splitext(x)[1][1:].lower() in self.allowed
+                    self.is_filename_allowed(x)
                 ]
-        data = {}
+        data = []
         # Give any in progress copies time to complete
         time.sleep(2)
 
-        for fname in files:
+        def safe_mtime(x):
+            try:
+                return os.path.getmtime(os.path.join(self.path, x))
+            except EnvironmentError:
+                return time.time()
+
+        for fname in sorted(files, key=safe_mtime):
             f = os.path.join(self.path, fname)
 
             # Try opening the file for reading, if the OS prevents us, then at
@@ -117,7 +152,7 @@ class Worker(Thread):
                 with open(opfpath, 'wb') as f:
                     f.write(metadata_to_opf(mi))
             self.staging.add(fname)
-            data[fname] = tdir
+            data.append((fname, tdir))
         if data:
             self.callback(data)
 
@@ -143,6 +178,10 @@ class AutoAdder(QObject):
             prints(path,
                 'is not a valid directory to watch for new ebooks, ignoring')
 
+    def read_rules(self):
+        if hasattr(self, 'worker'):
+            self.worker.read_rules()
+
     def initialize(self):
         try:
             if os.listdir(self.worker.path):
@@ -167,7 +206,17 @@ class AutoAdder(QObject):
         if hasattr(self, 'worker'):
             self.worker.join()
 
+    def __enter__(self):
+        QApplication.setOverrideCursor(QCursor(Qt.WaitCursor))
+
+    def __exit__(self, *args):
+        QApplication.restoreOverrideCursor()
+
     def add_to_db(self, data):
+        with self:
+            self.do_add(data)
+
+    def do_add(self, data):
         from calibre.ebooks.metadata.opf2 import OPF
 
         gui = self.parent()
@@ -180,7 +229,7 @@ class AutoAdder(QObject):
         duplicates = []
         added_ids = set()
 
-        for fname, tdir in data.iteritems():
+        for fname, tdir in data:
             paths = [os.path.join(self.worker.path, fname)]
             sz = os.path.join(tdir, 'size.txt')
             try:
@@ -201,8 +250,17 @@ class AutoAdder(QObject):
             mi = os.path.join(tdir, 'metadata.opf')
             if not os.access(mi, os.R_OK):
                 continue
-            mi = [OPF(open(mi, 'rb'), tdir,
-                    populate_spine=False).to_book_metadata()]
+            mi = OPF(open(mi, 'rb'), tdir, populate_spine=False).to_book_metadata()
+            if gprefs.get('tag_map_on_add_rules'):
+                from calibre.ebooks.metadata.tag_mapper import map_tags
+                mi.tags = map_tags(mi.tags, gprefs['tag_map_on_add_rules'])
+            if gprefs.get('author_map_on_add_rules'):
+                from calibre.ebooks.metadata.author_mapper import map_authors, compile_rules
+                new_authors = map_authors(mi.authors, compile_rules(gprefs['author_map_on_add_rules']))
+                if new_authors != mi.authors:
+                    mi.authors = new_authors
+                    mi.author_sort = gui.current_db.new_api.author_sort_from_authors(mi.authors)
+            mi = [mi]
             dups, ids = m.add_books(paths,
                     [os.path.splitext(fname)[1][1:].upper()], mi,
                     add_duplicates=not gprefs['auto_add_check_for_duplicates'],
@@ -246,7 +304,7 @@ class AutoAdder(QObject):
                 num = len(ids)
                 count += num
 
-        for tdir in data.itervalues():
+        for fname, tdir in data:
             try:
                 shutil.rmtree(tdir)
             except:
@@ -257,11 +315,10 @@ class AutoAdder(QObject):
 
         if count > 0:
             m.books_added(count)
-            gui.status_bar.show_message(_(
-                'Added %(num)d book(s) automatically from %(src)s') %
-                dict(num=count, src=self.worker.path), 2000)
-            if hasattr(gui, 'db_images'):
-                gui.db_images.beginResetModel(), gui.db_images.endResetModel()
+            gui.status_bar.show_message(
+                ngettext('Added a book automatically from {src}', 'Added {num} books automatically from {src}', count).format(
+                    num=count, src=self.worker.path), 2000)
+            gui.refresh_cover_browser()
 
         if needs_rescan:
             QTimer.singleShot(2000, self.dir_changed)
@@ -269,4 +326,3 @@ class AutoAdder(QObject):
     def do_auto_convert(self, added_ids):
         gui = self.parent()
         gui.iactions['Convert Books'].auto_convert_auto_add(added_ids)
-

@@ -1,6 +1,7 @@
-#!/usr/bin/env python
+#!/usr/bin/env python2
 # vim:fileencoding=UTF-8:ts=4:sw=4:sta:et:sts=4:ai
 from __future__ import with_statement
+from __future__ import print_function
 
 __license__   = 'GPL v3'
 __copyright__ = '2009, Kovid Goyal <kovid@kovidgoyal.net>'
@@ -21,6 +22,11 @@ from PyQt5.Qt import (Qt, QAbstractItemView, QCheckBox, QComboBox,
         QDoubleSpinBox, QIcon, QInputDialog, QLineEdit, QRadioButton,
         QSize, QSizePolicy, QTableWidget, QTableWidgetItem, QTextEdit, QToolButton,
         QUrl, QVBoxLayout, QWidget)
+try:
+    from PyQt5 import sip
+except ImportError:
+    import sip
+
 
 class PluginWidget(QWidget,Ui_Form):
 
@@ -32,7 +38,7 @@ class PluginWidget(QWidget,Ui_Form):
     sync_enabled = True
 
     # Formats supported by this plugin
-    formats = set(['azw3','epub','mobi'])
+    formats = {'azw3','epub','mobi'}
 
     def __init__(self, parent=None):
         QWidget.__init__(self, parent)
@@ -77,7 +83,7 @@ class PluginWidget(QWidget,Ui_Form):
                             ['radio_button' for i in RadioButtonControls])
 
         # LineEditControls
-        option_fields += zip(['exclude_genre'],['\[.+\]|^\+$'],['line_edit'])
+        option_fields += zip(['exclude_genre'],[r'\[.+\]|^\+$'],['line_edit'])
 
         # TextEditControls
         # option_fields += zip(['exclude_genre_results'],['excluded genres will appear here'],['text_edit'])
@@ -516,9 +522,9 @@ class PluginWidget(QWidget,Ui_Form):
             opts_dict['output_profile'] = ['default']
 
         if False and self.DEBUG:
-            print "opts_dict"
+            print("opts_dict")
             for opt in sorted(opts_dict.keys(), key=sort_key):
-                print " %s: %s" % (opt, repr(opts_dict[opt]))
+                print(" %s: %s" % (opt, repr(opts_dict[opt])))
         return opts_dict
 
     def populate_combo_boxes(self):
@@ -815,7 +821,8 @@ class PluginWidget(QWidget,Ui_Form):
         '''
         Display help file
         '''
-        open_url(QUrl(localize_user_manual_link('http://manual.calibre-ebook.com/catalogs.html')))
+        open_url(QUrl(localize_user_manual_link('https://manual.calibre-ebook.com/catalogs.html')))
+
 
 class CheckableTableWidgetItem(QTableWidgetItem):
 
@@ -846,11 +853,13 @@ class CheckableTableWidgetItem(QTableWidgetItem):
         else:
             return self.checkState() == Qt.Checked
 
+
 class NoWheelComboBox(QComboBox):
 
     def wheelEvent(self, event):
         # Disable the mouse wheel on top of the combo box changing selection as plays havoc in a grid
         event.ignore()
+
 
 class ComboBox(NoWheelComboBox):
     # Caller is responsible for providing the list in the preferred order
@@ -868,6 +877,7 @@ class ComboBox(NoWheelComboBox):
             self.setCurrentIndex(idx)
         else:
             self.setCurrentIndex(0)
+
 
 class GenericRulesTable(QTableWidget):
 
@@ -961,7 +971,6 @@ class GenericRulesTable(QTableWidget):
                 for i in reversed(range(child.count())):
                     if child.itemAt(i).widget() is not None:
                         child.itemAt(i).widget().setParent(None)
-                import sip
                 sip.delete(child)
 
             for i in reversed(range(old_layout.count())):
@@ -1164,6 +1173,7 @@ class GenericRulesTable(QTableWidget):
             print("%s:values_index_changed(): row %d " %
                   (self.objectName(), row))
 
+
 class ExclusionRules(GenericRulesTable):
 
     COLUMNS = {'ENABLED':{'ordinal': 0, 'name': ''},
@@ -1254,6 +1264,7 @@ class ExclusionRules(GenericRulesTable):
         self.source_index_changed(source_combo, row, pattern=data['pattern'])
 
         self.blockSignals(False)
+
 
 class PrefixRules(GenericRulesTable):
 

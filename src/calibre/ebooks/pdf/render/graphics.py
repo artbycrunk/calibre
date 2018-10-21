@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python2
 # vim:fileencoding=UTF-8:ts=4:sw=4:sta:et:sts=4:fdm=marker:ai
 from __future__ import (unicode_literals, division, absolute_import,
                         print_function)
@@ -17,6 +17,7 @@ from calibre.ebooks.pdf.render.common import (
     Name, Array, fmtnum, Stream, Dictionary)
 from calibre.ebooks.pdf.render.serialize import Path
 from calibre.ebooks.pdf.render.gradients import LinearGradientPattern
+
 
 def convert_path(path):  # {{{
     p = Path()
@@ -45,6 +46,7 @@ def convert_path(path):  # {{{
 
 Brush = namedtuple('Brush', 'origin brush color')
 
+
 class TilingPattern(Stream):
 
     def __init__(self, cache_key, matrix, w=8, h=8, paint_type=2, compress=False):
@@ -66,6 +68,7 @@ class TilingPattern(Stream):
         d['YStep'] = self.h
         d['Matrix'] = Array(self.matrix)
         d['Resources'] = self.resources
+
 
 class QtPattern(TilingPattern):
 
@@ -224,6 +227,7 @@ class QtPattern(TilingPattern):
         super(QtPattern, self).__init__(pattern_num, matrix)
         self.write(self.qt_patterns[pattern_num-2])
 
+
 class TexturePattern(TilingPattern):
 
     def __init__(self, pixmap, matrix, pdf, clone=None):
@@ -245,6 +249,7 @@ class TexturePattern(TilingPattern):
                 paint_type=clone.paint_type)
             self.resources['XObject'] = Dictionary(clone.resources['XObject'])
             self.write(clone.getvalue())
+
 
 class GraphicsState(object):
 
@@ -278,6 +283,7 @@ class GraphicsState(object):
         ans.clip_updated = self.clip_updated
         ans.do_fill, ans.do_stroke = self.do_fill, self.do_stroke
         return ans
+
 
 class Graphics(object):
 
@@ -365,8 +371,7 @@ class Graphics(object):
         opacity = global_opacity
         do_fill = True
 
-        matrix = (QTransform.fromTranslate(brush_origin.x(), brush_origin.y())
-                  * pdf_system * qt_system.inverted()[0])
+        matrix = (QTransform.fromTranslate(brush_origin.x(), brush_origin.y()) * pdf_system * qt_system.inverted()[0])
         vals = list(brush.color().getRgbF())
         self.brushobj = None
 
@@ -472,8 +477,7 @@ class Graphics(object):
             if tl == self.last_fill.origin:
                 return
 
-            matrix = (QTransform.fromTranslate(tl.x(), tl.y())
-                * pdf_system * qt_system.inverted()[0])
+            matrix = (QTransform.fromTranslate(tl.x(), tl.y()) * pdf_system * qt_system.inverted()[0])
 
             pat = TexturePattern(None, matrix, self.pdf, clone=self.last_fill.brush)
             pattern = self.pdf.add_pattern(pat)

@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python2
 # vim:fileencoding=UTF-8
 from __future__ import (unicode_literals, division, absolute_import,
                         print_function)
@@ -13,8 +13,10 @@ from threading import Thread, Event
 from calibre import prints
 from calibre.ebooks.metadata.opf2 import metadata_to_opf
 
+
 class Abort(Exception):
     pass
+
 
 class MetadataBackup(Thread):
     '''

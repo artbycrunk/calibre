@@ -21,6 +21,7 @@ from calibre.utils.ipc.job import ParallelJob
 # rescaling is done (we assume that it is a tablet output profile)
 MAX_SCREEN_SIZE = 3000
 
+
 def extract_comic(path_to_comic_file):
     '''
     Un-archive the comic file.
@@ -37,6 +38,7 @@ def extract_comic(path_to_comic_file):
         if nbn != bn:
             os.rename(x, os.path.join(os.path.dirname(x), nbn))
     return tdir
+
 
 def find_pages(dir, sort_on_mtime=False, verbose=False):
     '''
@@ -72,6 +74,7 @@ def find_pages(dir, sort_on_mtime=False, verbose=False):
         prints('\t'+'\n\t'.join([os.path.relpath(p, dir) for p in pages]))
     return pages
 
+
 class PageProcessor(list):  # {{{
 
     '''
@@ -89,44 +92,41 @@ class PageProcessor(list):  # {{{
         self.render()
 
     def render(self):
-        from calibre.utils.magick import Image
-        img = Image()
-        img.open(self.path_to_page)
-        width, height = img.size
+        from calibre.utils.img import image_from_data, scale_image, crop_image
+        with lopen(self.path_to_page, 'rb') as f:
+            img = image_from_data(f.read())
+        width, height = img.width(), img.height()
         if self.num == 0:  # First image so create a thumbnail from it
-            thumb = img.clone
-            thumb.thumbnail(60, 80)
-            thumb.save(os.path.join(self.dest, 'thumbnail.png'))
+            with lopen(os.path.join(self.dest, 'thumbnail.png'), 'wb') as f:
+                f.write(scale_image(img, as_png=True)[-1])
         self.pages = [img]
         if width > height:
             if self.opts.landscape:
                 self.rotate = True
             else:
-                split1, split2 = img.clone, img.clone
                 half = int(width/2)
-                split1.crop(half-1, height, 0, 0)
-                split2.crop(half-1, height, half, 0)
+                split1 = crop_image(img, 0, 0, half, height)
+                split2 = crop_image(img, half, 0, width - half, height)
                 self.pages = [split2, split1] if self.opts.right2left else [split1, split2]
         self.process_pages()
 
     def process_pages(self):
-        from calibre.utils.magick import PixelWand
-        for i, wand in enumerate(self.pages):
-            pw = PixelWand()
-            pw.color = '#ffffff'
-
-            wand.set_border_color(pw)
+        from calibre.utils.img import (
+            image_to_data, rotate_image, remove_borders_from_image, normalize_image,
+            add_borders_to_image, resize_image, gaussian_sharpen_image, grayscale_image,
+            despeckle_image, quantize_image
+        )
+        for i, img in enumerate(self.pages):
             if self.rotate:
-                wand.rotate(pw, -90)
+                img = rotate_image(img, -90)
 
             if not self.opts.disable_trim:
-                wand.trim(25*65535/100)
+                img = remove_borders_from_image(img)
 
-            wand.set_page(0, 0, 0, 0)  # Clear page after trim, like a "+repage"
             # Do the Photoshop "Auto Levels" equivalent
             if not self.opts.dont_normalize:
-                wand.normalize()
-            sizex, sizey = wand.size
+                img = normalize_image(img)
+            sizex, sizey = img.width(), img.height()
 
             SCRWIDTH, SCRHEIGHT = self.opts.output_profile.comic_screen_size
 
@@ -153,9 +153,8 @@ class PageProcessor(list):  # {{{
                 if newsizex < MAX_SCREEN_SIZE and newsizey < MAX_SCREEN_SIZE:
                     # Too large and resizing fails, so better
                     # to leave it as original size
-                    wand.size = (newsizex, newsizey)
-                    wand.set_border_color(pw)
-                    wand.add_border(pw, deltax, deltay)
+                    img = resize_image(img, newsizex, newsizey)
+                    img = add_borders_to_image(img, left=deltax, right=deltax, top=deltay, bottom=deltay)
             elif self.opts.wide:
                 # Keep aspect and Use device height as scaled image width so landscape mode is clean
                 aspect = float(sizex) / float(sizey)
@@ -177,33 +176,30 @@ class PageProcessor(list):  # {{{
                 if newsizex < MAX_SCREEN_SIZE and newsizey < MAX_SCREEN_SIZE:
                     # Too large and resizing fails, so better
                     # to leave it as original size
-                    wand.size = (newsizex, newsizey)
-                    wand.set_border_color(pw)
-                    wand.add_border(pw, deltax, deltay)
+                    img = resize_image(img, newsizex, newsizey)
+                    img = add_borders_to_image(img, left=deltax, right=deltax, top=deltay, bottom=deltay)
             else:
                 if SCRWIDTH < MAX_SCREEN_SIZE and SCRHEIGHT < MAX_SCREEN_SIZE:
-                    wand.size = (SCRWIDTH, SCRHEIGHT)
+                    img = resize_image(img, SCRWIDTH, SCRHEIGHT)
 
             if not self.opts.dont_sharpen:
-                wand.sharpen(0.0, 1.0)
+                img = gaussian_sharpen_image(img, 0.0, 1.0)
 
             if not self.opts.dont_grayscale:
-                wand.type = 'GrayscaleType'
+                img = grayscale_image(img)
 
             if self.opts.despeckle:
-                wand.despeckle()
+                img = despeckle_image(img)
 
-            wand.quantize(self.opts.colors)
+            if self.opts.output_format.lower() == 'png' and self.opts.colors:
+                img = quantize_image(img, max_colors=min(256, self.opts.colors))
             dest = '%d_%d.%s'%(self.num, i, self.opts.output_format)
             dest = os.path.join(self.dest, dest)
-            if dest.lower().endswith('.png'):
-                dest += '8'
-            wand.save(dest)
-            if dest.endswith('8'):
-                dest = dest[:-1]
-                os.rename(dest+'8', dest)
+            with lopen(dest, 'wb') as f:
+                f.write(image_to_data(img, fmt=self.opts.output_format))
             self.append(dest)
 # }}}
+
 
 def render_pages(tasks, dest, opts, notification=lambda x, y: x):
     '''
@@ -236,6 +232,7 @@ class Progress(object):
         self.done += 1
         # msg = msg%os.path.basename(job.args[0])
         self.update(float(self.done)/self.total, msg)
+
 
 def process_pages(pages, opts, update, tdir):
     '''

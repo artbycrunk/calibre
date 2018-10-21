@@ -39,7 +39,11 @@ PDFDoc_load(PDFDoc *self, PyObject *args) {
 
     if (PyArg_ParseTuple(args, "s#", &buffer, &size)) {
         try {
+#if PODOFO_VERSION <= 0x000905
             self->doc->Load(buffer, (long)size);
+#else
+            self->doc->LoadFromBuffer(buffer, (long)size);
+#endif
         } catch(const PdfError & err) {
             podofo_set_exception(err);
             return NULL;
@@ -88,7 +92,7 @@ PDFDoc_save(PDFDoc *self, PyObject *args) {
 static PyObject *
 PDFDoc_write(PDFDoc *self, PyObject *args) {
     PyObject *ans;
-    
+
     try {
         PdfRefCountedBuffer buffer(1*1024*1024);
         PdfOutputDevice out(&buffer);
@@ -134,6 +138,31 @@ PDFDoc_page_count(PDFDoc *self, PyObject *args) {
     int count;
     try {
         count = self->doc->GetPageCount();
+    } catch(const PdfError & err) {
+        podofo_set_exception(err);
+        return NULL;
+    }
+    return Py_BuildValue("i", count);
+} // }}}
+
+// image_count() {{{
+static PyObject *
+PDFDoc_image_count(PDFDoc *self, PyObject *args) {
+    int count = 0;
+    const PdfObject* obj_type = NULL;
+    const PdfObject* obj_sub_type = NULL;
+    try {
+        TCIVecObjects it = self->doc->GetObjects().begin();
+         while( it != self->doc->GetObjects().end() ) {
+             if( (*it)->IsDictionary() ) {
+                 obj_type = (*it)->GetDictionary().GetKey( PdfName::KeyType );
+                 obj_sub_type = (*it)->GetDictionary().GetKey( PdfName::KeySubtype );
+                 if( ( obj_type && obj_type->IsName() && ( obj_type->GetName().GetName() == "XObject" ) ) ||
+                        ( obj_sub_type && obj_sub_type->IsName() && ( obj_sub_type->GetName().GetName() == "Image" ) ) ) count++;
+                 self->doc->FreeObjectMemory( *it );
+             }
+             it++;
+         }
     } catch(const PdfError & err) {
         podofo_set_exception(err);
         return NULL;
@@ -280,7 +309,7 @@ PDFDoc_set_xmp_metadata(PDFDoc *self, PyObject *args) {
     long len = 0;
     PoDoFo::PdfObject *metadata = NULL, *catalog = NULL;
     PoDoFo::PdfStream *str = NULL;
-    TVecFilters compressed(1); 
+    TVecFilters compressed(1);
     compressed[0] = ePdfFilter_FlateDecode;
 
     if (!PyArg_ParseTuple(args, "s#", &raw, &len)) return NULL;
@@ -403,7 +432,7 @@ PDFDoc_setter(PDFDoc *self, PyObject *val, int field) {
     PdfString *s = NULL;
 
     if (self->doc->GetEncrypted()) s = podofo_convert_pystring_single_byte(val);
-    else s = podofo_convert_pystring(val); 
+    else s = podofo_convert_pystring(val);
     if (s == NULL) return -1;
 
 
@@ -478,35 +507,35 @@ PDFDoc_producer_setter(PDFDoc *self, PyObject *val, void *closure) {
 }
 
 static PyGetSetDef PDFDoc_getsetters[] = {
-    {(char *)"title", 
+    {(char *)"title",
      (getter)PDFDoc_title_getter, (setter)PDFDoc_title_setter,
      (char *)"Document title",
      NULL},
-    {(char *)"author", 
+    {(char *)"author",
      (getter)PDFDoc_author_getter, (setter)PDFDoc_author_setter,
      (char *)"Document author",
      NULL},
-    {(char *)"subject", 
+    {(char *)"subject",
      (getter)PDFDoc_subject_getter, (setter)PDFDoc_subject_setter,
      (char *)"Document subject",
      NULL},
-    {(char *)"keywords", 
+    {(char *)"keywords",
      (getter)PDFDoc_keywords_getter, (setter)PDFDoc_keywords_setter,
      (char *)"Document keywords",
      NULL},
-    {(char *)"creator", 
+    {(char *)"creator",
      (getter)PDFDoc_creator_getter, (setter)PDFDoc_creator_setter,
      (char *)"Document creator",
      NULL},
-    {(char *)"producer", 
+    {(char *)"producer",
      (getter)PDFDoc_producer_getter, (setter)PDFDoc_producer_setter,
      (char *)"Document producer",
      NULL},
-    {(char *)"pages", 
+    {(char *)"pages",
      (getter)PDFDoc_pages_getter, NULL,
      (char *)"Number of pages in document (read only)",
      NULL},
-    {(char *)"version", 
+    {(char *)"version",
      (getter)PDFDoc_version_getter, NULL,
      (char *)"The PDF version (read only)",
      NULL},
@@ -538,6 +567,9 @@ static PyMethodDef PDFDoc_methods[] = {
     },
     {"page_count", (PyCFunction)PDFDoc_page_count, METH_VARARGS,
      "page_count() -> Number of pages in the PDF."
+    },
+    {"image_count", (PyCFunction)PDFDoc_image_count, METH_VARARGS,
+     "image_count() -> Number of images in the PDF."
     },
     {"delete_page", (PyCFunction)PDFDoc_delete_page, METH_VARARGS,
      "delete_page(page_num) -> Delete the specified page from the pdf (0 is the first page)."
@@ -605,4 +637,3 @@ PyTypeObject pdf::PDFDocType = {
 
 };
 // }}}
-

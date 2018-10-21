@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python2
 # vim:fileencoding=utf-8
 from __future__ import (unicode_literals, division, absolute_import,
                         print_function)
@@ -7,22 +7,17 @@ __license__ = 'GPL v3'
 __copyright__ = '2013, Kovid Goyal <kovid at kovidgoyal.net>'
 
 from collections import namedtuple
+from itertools import count
 
 from lxml.etree import tostring
 
-from calibre.ebooks.docx.names import XPath, descendants, get, ancestor
 from calibre.ebooks.metadata.toc import TOC
 from calibre.ebooks.oeb.polish.toc import elem_to_toc_text
 
-class Count(object):
 
-    __slots__ = ('val',)
-
-    def __init__(self):
-        self.val = 0
-
-def from_headings(body, log):
+def from_headings(body, log, namespace):
     ' Create a TOC from headings in the document '
+    XPath, descendants = namespace.XPath, namespace.descendants
     headings = ('h1', 'h2', 'h3')
     tocroot = TOC()
     xpaths = [XPath('//%s' % x) for x in headings]
@@ -31,13 +26,12 @@ def from_headings(body, log):
     level_item_map = {i+1:frozenset(xp(body)) for i, xp in enumerate(xpaths)}
     item_level_map = {e:i for i, elems in level_item_map.iteritems() for e in elems}
 
-    idcount = Count()
+    idcount = count()
 
     def ensure_id(elem):
         ans = elem.get('id', None)
         if not ans:
-            idcount.val += 1
-            ans = 'toc_id_%d' % idcount.val
+            ans = 'toc_id_%d' % (next(idcount) + 1)
             elem.set('id', ans)
         return ans
 
@@ -60,6 +54,7 @@ def from_headings(body, log):
     if len(tuple(tocroot.flat())) > 1:
         log('Generating Table of Contents from headings')
         return tocroot
+
 
 def structure_toc(entries):
     indent_vals = sorted({x.indent for x in entries})
@@ -88,6 +83,7 @@ def structure_toc(entries):
 
     return newtoc
 
+
 def link_to_txt(a, styles, object_map):
     if len(a) > 1:
         for child in a:
@@ -99,7 +95,9 @@ def link_to_txt(a, styles, object_map):
 
     return tostring(a, method='text', with_tail=False, encoding=unicode).strip()
 
-def from_toc(docx, link_map, styles, object_map, log):
+
+def from_toc(docx, link_map, styles, object_map, log, namespace):
+    XPath, get, ancestor = namespace.XPath, namespace.get, namespace.ancestor
     toc_level = None
     level = 0
     TI = namedtuple('TI', 'text anchor indent')
@@ -136,7 +134,6 @@ def from_toc(docx, link_map, styles, object_map, log):
         log('Found Word Table of Contents, using it to generate the Table of Contents')
         return structure_toc(toc)
 
-def create_toc(docx, body, link_map, styles, object_map, log):
-    return from_toc(docx, link_map, styles, object_map, log) or from_headings(body, log)
 
-
+def create_toc(docx, body, link_map, styles, object_map, log, namespace):
+    return from_toc(docx, link_map, styles, object_map, log, namespace) or from_headings(body, log, namespace)

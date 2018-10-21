@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python2
 # vim:fileencoding=utf-8
 from __future__ import (unicode_literals, division, absolute_import,
                         print_function)
@@ -35,6 +35,7 @@ StretchDiBits = namedtuple(
     ' bmp_bits_size usage op dest_width dest_height')
 # }}}
 
+
 class EMF(object):
 
     def __init__(self, raw, verbose=0):
@@ -49,7 +50,7 @@ class EMF(object):
 
     def handle_unknown(self, rtype, size, raw):
         if self.verbose:
-            print ('Ignoring unknown record:', RECORD_RMAP.get(rtype, hex(rtype).upper()))
+            print('Ignoring unknown record:', RECORD_RMAP.get(rtype, hex(rtype).upper()))
 
     def handle_header(self, rtype, size, raw):
         pass
@@ -74,6 +75,7 @@ class EMF(object):
         bmps = list(sorted(self.bitmaps, key=lambda x: len(x)))
         bmp = bmps[-1]
         return to_png(bmp)
+
 
 def emf_unwrap(raw, verbose=0):
     '''

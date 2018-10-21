@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python2
 # vim:fileencoding=utf-8
 from __future__ import (unicode_literals, division, absolute_import,
                         print_function)
@@ -11,9 +11,11 @@ import os
 from lxml.html.builder import IMG, HR
 
 from calibre.constants import iswindows
-from calibre.ebooks.docx.names import XPath, get, barename
+from calibre.ebooks.docx.names import barename
 from calibre.utils.filenames import ascii_filename
+from calibre.utils.img import resize_to_fit, image_to_data
 from calibre.utils.imghdr import what
+
 
 class LinkedImageNotFound(ValueError):
 
@@ -21,10 +23,20 @@ class LinkedImageNotFound(ValueError):
         ValueError.__init__(self, fname)
         self.fname = fname
 
+
+def image_filename(x):
+    return ascii_filename(x).replace(' ', '_').replace('#', '_')
+
+
 def emu_to_pt(x):
     return x / 12700
 
-def get_image_properties(parent):
+
+def pt_to_emu(x):
+    return int(x * 12700)
+
+
+def get_image_properties(parent, XPath, get):
     width = height = None
     for extent in XPath('./wp:extent')(parent):
         try:
@@ -42,14 +54,14 @@ def get_image_properties(parent):
         ans['height'] = '%.3gpt' % height
 
     alt = None
+    title = None
     for docPr in XPath('./wp:docPr')(parent):
-        x = docPr.get('descr', None)
-        if x:
-            alt = x
+        alt = docPr.get('descr') or alt
+        title = docPr.get('title') or title
         if docPr.get('hidden', None) in {'true', 'on', '1'}:
             ans['display'] = 'none'
 
-    return ans, alt
+    return ans, alt, title
 
 
 def get_image_margins(elem):
@@ -64,43 +76,46 @@ def get_image_margins(elem):
             ans['padding-%s' % css] = '%.3gpt' % val
     return ans
 
-def get_hpos(anchor, page_width):
+
+def get_hpos(anchor, page_width, XPath, get, width_frac):
     for ph in XPath('./wp:positionH')(anchor):
         rp = ph.get('relativeFrom', None)
         if rp == 'leftMargin':
-            return 0
+            return 0 + width_frac
         if rp == 'rightMargin':
-            return 1
+            return 1 + width_frac
+        al = None
+        almap = {'left':0, 'center':0.5, 'right':1}
         for align in XPath('./wp:align')(ph):
-            al = align.text
-            if al == 'left':
-                return 0
-            if al == 'center':
-                return 0.5
-            if al == 'right':
-                return 1
+            al = almap.get(align.text)
+            if al is not None:
+                if rp == 'page':
+                    return al
+                return al + width_frac
         for po in XPath('./wp:posOffset')(ph):
             try:
                 pos = emu_to_pt(int(po.text))
             except (TypeError, ValueError):
                 continue
-            return pos/page_width
+            return pos/page_width + width_frac
 
     for sp in XPath('./wp:simplePos')(anchor):
         try:
             x = emu_to_pt(sp.get('x', None))
         except (TypeError, ValueError):
             continue
-        return x/page_width
+        return x/page_width + width_frac
 
     return 0
 
 
 class Images(object):
 
-    def __init__(self, log):
+    def __init__(self, namespace, log):
+        self.namespace = namespace
         self.rid_map = {}
         self.used = {}
+        self.resized = {}
         self.names = set()
         self.all_images = set()
         self.links = []
@@ -109,11 +124,7 @@ class Images(object):
     def __call__(self, relationships_by_id):
         self.rid_map = relationships_by_id
 
-    def generate_filename(self, rid, base=None, rid_map=None):
-        rid_map = self.rid_map if rid_map is None else rid_map
-        fname = rid_map[rid]
-        if fname in self.used:
-            return self.used[fname]
+    def read_image_data(self, fname, base=None):
         if fname.startswith('file://'):
             src = fname[len('file://'):]
             if iswindows and src and src[0] == '/':
@@ -123,24 +134,29 @@ class Images(object):
             with open(src, 'rb') as rawsrc:
                 raw = rawsrc.read()
         else:
-            raw = self.docx.read(fname)
-        base = base or ascii_filename(rid_map[rid].rpartition('/')[-1]).replace(' ', '_') or 'image'
+            try:
+                raw = self.docx.read(fname)
+            except KeyError:
+                raise LinkedImageNotFound(fname)
+        base = base or image_filename(fname.rpartition('/')[-1]) or 'image'
         ext = what(None, raw) or base.rpartition('.')[-1] or 'jpeg'
         if ext == 'emf':
             # For an example, see: https://bugs.launchpad.net/bugs/1224849
-            self.log('Found an EMF image: %s, trying to extract embedded raster image' % base)
+            self.log('Found an EMF image: %s, trying to extract embedded raster image' % fname)
             from calibre.utils.wmf.emf import emf_unwrap
             try:
                 raw = emf_unwrap(raw)
-            except Exception as e:
+            except Exception:
                 self.log.exception('Failed to extract embedded raster image from EMF')
             else:
                 ext = 'png'
-
         base = base.rpartition('.')[0]
         if not base:
             base = 'image'
         base += '.' + ext
+        return raw, base
+
+    def unique_name(self, base):
         exists = frozenset(self.used.itervalues())
         c = 1
         name = base
@@ -148,13 +164,41 @@ class Images(object):
             n, e = base.rpartition('.')[0::2]
             name = '%s-%d.%s' % (n, c, e)
             c += 1
-        self.used[fname] = name
+        return name
+
+    def resize_image(self, raw, base, max_width, max_height):
+        resized, img = resize_to_fit(raw, max_width, max_height)
+        if resized:
+            base, ext = os.path.splitext(base)
+            base = base + '-%dx%d%s' % (max_width, max_height, ext)
+            raw = image_to_data(img, fmt=ext[1:])
+        return raw, base, resized
+
+    def generate_filename(self, rid, base=None, rid_map=None, max_width=None, max_height=None):
+        rid_map = self.rid_map if rid_map is None else rid_map
+        fname = rid_map[rid]
+        key = (fname, max_width, max_height)
+        ans = self.used.get(key)
+        if ans is not None:
+            return ans
+        raw, base = self.read_image_data(fname, base=base)
+        resized = False
+        if max_width is not None and max_height is not None:
+            raw, base, resized = self.resize_image(raw, base, max_width, max_height)
+        name = self.unique_name(base)
+        self.used[key] = name
+        if max_width is not None and max_height is not None and not resized:
+            okey = (fname, None, None)
+            if okey in self.used:
+                return self.used[okey]
+            self.used[okey] = name
         with open(os.path.join(self.dest_dir, name), 'wb') as f:
             f.write(raw)
         self.all_images.add('images/' + name)
         return name
 
-    def pic_to_img(self, pic, alt, parent):
+    def pic_to_img(self, pic, alt, parent, title):
+        XPath, get = self.namespace.XPath, self.namespace.get
         name = None
         link = None
         for hl in XPath('descendant::a:hlinkClick[@r:id]')(parent):
@@ -169,8 +213,8 @@ class Images(object):
         for pr in XPath('descendant::pic:cNvPr')(pic):
             name = pr.get('name', None)
             if name:
-                name = ascii_filename(name).replace(' ', '_')
-            alt = pr.get('descr', None)
+                name = image_filename(name)
+            alt = pr.get('descr') or alt
             for a in XPath('descendant::a:blip[@r:embed or @r:link]')(pic):
                 rid = get(a, 'r:embed')
                 if not rid:
@@ -183,16 +227,19 @@ class Images(object):
                         continue
                     img = IMG(src='images/%s' % src)
                     img.set('alt', alt or 'Image')
+                    if title:
+                        img.set('title', title)
                     if link is not None:
                         self.links.append((img, link, self.rid_map))
                     return img
 
     def drawing_to_html(self, drawing, page):
+        XPath, get = self.namespace.XPath, self.namespace.get
         # First process the inline pictures
         for inline in XPath('./wp:inline')(drawing):
-            style, alt = get_image_properties(inline)
+            style, alt, title = get_image_properties(inline, XPath, get)
             for pic in XPath('descendant::pic:pic')(inline):
-                ans = self.pic_to_img(pic, alt, inline)
+                ans = self.pic_to_img(pic, alt, inline, title)
                 if ans is not None:
                     if style:
                         ans.set('style', '; '.join('%s: %s' % (k, v) for k, v in style.iteritems()))
@@ -200,16 +247,17 @@ class Images(object):
 
         # Now process the floats
         for anchor in XPath('./wp:anchor')(drawing):
-            style, alt = get_image_properties(anchor)
+            style, alt, title = get_image_properties(anchor, XPath, get)
             self.get_float_properties(anchor, style, page)
             for pic in XPath('descendant::pic:pic')(anchor):
-                ans = self.pic_to_img(pic, alt, anchor)
+                ans = self.pic_to_img(pic, alt, anchor, title)
                 if ans is not None:
                     if style:
                         ans.set('style', '; '.join('%s: %s' % (k, v) for k, v in style.iteritems()))
                     yield ans
 
     def pict_to_html(self, pict, page):
+        XPath, get = self.namespace.XPath, self.namespace.get
         # First see if we have an <hr>
         is_hr = len(pict) == 1 and get(pict[0], 'o:hr') in {'t', 'true'}
         if is_hr:
@@ -244,6 +292,7 @@ class Images(object):
                 yield img
 
     def get_float_properties(self, anchor, style, page):
+        XPath, get = self.namespace.XPath, self.namespace.get
         if 'display' not in style:
             style['display'] = 'block'
         padding = get_image_margins(anchor)
@@ -254,7 +303,7 @@ class Images(object):
             # Ignore margins
             page_width = page.width
 
-        hpos = get_hpos(anchor, page_width) + width/(2*page_width)
+        hpos = get_hpos(anchor, page_width, XPath, get, width/(2*page_width))
 
         wrap_elem = None
         dofloat = False
@@ -292,5 +341,3 @@ class Images(object):
         else:
             for tag in self.pict_to_html(elem, page):
                 yield tag
-
-

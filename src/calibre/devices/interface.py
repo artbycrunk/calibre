@@ -3,15 +3,17 @@ __copyright__ = '2008, Kovid Goyal <kovid at kovidgoyal.net>'
 import os
 from collections import namedtuple
 
-from calibre.customize import Plugin
+from calibre import prints
 from calibre.constants import iswindows
+from calibre.customize import Plugin
+
 
 class DevicePlugin(Plugin):
     """
     Defines the interface that should be implemented by backends that
-    communicate with an ebook reader.
+    communicate with an e-book reader.
     """
-    type = _('Device Interface')
+    type = _('Device interface')
 
     #: Ordered list of supported formats
     FORMATS     = ["lrf", "rtf", "pdf", "txt"]
@@ -37,11 +39,6 @@ class DevicePlugin(Plugin):
 
     #: Height for thumbnails on the device
     THUMBNAIL_HEIGHT = 68
-    #: Width for thumbnails on the device. Setting this will force thumbnails
-    #: to this size, not preserving aspect ratio. If it is not set, then
-    #: the aspect ratio will be preserved and the thumbnail will be no higher
-    #: than THUMBNAIL_HEIGHT
-    # THUMBNAIL_WIDTH = 68
 
     #: Compression quality for thumbnails. Set this closer to 100 to have better
     #: quality thumbnails with fewer compression artifacts. Of course, the
@@ -77,9 +74,12 @@ class DevicePlugin(Plugin):
     OPEN_FEEDBACK_MESSAGE = None
 
     #: Set of extensions that are "virtual books" on the device
-    #: and therefore cannot be viewed/saved/added to library
+    #: and therefore cannot be viewed/saved/added to library.
     #: For example: ``frozenset(['kobo'])``
-    VIRTUAL_BOOK_EXTENSIONS = frozenset([])
+    VIRTUAL_BOOK_EXTENSIONS = frozenset()
+
+    #: Message to display to user for virtual book extensions.
+    VIRTUAL_BOOK_EXTENSION_MESSAGE = None
 
     #: Whether to nuke comments in the copy of the book sent to the device. If
     #: not None this should be short string that the comments will be replaced
@@ -93,7 +93,7 @@ class DevicePlugin(Plugin):
     #: managing a blacklist of devices, a list of ejected devices and so forth.
     #: calibre will periodically call the detect_managed_devices() method and
     #: if it returns a detected device, calibre will call open(). open() will
-    #: be called every time a device is returned even is previous calls to open()
+    #: be called every time a device is returned even if previous calls to open()
     #: failed, therefore the driver must maintain its own blacklist of failed
     #: devices. Similarly, when ejecting, calibre will call eject() and then
     #: assuming the next call to detect_managed_devices() returns None, it will
@@ -127,58 +127,6 @@ class DevicePlugin(Plugin):
         return cls.name
 
     # Device detection {{{
-    def test_bcd_windows(self, device_id, bcd):
-        if bcd is None or len(bcd) == 0:
-            return True
-        for c in bcd:
-            rev = 'rev_%4.4x'%c
-            # Bug in winutil.get_usb_devices sometimes converts a to :
-            if rev in device_id or rev.replace('a', ':') in device_id:
-                return True
-        return False
-
-    def print_usb_device_info(self, info):
-        try:
-            print '\t', repr(info)
-        except:
-            import traceback
-            traceback.print_exc()
-
-    def is_usb_connected_windows(self, devices_on_system, debug=False,
-            only_presence=False):
-
-        def id_iterator():
-            if hasattr(self.VENDOR_ID, 'keys'):
-                for vid in self.VENDOR_ID:
-                    vend = self.VENDOR_ID[vid]
-                    for pid in vend:
-                        bcd = vend[pid]
-                        yield vid, pid, bcd
-            else:
-                vendors = self.VENDOR_ID if hasattr(self.VENDOR_ID, '__len__') else [self.VENDOR_ID]
-                products = self.PRODUCT_ID if hasattr(self.PRODUCT_ID, '__len__') else [self.PRODUCT_ID]
-                for vid in vendors:
-                    for pid in products:
-                        yield vid, pid, self.BCD
-
-        for vendor_id, product_id, bcd in id_iterator():
-            vid, pid = 'vid_%4.4x'%vendor_id, 'pid_%4.4x'%product_id
-            vidd, pidd = 'vid_%i'%vendor_id, 'pid_%i'%product_id
-            for device_id in devices_on_system:
-                if (vid in device_id or vidd in device_id) and \
-                   (pid in device_id or pidd in device_id) and \
-                   self.test_bcd_windows(device_id, bcd):
-                        if debug:
-                            self.print_usb_device_info(device_id)
-                        if only_presence or self.can_handle_windows(device_id, debug=debug):
-                            try:
-                                bcd = int(device_id.rpartition(
-                                            'rev_')[-1].replace(':', 'a'), 16)
-                            except:
-                                bcd = None
-                            return True, (vendor_id, product_id, bcd, None, None, None)
-        return False, None
-
     def test_bcd(self, bcdDevice, bcd):
         if bcd is None or len(bcd) == 0:
             return True
@@ -187,20 +135,15 @@ class DevicePlugin(Plugin):
                 return True
         return False
 
-    def is_usb_connected(self, devices_on_system, debug=False,
-            only_presence=False):
+    def is_usb_connected(self, devices_on_system, debug=False, only_presence=False):
         '''
         Return True, device_info if a device handled by this plugin is currently connected.
 
         :param devices_on_system: List of devices currently connected
 
         '''
-        if iswindows:
-            return self.is_usb_connected_windows(devices_on_system,
-                    debug=debug, only_presence=only_presence)
-
-        vendors_on_system = set([x[0] for x in devices_on_system])
-        vendors = self.VENDOR_ID if hasattr(self.VENDOR_ID, '__len__') else [self.VENDOR_ID]
+        vendors_on_system = {x[0] for x in devices_on_system}
+        vendors = set(self.VENDOR_ID) if hasattr(self.VENDOR_ID, '__len__') else {self.VENDOR_ID}
         if hasattr(self.VENDOR_ID, 'keys'):
             products = []
             for ven in self.VENDOR_ID:
@@ -208,27 +151,27 @@ class DevicePlugin(Plugin):
         else:
             products = self.PRODUCT_ID if hasattr(self.PRODUCT_ID, '__len__') else [self.PRODUCT_ID]
 
-        for vid in vendors:
-            if vid in vendors_on_system:
-                for dev in devices_on_system:
-                    cvid, pid, bcd = dev[:3]
-                    if cvid == vid:
-                        if pid in products:
-                            if hasattr(self.VENDOR_ID, 'keys'):
-                                try:
-                                    cbcd = self.VENDOR_ID[vid][pid]
-                                except KeyError:
-                                    # Vendor vid does not have product pid, pid
-                                    # exists for some other vendor in this
-                                    # device
-                                    continue
-                            else:
-                                cbcd = self.BCD
-                            if self.test_bcd(bcd, cbcd):
-                                if debug:
-                                    self.print_usb_device_info(dev)
-                                if self.can_handle(dev, debug=debug):
-                                    return True, dev
+        ch = self.can_handle_windows if iswindows else self.can_handle
+        for vid in vendors_on_system.intersection(vendors):
+            for dev in devices_on_system:
+                cvid, pid, bcd = dev[:3]
+                if cvid == vid:
+                    if pid in products:
+                        if hasattr(self.VENDOR_ID, 'keys'):
+                            try:
+                                cbcd = self.VENDOR_ID[vid][pid]
+                            except KeyError:
+                                # Vendor vid does not have product pid, pid
+                                # exists for some other vendor in this
+                                # device
+                                continue
+                        else:
+                            cbcd = self.BCD
+                        if self.test_bcd(bcd, cbcd):
+                            if debug:
+                                prints(dev)
+                            if ch(dev, debug=debug):
+                                return True, dev
         return False, None
 
     def detect_managed_devices(self, devices_on_system, force_refresh=False):
@@ -281,24 +224,26 @@ class DevicePlugin(Plugin):
         """
         raise NotImplementedError()
 
-    def can_handle_windows(self, device_id, debug=False):
+    def can_handle_windows(self, usbdevice, debug=False):
         '''
         Optional method to perform further checks on a device to see if this driver
         is capable of handling it. If it is not it should return False. This method
         is only called after the vendor, product ids and the bcd have matched, so
         it can do some relatively time intensive checks. The default implementation
-        returns True. This method is called only on windows. See also
+        returns True. This method is called only on Windows. See also
         :meth:`can_handle`.
 
-        :param device_info: On windows a device ID string. On Unix a tuple of
-                            ``(vendor_id, product_id, bcd)``.
+        Note that for devices based on USBMS this method by default delegates
+        to :meth:`can_handle`.  So you only need to override :meth:`can_handle`
+        in your subclass of USBMS.
 
+        :param usbdevice: A usbdevice as returned by :func:`calibre.devices.winusb.scan_usb_devices`
         '''
         return True
 
     def can_handle(self, device_info, debug=False):
         '''
-        Unix version of :meth:`can_handle_windows`
+        Unix version of :meth:`can_handle_windows`.
 
         :param device_info: Is a tuple of (vid, pid, bcd, manufacturer, product,
                             serial number)
@@ -426,10 +371,10 @@ class DevicePlugin(Plugin):
 
     def books(self, oncard=None, end_session=True):
         """
-        Return a list of ebooks on the device.
+        Return a list of e-books on the device.
 
-        :param oncard:  If 'carda' or 'cardb' return a list of ebooks on the
-                        specific storage card, otherwise return list of ebooks
+        :param oncard:  If 'carda' or 'cardb' return a list of e-books on the
+                        specific storage card, otherwise return list of e-books
                         in main memory of device. If a card is specified and no
                         books are on the card return empty list.
 
@@ -589,7 +534,7 @@ class DevicePlugin(Plugin):
 
     def startup(self):
         '''
-        Called when calibre is is starting the device. Do any initialization
+        Called when calibre is starting the device. Do any initialization
         required. Note that multiple instances of the class can be instantiated,
         and thus __init__ can be called multiple times, but only one instance
         will have this method called. This method is called on the device
@@ -751,7 +696,7 @@ class DevicePlugin(Plugin):
         name is ignored in cases where the device uses a template to generate
         the file name, which most do. The second value in the returned tuple
         indicated whether the format is future-dated. Return True if it is,
-        otherwise return False. Calibre will display a dialog to the user
+        otherwise return False. calibre will display a dialog to the user
         listing all future dated books.
 
         Extremely important: this method is called on the GUI thread. It must
@@ -762,6 +707,7 @@ class DevicePlugin(Plugin):
         first_call: True if this is the first call during a sync, False otherwise
         '''
         return (None, (None, False))
+
 
 class BookList(list):
     '''
@@ -817,6 +763,7 @@ class BookList(list):
         '''
         raise NotImplementedError()
 
+
 class CurrentlyConnectedDevice(object):
 
     def __init__(self):
@@ -825,6 +772,7 @@ class CurrentlyConnectedDevice(object):
     @property
     def device(self):
         return self._device
+
 
 # A device driver can check if a device is currently connected to calibre using
 # the following code::

@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python2
 # vim:fileencoding=UTF-8:ts=4:sw=4:sta:et:sts=4:ai
 
 __license__   = 'GPL v3'
@@ -19,9 +19,11 @@ from calibre.ebooks.oeb.iterator import is_supported
 from calibre.constants import iswindows
 from calibre.utils.icu import sort_key
 
+
 class OutputFormatSetting(Setting):
 
     CHOICES_SEARCH_FLAGS = Qt.MatchFixedString
+
 
 class ConfigWidget(ConfigWidgetBase, Ui_Form):
 
@@ -138,7 +140,7 @@ class ConfigWidget(ConfigWidgetBase, Ui_Form):
             input_map = prefs['input_format_order']
         all_formats = set()
         self.opt_input_order.clear()
-        for fmt in all_input_formats().union(set(['ZIP', 'RAR'])):
+        for fmt in all_input_formats().union({'ZIP', 'RAR'}):
             all_formats.add(fmt.upper())
         for format in input_map + list(all_formats.difference(input_map)):
             item = QListWidgetItem(format, self.opt_input_order)
@@ -169,8 +171,8 @@ class ConfigWidget(ConfigWidgetBase, Ui_Form):
         info_dialog(self, _('Done'),
                 _('Confirmation dialogs have all been reset'), show=True)
 
+
 if __name__ == '__main__':
     from PyQt5.Qt import QApplication
     app = QApplication([])
     test_widget('Interface', 'Behavior')
-

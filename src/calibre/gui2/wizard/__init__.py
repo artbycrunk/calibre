@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python2
 # vim:fileencoding=UTF-8:ts=4:sw=4:sta:et:sts=4:ai
 from __future__ import with_statement
 
@@ -7,14 +7,12 @@ __copyright__ = '2009, Kovid Goyal <kovid@kovidgoyal.net>'
 __docformat__ = 'restructuredtext en'
 
 import os, traceback, re
-from Queue import Empty, Queue
 from contextlib import closing
 
 
-from PyQt5.Qt import (QWizard, QWizardPage, QPixmap, Qt, QAbstractListModel,
-    QItemSelectionModel, QObject, QTimer, pyqtSignal, QItemSelection)
-from calibre import __appname__, patheq
-from calibre.library.move import MoveLibrary
+from PyQt5.Qt import (QWizard, QWizardPage, QIcon, Qt, QAbstractListModel,
+    QItemSelectionModel, pyqtSignal, QItemSelection, QDir)
+from calibre import __appname__
 from calibre.constants import (filesystem_encoding, iswindows, plugins,
         isportable)
 from calibre.gui2.wizard.send_email import smtp_prefs
@@ -23,17 +21,16 @@ from calibre.gui2.wizard.library_ui import Ui_WizardPage as LibraryUI
 from calibre.gui2.wizard.finish_ui import Ui_WizardPage as FinishUI
 from calibre.gui2.wizard.kindle_ui import Ui_WizardPage as KindleUI
 from calibre.gui2.wizard.stanza_ui import Ui_WizardPage as StanzaUI
-from calibre.gui2 import min_available_height, available_width
 from calibre.utils.localization import localize_user_manual_link
 
 from calibre.utils.config import dynamic, prefs
 from calibre.gui2 import choose_dir, error_dialog
-from calibre.gui2.dialogs.progress import ProgressDialog
 
 if iswindows:
     winutil = plugins['winutil'][0]
 
 # Devices {{{
+
 
 class Device(object):
 
@@ -67,11 +64,13 @@ class Device(object):
             recs['dont_grayscale'] = True
             save_defaults('comic_input', recs)
 
+
 class Smartphone(Device):
 
     id = 'smartphone'
     name = 'Smartphone'
     supports_color = True
+
 
 class Tablet(Device):
 
@@ -80,13 +79,15 @@ class Tablet(Device):
     output_profile = 'tablet'
     supports_color = True
 
+
 class Kindle(Device):
 
     output_profile = 'kindle'
     output_format  = 'MOBI'
-    name = 'Kindle Touch/1-4'
+    name = 'Kindle Basic (all models)'
     manufacturer = 'Amazon'
     id = 'kindle'
+
 
 class JetBook(Device):
 
@@ -96,6 +97,7 @@ class JetBook(Device):
     manufacturer = 'Ectaco'
     id = 'jetbook'
 
+
 class JetBookMini(Device):
 
     output_profile = 'jetbook5'
@@ -104,6 +106,7 @@ class JetBookMini(Device):
     manufacturer = 'Ectaco'
     id = 'jetbookmini'
 
+
 class KindleDX(Kindle):
 
     output_profile = 'kindle_dx'
@@ -111,21 +114,25 @@ class KindleDX(Kindle):
     name = 'Kindle DX'
     id = 'kindledx'
 
+
 class KindleFire(KindleDX):
     name = 'Kindle Fire and Fire HD'
     id = 'kindle_fire'
     output_profile = 'kindle_fire'
     supports_color = True
 
+
 class KindlePW(Kindle):
     name = 'Kindle PaperWhite'
     id = 'kindle_pw'
-    output_profile = 'kindle_pw'
+    output_profile = 'kindle_pw3'
+
 
 class KindleVoyage(Kindle):
-    name = 'Kindle Voyage'
+    name = 'Kindle Voyage/Oasis'
     id = 'kindle_voyage'
     output_profile = 'kindle_voyage'
+
 
 class Sony505(Device):
 
@@ -135,6 +142,7 @@ class Sony505(Device):
     manufacturer = 'SONY'
     id = 'prs505'
 
+
 class Kobo(Device):
     name = 'Kobo and Kobo Touch Readers'
     manufacturer = 'Kobo'
@@ -142,10 +150,12 @@ class Kobo(Device):
     output_format = 'EPUB'
     id = 'kobo'
 
+
 class KoboVox(Kobo):
-    name = 'Kobo Vox and Kobo Aura HD'
+    name = 'Kobo Vox, Aura and Glo families'
     output_profile = 'tablet'
     id = 'kobo_vox'
+
 
 class Booq(Device):
     name = 'bq Classic'
@@ -154,6 +164,7 @@ class Booq(Device):
     output_format = 'EPUB'
     id = 'booq'
 
+
 class TheBook(Device):
     name = 'The Book'
     manufacturer = 'Augen'
@@ -161,19 +172,32 @@ class TheBook(Device):
     output_format = 'EPUB'
     id = 'thebook'
 
+
 class Avant(Booq):
     name = 'bq Avant'
+
 
 class AvantXL(Booq):
     name = 'bq Avant XL'
     output_profile = 'ipad'
 
+
 class BooqPocketPlus(Booq):
     name = 'bq Pocket Plus'
     output_profile = 'sony300'
 
+
 class BooqCervantes(Booq):
     name = 'bq Cervantes'
+
+
+class BOOX(Device):
+    name = 'BOOX MAX, N96, i86, C67ML, M96, etc.'
+    manufacturer = 'Onyx'
+    output_profile = 'generic_eink_hd'
+    output_format = 'EPUB'
+    id = 'boox_eink'
+
 
 class Sony300(Sony505):
 
@@ -181,11 +205,13 @@ class Sony300(Sony505):
     id = 'prs300'
     output_profile = 'sony300'
 
+
 class Sony900(Sony505):
 
     name = 'SONY Reader Daily Edition'
     id = 'prs900'
     output_profile = 'sony900'
+
 
 class SonyT3(Sony505):
 
@@ -193,11 +219,13 @@ class SonyT3(Sony505):
     id = 'prst3'
     output_profile = 'sonyt3'
 
+
 class Nook(Sony505):
     id = 'nook'
     name = 'Nook and Nook Simple Reader'
     manufacturer = 'Barnes & Noble'
     output_profile = 'nook'
+
 
 class NookColor(Nook):
     id = 'nook_color'
@@ -205,10 +233,12 @@ class NookColor(Nook):
     output_profile = 'nook_color'
     supports_color = True
 
+
 class NookTablet(NookColor):
     id = 'nook_tablet'
     name = 'Nook Tablet/HD'
     output_profile = 'nook_hd_plus'
+
 
 class CybookG3(Device):
 
@@ -218,6 +248,7 @@ class CybookG3(Device):
     manufacturer = 'Bookeen'
     id = 'cybookg3'
 
+
 class CybookOpus(CybookG3):
 
     name = 'Cybook Opus'
@@ -225,15 +256,24 @@ class CybookOpus(CybookG3):
     output_profile = 'cybook_opus'
     id = 'cybook_opus'
 
+
 class CybookOrizon(CybookOpus):
 
     name = 'Cybook Orizon'
     id = 'cybook_orizon'
 
+
 class CybookOdyssey(CybookOpus):
 
     name = 'Cybook Odyssey'
     id = 'cybook_odyssey'
+
+
+class CybookMuse(CybookOpus):
+
+    name = 'Cybook Muse'
+    id = 'cybook_muse'
+    output_profile = 'tablet'
 
 
 class PocketBook360(CybookOpus):
@@ -243,6 +283,7 @@ class PocketBook360(CybookOpus):
     id = 'pocketbook360'
     output_profile = 'cybook_opus'
 
+
 class PocketBook(CybookG3):
 
     manufacturer = 'PocketBook'
@@ -250,11 +291,13 @@ class PocketBook(CybookG3):
     id = 'pocketbook'
     output_profile = 'cybookg3'
 
+
 class PocketBook900(PocketBook):
 
     name = 'PocketBook 900'
     id = 'pocketbook900'
     output_profile = 'pocketbook_900'
+
 
 class PocketBookPro912(PocketBook):
 
@@ -272,6 +315,7 @@ class iPhone(Device):
     supports_color = True
     output_profile = 'ipad3'
 
+
 class Android(Device):
 
     name = 'Android phone'
@@ -288,11 +332,13 @@ class Android(Device):
             if hasattr(plugin, 'configure_for_generic_epub_app'):
                 plugin.configure_for_generic_epub_app()
 
+
 class AndroidTablet(Android):
 
     name = 'Android tablet'
     id = 'android_tablet'
     output_profile = 'tablet'
+
 
 class AndroidPhoneWithKindle(Android):
 
@@ -309,11 +355,13 @@ class AndroidPhoneWithKindle(Android):
             if hasattr(plugin, 'configure_for_kindle_app'):
                 plugin.configure_for_kindle_app()
 
+
 class AndroidTabletWithKindle(AndroidPhoneWithKindle):
 
     name = 'Android tablet with Kindle reader'
     id = 'android_tablet_with_kindle'
     output_profile = 'kindle_fire'
+
 
 class HanlinV3(Device):
 
@@ -323,11 +371,13 @@ class HanlinV3(Device):
     manufacturer = 'Jinke'
     id = 'hanlinv3'
 
+
 class HanlinV5(HanlinV3):
 
     name = 'Hanlin V5'
     output_profile = 'hanlinv5'
     id = 'hanlinv5'
+
 
 class BeBook(HanlinV3):
 
@@ -335,11 +385,13 @@ class BeBook(HanlinV3):
     manufacturer = 'BeBook'
     id = 'bebook'
 
+
 class BeBookMini(HanlinV5):
 
     name = 'BeBook Mini'
     manufacturer = 'BeBook'
     id = 'bebook_mini'
+
 
 class EZReader(HanlinV3):
 
@@ -347,25 +399,21 @@ class EZReader(HanlinV3):
     manufacturer = 'Astak'
     id = 'ezreader'
 
+
 class EZReaderPP(HanlinV5):
 
     name = 'EZReader Pocket Pro'
     manufacturer = 'Astak'
     id = 'ezreader_pp'
 
-class Bambook(Device):
-
-    name = 'Sanda Bambook'
-    output_format = 'SNB'
-    manufacturer = 'Sanda'
-    id = 'bambook'
-    output_profile = 'bambook'
 # }}}
+
 
 def get_devices():
     for x in globals().values():
         if isinstance(x, type) and issubclass(x, Device):
             yield x
+
 
 def get_manufacturers():
     mans = set([])
@@ -375,9 +423,11 @@ def get_manufacturers():
         mans.remove(Device.manufacturer)
     return [Device.manufacturer] + sorted(mans)
 
+
 def get_devices_of(manufacturer):
     ans = [d for d in get_devices() if d.manufacturer == manufacturer]
     return sorted(ans, cmp=lambda x,y:cmp(x.name, y.name))
+
 
 class ManufacturerModel(QAbstractListModel):
 
@@ -403,6 +453,7 @@ class ManufacturerModel(QAbstractListModel):
             if x == man:
                 return self.index(i)
 
+
 class DeviceModel(QAbstractListModel):
 
     def __init__(self, manufacturer):
@@ -427,6 +478,7 @@ class DeviceModel(QAbstractListModel):
             if device is dev:
                 return self.index(i)
 
+
 class KindlePage(QWizardPage, KindleUI):
 
     ID = 3
@@ -449,6 +501,7 @@ class KindlePage(QWizardPage, KindleUI):
             accs = [x for x in accs if x[1]]
         if accs:
             self.to_address.setText(accs[0][0])
+
         def x():
             t = unicode(self.to_address.text())
             if t.strip():
@@ -478,6 +531,7 @@ class KindlePage(QWizardPage, KindleUI):
         if hasattr(self, 'send_email_widget'):
             self.send_email_widget.retranslateUi(self.send_email_widget)
 
+
 class StanzaPage(QWizardPage, StanzaUI):
 
     ID = 5
@@ -487,7 +541,7 @@ class StanzaPage(QWizardPage, StanzaUI):
         self.setupUi(self)
         try:
             self.instructions.setText(self.instructions.text() % localize_user_manual_link(
-                'http://manual.calibre-ebook.com/faq.html#how-do-i-use-calibre-with-my-ipad-iphone-ipod-touch'))
+                'https://manual.calibre-ebook.com/faq.html#how-do-i-use-calibre-with-my-ipad-iphone-ipod-touch'))
         except TypeError:
             pass  # user manual link was already replaced
         self.instructions.setOpenExternalLinks(True)
@@ -505,9 +559,8 @@ class StanzaPage(QWizardPage, StanzaUI):
     def commit(self):
         p = self.set_port()
         if p is not None:
-            from calibre.library.server import server_config
-            c = server_config()
-            c.set('port', p)
+            from calibre.srv.opts import change_settings
+            change_settings(port=p)
 
     def set_port(self, *args):
         if not self.content_server.isChecked():
@@ -585,103 +638,6 @@ class DevicePage(QWizardPage, DeviceUI):
             return StanzaPage.ID
         return FinishPage.ID
 
-class MoveMonitor(QObject):
-
-    def __init__(self, worker, rq, callback, parent):
-        QObject.__init__(self, parent)
-        self.worker = worker
-        self.rq = rq
-        self.callback = callback
-        self.parent = parent
-
-        self.worker.start()
-        self.dialog = ProgressDialog(_('Moving library...'), '',
-                max=self.worker.total, parent=parent)
-        self.dialog.button_box.setDisabled(True)
-        self.dialog.setModal(True)
-        self.dialog.show()
-        self.timer = QTimer(self)
-        self.timer.timeout.connect(self.check)
-        self.timer.start(200)
-
-    def check(self):
-        if self.worker.is_alive():
-            self.update()
-        else:
-            self.timer.stop()
-            self.dialog.hide()
-            if self.worker.failed:
-                error_dialog(self.parent, _('Failed to move library'),
-                    _('Failed to move library'), self.worker.details, show=True)
-                return self.callback(None)
-            else:
-                return self.callback(self.worker.to)
-
-    def update(self):
-        try:
-            title = self.rq.get_nowait()[-1]
-            self.dialog.value += 1
-            self.dialog.set_msg(_('Copied') + ' '+title)
-        except Empty:
-            pass
-
-
-class Callback(object):
-
-    def __init__(self, callback):
-        self.callback = callback
-
-    def __call__(self, newloc):
-        if newloc is not None:
-            prefs['library_path'] = newloc
-        self.callback(newloc)
-
-_mm = None
-def move_library(oldloc, newloc, parent, callback_on_complete):
-    from calibre.db.legacy import LibraryDatabase
-    callback = Callback(callback_on_complete)
-    try:
-        if not os.path.exists(os.path.join(newloc, 'metadata.db')):
-            if oldloc and os.access(os.path.join(oldloc, 'metadata.db'), os.R_OK):
-                # Move old library to new location
-                try:
-                    db = LibraryDatabase(oldloc)
-                except:
-                    return move_library(None, newloc, parent,
-                        callback)
-                else:
-                    rq = Queue()
-                    m = MoveLibrary(oldloc, newloc,
-                            len(db.get_top_level_move_items()[0]), rq)
-                    global _mm
-                    _mm = MoveMonitor(m, rq, callback, parent)
-                    return
-            else:
-                # Create new library at new location
-                db = LibraryDatabase(newloc)
-                callback(newloc)
-                return
-
-        # Try to load existing library at new location
-        try:
-            LibraryDatabase(newloc)
-        except Exception as err:
-            det = traceback.format_exc()
-            error_dialog(parent, _('Invalid database'),
-                _('<p>An invalid library already exists at '
-                    '%(loc)s, delete it before trying to move the '
-                    'existing library.<br>Error: %(err)s')%dict(loc=newloc,
-                        err=str(err)), det, show=True)
-            callback(None)
-            return
-        else:
-            callback(newloc)
-            return
-    except Exception as err:
-        det = traceback.format_exc()
-        error_dialog(parent, _('Could not move library'),
-                unicode(err), det, show=True)
-    callback(None)
 
 class LibraryPage(QWizardPage, LibraryUI):
 
@@ -709,6 +665,7 @@ class LibraryPage(QWizardPage, LibraryUI):
         lang = get_lc_messages_path(lang) if lang else lang
         if lang is None or lang not in available_translations():
             lang = 'en'
+
         def get_esc_lang(l):
             if l == 'en':
                 return 'English'
@@ -728,7 +685,7 @@ class LibraryPage(QWizardPage, LibraryUI):
     def change_language(self, idx):
         prefs['language'] = str(self.language.itemData(self.language.currentIndex()) or '')
         import __builtin__
-        __builtin__.__dict__['_'] = lambda(x): x
+        __builtin__.__dict__['_'] = lambda x: x
         from calibre.utils.localization import set_translators
         from calibre.gui2 import qt_app
         from calibre.ebooks.metadata.book.base import reset_field_metadata
@@ -769,8 +726,7 @@ class LibraryPage(QWizardPage, LibraryUI):
         x = choose_dir(self, 'database location dialog',
                          _('Select location for books'))
         if x:
-            if (iswindows and len(x) >
-                    LibraryDatabase.WINDOWS_LIBRARY_PATH_LIMIT):
+            if (iswindows and len(x) > LibraryDatabase.WINDOWS_LIBRARY_PATH_LIMIT):
                 return error_dialog(self, _('Too long'),
                     _('Path to library too long. Must be less than'
                     ' %d characters.')%(LibraryDatabase.WINDOWS_LIBRARY_PATH_LIMIT),
@@ -803,11 +759,10 @@ class LibraryPage(QWizardPage, LibraryUI):
         self.default_library_name = None
         if not lp:
             fname = _('Calibre Library')
-            base = os.path.expanduser(u'~')
-            if iswindows:
-                x = winutil.special_folder_path(winutil.CSIDL_PERSONAL)
-                if x and os.access(x, os.W_OK):
-                    base = x
+            try:
+                base = os.path.expanduser(u'~')
+            except ValueError:
+                base = QDir.homePath().replace('/', os.sep)
 
             lp = os.path.join(base, fname)
             self.default_library_name = lp
@@ -816,7 +771,10 @@ class LibraryPage(QWizardPage, LibraryUI):
                     os.makedirs(lp)
                 except:
                     traceback.print_exc()
-                    lp = os.path.expanduser(u'~')
+                    try:
+                        lp = os.path.expanduser(u'~')
+                    except ValueError:
+                        lp = QDir.homePath().replace('/', os.sep)
         self.location.setText(lp)
         # Hide the library location settings if we are a portable install
         for x in ('location', 'button_change', 'libloc_label1',
@@ -832,25 +790,21 @@ class LibraryPage(QWizardPage, LibraryUI):
             ans = False
         return ans
 
-    def commit(self, completed):
-        oldloc = prefs['library_path']
+    def commit(self):
         newloc = unicode(self.location.text())
         try:
             dln = self.default_library_name
-            if (dln and os.path.exists(dln) and not os.listdir(dln) and newloc
-                    != dln):
+            if (dln and os.path.exists(dln) and not os.listdir(dln) and newloc != dln):
                 os.rmdir(dln)
-        except:
+        except Exception:
             pass
         if not os.path.exists(newloc):
-            os.mkdir(newloc)
-        if not patheq(oldloc, newloc):
-            move_library(oldloc, newloc, self.wizard(), completed)
-            return True
-        return False
+            os.makedirs(newloc)
+        prefs['library_path'] = newloc
 
     def nextId(self):
         return DevicePage.ID
+
 
 class FinishPage(QWizardPage, FinishUI):
 
@@ -860,7 +814,7 @@ class FinishPage(QWizardPage, FinishUI):
         QWizardPage.__init__(self)
         self.setupUi(self)
         try:
-            self.um_label.setText(self.um_label.text() % localize_user_manual_link('http://manual.calibre-ebook.com'))
+            self.um_label.setText(self.um_label.text() % localize_user_manual_link('https://manual.calibre-ebook.com'))
         except TypeError:
             pass  # link already localized
 
@@ -882,22 +836,17 @@ class Wizard(QWizard):
     }
     # The latter is simply to mark the texts for translation
     if False:
-            _('&Next >')
-            _('< &Back')
-            _('Cancel')
-            _('&Finish')
-            _('Commit')
+        _('&Next >')
+        _('< &Back')
+        _('Cancel')
+        _('&Finish')
+        _('Commit')
 
     def __init__(self, parent):
         QWizard.__init__(self, parent)
-        self.setWindowTitle(__appname__+' '+_('welcome wizard'))
-        p  = QPixmap()
-        p.loadFromData(open(P('content_server/calibre.png'), 'rb').read())
-        self.setPixmap(self.LogoPixmap, p.scaledToHeight(80,
-            Qt.SmoothTransformation))
-        self.setPixmap(self.WatermarkPixmap,
-            QPixmap(I('welcome_wizard.png')))
-        self.setPixmap(self.BackgroundPixmap, QPixmap(I('wizard.png')))
+        self.setWindowTitle(__appname__+' '+_('Welcome wizard'))
+        self.setPixmap(self.LogoPixmap, QIcon(I('library.png')).pixmap(48, 48))
+        self.setWizardStyle(self.ModernStyle)
         self.device_page = DevicePage()
         self.library_page = LibraryPage()
         self.library_page.retranslate.connect(self.retranslate)
@@ -912,15 +861,8 @@ class Wizard(QWizard):
         self.setPage(self.stanza_page.ID, self.stanza_page)
 
         self.device_extra_page = None
-        nh, nw = min_available_height()-75, available_width()-30
-        if nh < 0:
-            nh = 580
-        if nw < 0:
-            nw = 400
-        nh = min(400, nh)
-        nw = min(580, nw)
-        self.resize(nw, nh)
         self.set_button_texts()
+        self.resize(600, 520)
 
     def set_button_texts(self):
         for but, text in self.BUTTON_TEXTS.iteritems():
@@ -936,14 +878,8 @@ class Wizard(QWizard):
     def accept(self):
         pages = map(self.page, self.visitedPages())
         for page in pages:
-            if page is not self.library_page:
-                page.commit()
-
-        if not self.library_page.commit(self.completed):
-            self.completed(None)
-
-    def completed(self, newloc):
-        return QWizard.accept(self)
+            page.commit()
+        QWizard.accept(self)
 
     def set_finish_text(self, *args):
         bt = unicode("<em>" + self.buttonText(self.FinishButton) + "</em>").replace('&', '')
@@ -956,8 +892,8 @@ def wizard(parent=None):
     w = Wizard(parent)
     return w
 
+
 if __name__ == '__main__':
     from calibre.gui2 import Application
     app = Application([])
     wizard().exec_()
-

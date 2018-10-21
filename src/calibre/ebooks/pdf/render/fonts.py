@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python2
 # vim:fileencoding=UTF-8:ts=4:sw=4:sta:et:sts=4:fdm=marker:ai
 from __future__ import (unicode_literals, division, absolute_import,
                         print_function)
@@ -11,12 +11,13 @@ import re
 from itertools import izip, groupby
 from operator import itemgetter
 from collections import Counter, OrderedDict
-from future_builtins import map
+from polyglot.builtins import map
 
 from calibre import as_unicode
 from calibre.ebooks.pdf.render.common import (Array, String, Stream,
     Dictionary, Name)
 from calibre.utils.fonts.sfnt.subset import pdf_subset, UnsupportedFont, NoGlyphs
+from calibre.utils.short_uuid import uuid4
 
 STANDARD_FONTS = {
     'Times-Roman', 'Helvetica', 'Courier', 'Symbol', 'Times-Bold',
@@ -47,6 +48,7 @@ first. Each number gets mapped to a glyph id equal to itself by the
 
 import textwrap
 
+
 class FontStream(Stream):
 
     def __init__(self, is_otf, compress=False):
@@ -58,8 +60,10 @@ class FontStream(Stream):
         if self.is_otf:
             d['Subtype'] = Name('CIDFontType0C')
 
+
 def to_hex_string(c):
     return bytes(hex(int(c))[2:]).rjust(4, b'0').decode('ascii')
+
 
 class CMap(Stream):
 
@@ -106,6 +110,7 @@ class CMap(Stream):
             mapping.append('%d beginbfchar\n%s\nendbfchar'%(len(m), meat))
         self.write(self.skeleton.format(name=name, mapping='\n'.join(mapping)))
 
+
 class Font(object):
 
     def __init__(self, metrics, num, objects, compress):
@@ -114,9 +119,13 @@ class Font(object):
         self.subset_tag = bytes(re.sub('.', lambda m: chr(int(m.group())+ord('A')),
                                   oct(num))).rjust(6, b'A').decode('ascii')
         self.font_stream = FontStream(metrics.is_otf, compress=compress)
+        try:
+            psname = metrics.postscript_name
+        except Exception:
+            psname = uuid4()
         self.font_descriptor = Dictionary({
             'Type': Name('FontDescriptor'),
-            'FontName': Name('%s+%s'%(self.subset_tag, metrics.postscript_name)),
+            'FontName': Name('%s+%s'%(self.subset_tag, psname)),
             'Flags': 0b100,  # Symbolic font
             'FontBBox': Array(metrics.pdf_bbox),
             'ItalicAngle': metrics.post.italic_angle,
@@ -233,5 +242,3 @@ class FontManager(object):
     def embed_fonts(self, debug):
         for font in self.fonts:
             font.embed(self.objects, debug)
-
-

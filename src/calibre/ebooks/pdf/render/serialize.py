@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python2
 # vim:fileencoding=UTF-8:ts=4:sw=4:sta:et:sts=4:fdm=marker:ai
 from __future__ import (unicode_literals, division, absolute_import,
                         print_function)
@@ -8,7 +8,7 @@ __copyright__ = '2012, Kovid Goyal <kovid at kovidgoyal.net>'
 __docformat__ = 'restructuredtext en'
 
 import hashlib
-from future_builtins import map
+from polyglot.builtins import map
 
 from PyQt5.Qt import QBuffer, QByteArray, QImage, Qt, QColor, qRgba, QPainter
 
@@ -21,6 +21,7 @@ from calibre.ebooks.pdf.render.links import Links
 from calibre.utils.date import utcnow
 
 PDFVER = b'%PDF-1.4'  # 1.4 is needed for XMP metadata
+
 
 class IndirectObjects(object):
 
@@ -77,6 +78,7 @@ class IndirectObjects(object):
             line = '%010d 00000 n '%offset
             stream.write(line.encode('ascii') + EOL)
         return self.xref_offset
+
 
 class Page(Stream):
 
@@ -149,6 +151,7 @@ class Page(Stream):
         # objects.commit(ret, stream)
         return ret
 
+
 class Path(object):
 
     def __init__(self):
@@ -166,11 +169,13 @@ class Path(object):
     def close(self):
         self.ops.append(('h',))
 
+
 class Catalog(Dictionary):
 
     def __init__(self, pagetree):
         super(Catalog, self).__init__({'Type':Name('Catalog'),
             'Pages': pagetree})
+
 
 class PageTree(Dictionary):
 
@@ -193,6 +198,7 @@ class PageTree(Dictionary):
         except ValueError:
             return -1
 
+
 class HashingStream(object):
 
     def __init__(self, f):
@@ -209,6 +215,7 @@ class HashingStream(object):
         self.hashobj.update(raw)
         if raw:
             self.last_char = raw[-1]
+
 
 class Image(Stream):
 
@@ -239,6 +246,7 @@ class Image(Stream):
         if self.soft_mask is not None:
             d['SMask'] = self.soft_mask
 
+
 class Metadata(Stream):
 
     def __init__(self, mi):
@@ -249,6 +257,7 @@ class Metadata(Stream):
     def add_extra_keys(self, d):
         d['Type'] = Name('Metadata')
         d['Subtype'] = Name('XML')
+
 
 class PDFStream(object):
 
@@ -269,8 +278,8 @@ class PDFStream(object):
         self.stream = HashingStream(stream)
         self.compress = compress
         self.write_line(PDFVER)
-        self.write_line(b'%íì¦"')
-        creator = ('%s %s [http://calibre-ebook.com]'%(__appname__,
+        self.write_line(u'%íì¦"'.encode('utf-8'))
+        creator = ('%s %s [https://calibre-ebook.com]'%(__appname__,
                                     __version__))
         self.write_line('%% Created by %s'%creator)
         self.objects = IndirectObjects()
@@ -377,9 +386,10 @@ class PDFStream(object):
             self.fill_opacities[opacity] = self.objects.add(op)
         self.current_page.set_opacity(self.fill_opacities[opacity])
 
-    def end_page(self):
-        pageref = self.current_page.end(self.objects, self.stream)
-        self.page_tree.obj.add_page(pageref)
+    def end_page(self, drop_page=False):
+        if not drop_page:
+            pageref = self.current_page.end(self.objects, self.stream)
+            self.page_tree.obj.add_page(pageref)
         self.current_page = Page(self.page_tree, compress=self.compress)
 
     def draw_glyph_run(self, transform, size, font_metrics, glyphs):
@@ -518,5 +528,3 @@ class PDFStream(object):
         self.write_line('startxref')
         self.write_line('%d'%startxref)
         self.stream.write('%%EOF')
-
-

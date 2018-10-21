@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python2
 # vim:fileencoding=UTF-8:ts=4:sw=4:sta:et:sts=4:ai
 from __future__ import (unicode_literals, division, absolute_import,
                         print_function)
@@ -15,7 +15,9 @@ from io import BytesIO
 from calibre.customize.ui import metadata_plugins
 from calibre.ebooks.metadata.sources.base import create_log
 from calibre.ebooks.metadata.sources.prefs import msprefs
-from calibre.utils.magick.draw import Image, save_cover_data_to
+from calibre.utils.img import save_cover_data_to, remove_borders_from_image, image_to_data, image_from_data
+from calibre.utils.imghdr import identify
+
 
 class Worker(Thread):
 
@@ -50,29 +52,33 @@ class Worker(Thread):
                         self.plugin.name)
         self.time_spent = time.time() - start_time
 
+
 def is_worker_alive(workers):
     for w in workers:
         if w.is_alive():
             return True
     return False
 
+
 def process_result(log, result):
     plugin, data = result
     try:
-        im = Image()
-        im.load(data)
         if getattr(plugin, 'auto_trim_covers', False):
-            im.trim(10)
-        width, height = im.size
-        fmt = im.format
-
+            img = image_from_data(data)
+            nimg = remove_borders_from_image(img)
+            if nimg is not img:
+                data = image_to_data(nimg)
+        fmt, width, height = identify(data)
+        if width < 0 or height < 0:
+            raise ValueError('Could not read cover image dimensions')
         if width < 50 or height < 50:
             raise ValueError('Image too small')
-        data = save_cover_data_to(im, '/cover.jpg', return_data=True)
-    except:
+        data = save_cover_data_to(data)
+    except Exception:
         log.exception('Invalid cover from', plugin.name)
         return None
     return (plugin, width, height, fmt, data)
+
 
 def run_download(log, results, abort,
         title=None, authors=None, identifiers={}, timeout=30, get_best_cover=False):

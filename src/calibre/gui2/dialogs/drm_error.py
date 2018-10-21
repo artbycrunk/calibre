@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python2
 # vim:fileencoding=UTF-8:ts=4:sw=4:sta:et:sts=4:ai
 
 __license__   = 'GPL v3'
@@ -8,6 +8,7 @@ __docformat__ = 'restructuredtext en'
 
 from PyQt5.Qt import QDialog
 from calibre.gui2.dialogs.drm_error_ui import Ui_Dialog
+
 
 class DRMErrorMessage(QDialog, Ui_Dialog):
 

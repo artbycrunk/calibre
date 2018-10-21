@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python2
 # vim:fileencoding=UTF-8:ts=4:sw=4:sta:et:sts=4:ai
 from __future__ import (unicode_literals, division, absolute_import,
                         print_function)
@@ -14,6 +14,7 @@ from Queue import Queue
 from calibre.utils.ipc.job import BaseJob
 from calibre.utils.logging import GUILog
 from calibre.ptempfile import base_dir
+
 
 class ThreadedJob(BaseJob):
 
@@ -150,6 +151,7 @@ class ThreadedJob(BaseJob):
             return self.log.html
         return self.read_consolidated_log()[0]
 
+
 class ThreadedJobWorker(Thread):
 
     def __init__(self, job):
@@ -165,6 +167,7 @@ class ThreadedJobWorker(Thread):
             from calibre import prints
             prints('Job had unhandled exception:', self.job.description)
             traceback.print_exc()
+
 
 class ThreadedJobServer(Thread):
 

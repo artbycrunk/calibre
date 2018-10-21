@@ -1,4 +1,4 @@
-#!/usr/bin/env  python
+#!/usr/bin/env  python2
 # vim:fileencoding=utf-8
 from __future__ import (unicode_literals, division, absolute_import,
                         print_function)
@@ -9,11 +9,12 @@ __docformat__ = 'restructuredtext en'
 
 
 from PyQt5.Qt import (Qt, QDialog, QAbstractItemView, QTableWidgetItem,
-                      QByteArray)
+                      QByteArray, QApplication, QCursor)
 
 from calibre.gui2 import gprefs, error_dialog
 from calibre.gui2.dialogs.match_books_ui import Ui_MatchBooks
 from calibre.utils.icu import sort_key
+
 
 class TableItem(QTableWidgetItem):
     '''
@@ -43,6 +44,7 @@ class TableItem(QTableWidgetItem):
         if l == r:
             return self.sort_idx < other.sort_idx
         return 0
+
 
 class MatchBooks(QDialog, Ui_MatchBooks):
 
@@ -129,25 +131,31 @@ class MatchBooks(QDialog, Ui_MatchBooks):
                      _('You must enter a search expression into the search box'))
             d.exec_()
             return
-        books = self.library_db.data.search(query, return_matches=True)
-        self.books_table.setRowCount(len(books))
+        try:
+            self.search_button.setEnabled(False)
+            QApplication.setOverrideCursor(QCursor(Qt.WaitCursor))
+            books = self.library_db.data.search(query, return_matches=True)
+            self.books_table.setRowCount(len(books))
 
-        self.books_table.setSortingEnabled(False)
-        for row, b in enumerate(books):
-            mi = self.library_db.get_metadata(b, index_is_id=True, get_user_categories=False)
-            a = TableItem(mi.title, mi.title_sort)
-            a.setData(Qt.UserRole, b)
-            self.books_table.setItem(row, 0, a)
-            a = TableItem(' & '.join(mi.authors), mi.author_sort)
-            self.books_table.setItem(row, 1, a)
-            series = mi.format_field('series')[1]
-            if series is None:
-                series = ''
-            a = TableItem(series, mi.series, mi.series_index)
-            self.books_table.setItem(row, 2, a)
-            self.books_table.setRowHeight(row, self.books_table_row_height)
+            self.books_table.setSortingEnabled(False)
+            for row, b in enumerate(books):
+                mi = self.library_db.get_metadata(b, index_is_id=True, get_user_categories=False)
+                a = TableItem(mi.title, mi.title_sort)
+                a.setData(Qt.UserRole, b)
+                self.books_table.setItem(row, 0, a)
+                a = TableItem(' & '.join(mi.authors), mi.author_sort)
+                self.books_table.setItem(row, 1, a)
+                series = mi.format_field('series')[1]
+                if series is None:
+                    series = ''
+                a = TableItem(series, mi.series, mi.series_index)
+                self.books_table.setItem(row, 2, a)
+                self.books_table.setRowHeight(row, self.books_table_row_height)
 
-        self.books_table.setSortingEnabled(True)
+            self.books_table.setSortingEnabled(True)
+        finally:
+            self.search_button.setEnabled(True)
+            QApplication.restoreOverrideCursor()
 
     # Deal with sizing the table columns. Done here because the numbers are not
     # correct until the first paint.

@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python2
 # vim:fileencoding=UTF-8:ts=4:sw=4:sta:et:sts=4:ai
 from __future__ import with_statement
 
@@ -15,6 +15,7 @@ from collections import OrderedDict, Counter
 from calibre.ebooks.oeb.base import XPNSMAP, TOC, XHTML, xml2text, barename
 from calibre.ebooks import ConversionError
 
+
 def XPath(x):
     try:
         return etree.XPath(x, namespaces=XPNSMAP)
@@ -22,8 +23,10 @@ def XPath(x):
         raise ConversionError(
         'The syntax of the XPath expression %s is invalid.' % repr(x))
 
+
 def isspace(x):
     return not x or x.replace(u'\xa0', u'').isspace()
+
 
 def at_start(elem):
     ' Return True if there is no content before elem '
@@ -41,6 +44,7 @@ def at_start(elem):
             continue
         return False
     return False
+
 
 class DetectStructure(object):
 
@@ -172,7 +176,7 @@ class DetectStructure(object):
                 if chapter_mark == 'none':
                     continue
                 if chapter_mark == 'rule':
-                    mark = etree.Element(XHTML('hr'))
+                    mark = elem.makeelement(XHTML('hr'))
                 elif chapter_mark == 'pagebreak':
                     if c[item] < 3 and at_start(elem):
                         # For the first two elements in this item, check if they
@@ -182,9 +186,9 @@ class DetectStructure(object):
                         # feedbooks epubs match both a heading tag and its
                         # containing div with the default chapter expression.
                         continue
-                    mark = etree.Element(XHTML('div'), style=page_break_after)
+                    mark = elem.makeelement(XHTML('div'), style=page_break_after)
                 else:  # chapter_mark == 'both':
-                    mark = etree.Element(XHTML('hr'), style=page_break_before)
+                    mark = elem.makeelement(XHTML('hr'), style=page_break_before)
                 try:
                     elem.addprevious(mark)
                 except TypeError:
@@ -222,9 +226,13 @@ class DetectStructure(object):
                         if (not self.opts.duplicate_links_in_toc and
                                 self.oeb.toc.has_text(text)):
                             continue
-                        num += 1
-                        self.oeb.toc.add(text, href,
-                            play_order=self.oeb.toc.next_play_order())
+                        try:
+                            self.oeb.toc.add(text, href,
+                                play_order=self.oeb.toc.next_play_order())
+                            num += 1
+                        except ValueError:
+                            self.oeb.log.exception('Failed to process link: %r' % href)
+                            continue  # Most likely an incorrectly URL encoded link
                         if self.opts.max_toc_links > 0 and \
                                 num >= self.opts.max_toc_links:
                             self.log('Maximum TOC links reached, stopping.')
@@ -313,5 +321,3 @@ class DetectStructure(object):
                                     level2.add(text, _href,
                                         play_order=self.oeb.toc.next_play_order())
                                 break
-
-

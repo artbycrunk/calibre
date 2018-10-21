@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python2
 # vim:fileencoding=utf-8
 from __future__ import (unicode_literals, division, absolute_import,
                         print_function)
@@ -9,7 +9,9 @@ __copyright__ = '2014, Kovid Goyal <kovid at kovidgoyal.net>'
 import unittest, os, argparse
 
 def find_tests():
-    return unittest.defaultTestLoader.discover(os.path.dirname(os.path.abspath(__file__)), pattern='*.py')
+    from calibre.utils.run_tests import find_tests_in_dir
+    base = os.path.dirname(os.path.abspath(__file__))
+    return find_tests_in_dir(base)
 
 def run_tests(find_tests=find_tests, for_build=False):
     if not for_build:

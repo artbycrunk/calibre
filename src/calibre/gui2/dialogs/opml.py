@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python2
 # vim:fileencoding=utf-8
 from __future__ import (unicode_literals, division, absolute_import,
                         print_function)
@@ -20,6 +20,7 @@ from calibre.utils.icu import sort_key
 
 Group = namedtuple('Group', 'title feeds')
 
+
 def uniq(vals, kmap=lambda x:x):
     ''' Remove all duplicates from vals, while preserving order. kmap must be a
     callable that returns a hashable value for every item in vals '''
@@ -28,6 +29,7 @@ def uniq(vals, kmap=lambda x:x):
     seen = set()
     seen_add = seen.add
     return tuple(x for x, k in zip(vals, lvals) if k not in seen and not seen_add(k))
+
 
 def import_opml(raw, preserve_groups=True):
     root = etree.fromstring(raw)

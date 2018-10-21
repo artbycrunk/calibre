@@ -4,7 +4,7 @@ __license__ = 'GPL 3'
 __copyright__ = '2009, John Schember <john@nachtimwald.com>'
 __docformat__ = 'restructuredtext en'
 
-import re, os
+import os
 
 from PyQt5.Qt import (QDialog, QWidget, QDialogButtonBox,
         QBrush, QTextCursor, QTextEdit, QByteArray, Qt, pyqtSignal)
@@ -15,7 +15,9 @@ from calibre.gui2 import error_dialog, choose_files, gprefs
 from calibre.gui2.dialogs.choose_format import ChooseFormatDialog
 from calibre.constants import iswindows
 from calibre.utils.ipc.simple_worker import fork_job, WorkerError
+from calibre.ebooks.conversion.search_replace import compile_regular_expression
 from calibre.ptempfile import TemporaryFile
+
 
 class RegexBuilder(QDialog, Ui_RegexBuilder):
 
@@ -59,7 +61,7 @@ class RegexBuilder(QDialog, Ui_RegexBuilder):
         regex = unicode(self.regex.text())
         if regex:
             try:
-                re.compile(regex)
+                compile_regular_expression(regex)
                 self.regex.setStyleSheet('QLineEdit { color: black; background-color: rgba(0,255,0,20%); }')
                 return True
             except:
@@ -86,7 +88,7 @@ class RegexBuilder(QDialog, Ui_RegexBuilder):
             extsel.cursor = cursor
             extsel.format.setBackground(QBrush(Qt.yellow))
             try:
-                for match in re.finditer(regex, text):
+                for match in compile_regular_expression(regex).finditer(text):
                     es = QTextEdit.ExtraSelection(extsel)
                     es.cursor.setPosition(match.start(), QTextCursor.MoveAnchor)
                     es.cursor.setPosition(match.end(), QTextCursor.KeepAnchor)
@@ -196,6 +198,7 @@ class RegexBuilder(QDialog, Ui_RegexBuilder):
     def doc(self):
         return unicode(self.preview.toPlainText())
 
+
 class RegexEdit(QWidget, Ui_Edit):
 
     doc_update = pyqtSignal(unicode)
@@ -203,6 +206,7 @@ class RegexEdit(QWidget, Ui_Edit):
     def __init__(self, parent=None):
         QWidget.__init__(self, parent)
         self.setupUi(self)
+        self.edit.completer().setCaseSensitivity(Qt.CaseSensitive)
 
         self.book_id = None
         self.db = None
@@ -212,8 +216,8 @@ class RegexEdit(QWidget, Ui_Edit):
 
     def builder(self):
         if self.db is None:
-            self.doc_cache = _('Click the Open button below to open a '
-                    'ebook to use for testing.')
+            self.doc_cache = _('Click the "Open" button below to open a '
+                    'e-book to use for testing.')
         bld = RegexBuilder(self.db, self.book_id, self.edit.text(), self.doc_cache, self)
         if bld.cancelled:
             return

@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python2
 # vim:fileencoding=UTF-8:ts=4:sw=4:sta:et:sts=4:ai
 from __future__ import with_statement
 
@@ -12,7 +12,8 @@ BASH completion for calibre commands that are too complex for simple
 completion.
 '''
 
-import sys, os, shlex, glob, re, cPickle
+import sys, os, shlex, glob, re
+
 
 def prints(*args, **kwargs):
     '''
@@ -53,7 +54,6 @@ def prints(*args, **kwargs):
     file.write(end)
 
 
-
 def split(src):
     try:
         return shlex.split(src)
@@ -74,6 +74,7 @@ def files_and_dirs(prefix, allowed_exts=[]):
         elif allowed_exts is None or ext in allowed_exts:
             yield i+' '
 
+
 def get_opts_from_parser(parser, prefix):
     def do_opt(opt):
         for x in opt._long_opts:
@@ -83,10 +84,13 @@ def get_opts_from_parser(parser, prefix):
             if x.startswith(prefix):
                 yield x
     for o in parser.option_list:
-        for x in do_opt(o): yield x+' '
+        for x in do_opt(o):
+            yield x+' '
     for g in parser.option_groups:
         for o in g.option_list:
-            for x in do_opt(o): yield x+' '
+            for x in do_opt(o):
+                yield x+' '
+
 
 def send(ans):
     pat = re.compile('([^0-9a-zA-Z_./-])')
@@ -95,7 +99,6 @@ def send(ans):
         if x.endswith('\\ '):
             x = x[:-2]+' '
         prints(x)
-
 
 
 class EbookConvert(object):
@@ -110,8 +113,9 @@ class EbookConvert(object):
         self.words = words
         self.prefix = prefix
         self.previous = words[-2 if prefix else -1]
-        self.cache = cPickle.load(open(os.path.join(sys.resources_location,
-            'ebook-convert-complete.pickle'), 'rb'))
+        from calibre.utils.serialize import msgpack_loads
+        self.cache = msgpack_loads(open(os.path.join(sys.resources_location,
+            'ebook-convert-complete.calibre_msgpack'), 'rb').read())
         self.complete(wc)
 
     def complete(self, wc):

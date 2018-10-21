@@ -1,11 +1,11 @@
-#!/usr/bin/env python
+#!/usr/bin/env python2
 # vim:fileencoding=UTF-8:ts=4:sw=4:sta:et:sts=4:ai
 
 __license__   = 'GPL v3'
 __copyright__ = '2010, Kovid Goyal <kovid@kovidgoyal.net>'
 __docformat__ = 'restructuredtext en'
 
-import textwrap
+import textwrap, re
 
 from PyQt5.Qt import QAbstractTableModel, QFont, Qt
 
@@ -14,19 +14,24 @@ from calibre.gui2.preferences import ConfigWidgetBase, test_widget, \
         AbortCommit
 from calibre.gui2.preferences.email_ui import Ui_Form
 from calibre.utils.config import ConfigProxy
+from calibre.utils.icu import numeric_sort_key
 from calibre.gui2 import gprefs
 from calibre.utils.smtp import config as smtp_prefs
 
+
 class EmailAccounts(QAbstractTableModel):  # {{{
 
-    def __init__(self, accounts, subjects, aliases={}):
+    def __init__(self, accounts, subjects, aliases={}, tags={}):
         QAbstractTableModel.__init__(self)
         self.accounts = accounts
         self.subjects = subjects
         self.aliases = aliases
-        self.account_order = sorted(self.accounts.keys())
+        self.tags = tags
+        self.sorted_on = (0, True)
+        self.account_order = self.accounts.keys()
+        self.do_sort()
         self.headers  = map(unicode, [_('Email'), _('Formats'), _('Subject'),
-            _('Auto send'), _('Alias')])
+            _('Auto send'), _('Alias'), _('Auto send only tags')])
         self.default_font = QFont()
         self.default_font.setBold(True)
         self.default_font = (self.default_font)
@@ -37,10 +42,46 @@ class EmailAccounts(QAbstractTableModel):  # {{{
                'templates used for "Save to disk" such as {title} and '
                '{author_sort} can be used here.'),
              '<p>'+_('If checked, downloaded news will be automatically '
-                     'mailed <br>to this email address '
-                     '(provided it is in one of the listed formats).'),
-             _('Friendly name to use for this email address')
+                     'mailed to this email address '
+                     '(provided it is in one of the listed formats and has not been filtered by tags).'),
+             _('Friendly name to use for this email address'),
+             _('If specified, only news with one of these tags will be sent to'
+               ' this email address. All news downloads have their title as a'
+               ' tag, so you can use this to easily control which news downloads'
+               ' are sent to this email address.')
              ])))
+
+    def do_sort(self):
+        col = self.sorted_on[0]
+        if col == 0:
+            def key(account_key):
+                return numeric_sort_key(account_key)
+        elif col == 1:
+            def key(account_key):
+                return numeric_sort_key(self.accounts[account_key][0] or '')
+        elif col == 2:
+            def key(account_key):
+                return numeric_sort_key(self.subjects.get(account_key) or '')
+        elif col == 3:
+            def key(account_key):
+                return numeric_sort_key(type(u'')(self.accounts[account_key][0]) or '')
+        elif col == 4:
+            def key(account_key):
+                return numeric_sort_key(self.aliases.get(account_key) or '')
+        elif col == 5:
+            def key(account_key):
+                return numeric_sort_key(self.tags.get(account_key) or '')
+        self.account_order.sort(key=key, reverse=not self.sorted_on[1])
+
+    def sort(self, column, order=Qt.AscendingOrder):
+        nsort = (column, order == Qt.AscendingOrder)
+        if nsort != self.sorted_on:
+            self.sorted_on = nsort
+            self.beginResetModel()
+            try:
+                self.do_sort()
+            finally:
+                self.endResetModel()
 
     def rowCount(self, *args):
         return len(self.account_order)
@@ -68,11 +109,13 @@ class EmailAccounts(QAbstractTableModel):  # {{{
             if col == 0:
                 return (account)
             if col ==  1:
-                return (self.accounts[account][0])
+                return ', '.join(x.strip() for x in (self.accounts[account][0] or '').split(','))
             if col == 2:
                 return (self.subjects.get(account, ''))
             if col == 4:
                 return (self.aliases.get(account, ''))
+            if col == 5:
+                return (self.tags.get(account, ''))
         if role == Qt.FontRole and self.accounts[account][2]:
             return self.default_font
         if role == Qt.CheckStateRole and col == 3:
@@ -99,8 +142,13 @@ class EmailAccounts(QAbstractTableModel):  # {{{
             aval = unicode(value or '').strip()
             if aval:
                 self.aliases[account] = aval
+        elif col == 5:
+            self.tags.pop(account, None)
+            aval = unicode(value or '').strip()
+            if aval:
+                self.tags[account] = aval
         elif col == 1:
-            self.accounts[account][0] = unicode(value or '').upper()
+            self.accounts[account][0] = re.sub(',+', ',', re.sub(r'\s+', ',', unicode(value or '').upper()))
         elif col == 0:
             na = unicode(value or '')
             from email.utils import parseaddr
@@ -136,7 +184,8 @@ class EmailAccounts(QAbstractTableModel):  # {{{
         self.beginResetModel()
         self.accounts[y] = ['MOBI, EPUB', auto_send,
                                                 len(self.account_order) == 0]
-        self.account_order = sorted(self.accounts.keys())
+        self.account_order = self.accounts.keys()
+        self.do_sort()
         self.endResetModel()
         return self.index(self.account_order.index(y), 0)
 
@@ -159,6 +208,7 @@ class EmailAccounts(QAbstractTableModel):  # {{{
 
 # }}}
 
+
 class ConfigWidget(ConfigWidgetBase, Ui_Form):
 
     supports_restoring_to_defaults = False
@@ -173,10 +223,11 @@ class ConfigWidget(ConfigWidgetBase, Ui_Form):
         self.send_email_widget.changed_signal.connect(self.changed_signal.emit)
         opts = self.send_email_widget.smtp_opts
         self._email_accounts = EmailAccounts(opts.accounts, opts.subjects,
-                opts.aliases)
-        self._email_accounts.dataChanged.connect(lambda x,y:
-                self.changed_signal.emit())
+                opts.aliases, opts.tags)
+        connect_lambda(self._email_accounts.dataChanged, self, lambda self: self.changed_signal.emit())
         self.email_view.setModel(self._email_accounts)
+        self.email_view.sortByColumn(0, Qt.AscendingOrder)
+        self.email_view.setSortingEnabled(True)
 
         self.email_add.clicked.connect(self.add_email_account)
         self.email_make_default.clicked.connect(self.make_default)
@@ -206,6 +257,7 @@ class ConfigWidget(ConfigWidgetBase, Ui_Form):
         self.proxy['accounts'] =  self._email_accounts.accounts
         self.proxy['subjects'] = self._email_accounts.subjects
         self.proxy['aliases'] = self._email_accounts.aliases
+        self.proxy['tags'] = self._email_accounts.tags
 
         return ConfigWidgetBase.commit(self)
 
@@ -231,7 +283,6 @@ class ConfigWidget(ConfigWidgetBase, Ui_Form):
 
 
 if __name__ == '__main__':
-    from PyQt5.Qt import QApplication
-    app = QApplication([])
+    from calibre.gui2 import Application
+    app = Application([])
     test_widget('Sharing', 'Email')
-

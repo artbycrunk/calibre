@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python2
 # vim:fileencoding=utf-8
 from __future__ import (unicode_literals, division, absolute_import,
                         print_function)
@@ -7,15 +7,15 @@ __license__ = 'GPL v3'
 __copyright__ = '2013, Kovid Goyal <kovid at kovidgoyal.net>'
 
 import sys
-from functools import partial
 
 from PyQt5.Qt import (
-    QMainWindow, Qt, QApplication, pyqtSignal, QLabel, QIcon, QFormLayout,
+    QMainWindow, Qt, QApplication, pyqtSignal, QLabel, QIcon, QFormLayout, QSize,
     QDialog, QSpinBox, QCheckBox, QDialogButtonBox, QToolButton, QMenu, QInputDialog)
 
 from calibre.gui2 import error_dialog
 from calibre.gui2.tweak_book import actions, tprefs, editors
 from calibre.gui2.tweak_book.editor.canvas import Canvas
+
 
 class ResizeDialog(QDialog):  # {{{
 
@@ -39,8 +39,8 @@ class ResizeDialog(QDialog):  # {{{
         h.setValue(height)
         h.setSuffix(' px')
         l.addRow(_('&Height:'), h)
-        w.valueChanged.connect(partial(self.keep_ar, 'width'))
-        h.valueChanged.connect(partial(self.keep_ar, 'height'))
+        connect_lambda(w.valueChanged, self, lambda self: self.keep_ar('width'))
+        connect_lambda(h.valueChanged, self, lambda self: self.keep_ar('height'))
 
         self.ar = ar = QCheckBox(_('Keep &aspect ratio'))
         ar.setChecked(True)
@@ -65,6 +65,7 @@ class ResizeDialog(QDialog):  # {{{
     def width(self):
         def fget(self):
             return self._width.value()
+
         def fset(self, val):
             self._width.setValue(val)
         return property(fget=fget, fset=fset)
@@ -73,10 +74,12 @@ class ResizeDialog(QDialog):  # {{{
     def height(self):
         def fget(self):
             return self._height.value()
+
         def fset(self, val):
             self._height.setValue(val)
         return property(fget=fget, fset=fset)
 # }}}
+
 
 class Editor(QMainWindow):
 
@@ -111,9 +114,19 @@ class Editor(QMainWindow):
     def is_modified(self):
         def fget(self):
             return self._is_modified
+
         def fset(self, val):
             self._is_modified = val
             self.modification_state_changed.emit(val)
+        return property(fget=fget, fset=fset)
+
+    @dynamic_property
+    def current_editing_state(self):
+        def fget(self):
+            return {}
+
+        def fset(self, val):
+            pass
         return property(fget=fget, fset=fset)
 
     @property
@@ -128,6 +141,7 @@ class Editor(QMainWindow):
     def current_line(self):
         def fget(self):
             return 0
+
         def fset(self, val):
             pass
         return property(fget=fget, fset=fset)
@@ -149,8 +163,10 @@ class Editor(QMainWindow):
     def data(self):
         def fget(self):
             return self.get_raw_data()
+
         def fset(self, val):
             self.canvas.load_image(val)
+            self._is_modified = False  # The image_changed signal will have been triggered causing this editor to be incorrectly marked as modified
         return property(fget=fget, fset=fset)
 
     def replace_data(self, raw, only_if_different=True):
@@ -264,6 +280,8 @@ class Editor(QMainWindow):
         m.addAction(_('Sharpen image'), self.sharpen_image)
         m.addAction(_('Blur image'), self.blur_image)
         m.addAction(_('De-speckle image'), self.canvas.despeckle_image)
+        m.addAction(_('Improve contrast (normalize image)'), self.canvas.normalize_image)
+        m.addAction(_('Make image look like an oil painting'), self.oilify_image)
 
         self.info_bar = b = self.addToolBar(_('Image information bar'))
         b.setObjectName('image_info_bar')
@@ -276,6 +294,7 @@ class Editor(QMainWindow):
         for x in self.bars:
             x.setFloatable(False)
             x.topLevelChanged.connect(self.toolbar_floated)
+            x.setIconSize(QSize(tprefs['toolbar_icon_size'], tprefs['toolbar_icon_size']))
         self.restore_state()
 
     def toolbar_floated(self, floating):
@@ -311,6 +330,13 @@ class Editor(QMainWindow):
         if ok:
             self.canvas.blur_image(sigma=val)
 
+    def oilify_image(self):
+        val, ok = QInputDialog.getDouble(self, _('Oilify image'), _(
+            'The strength of the operation (higher numbers have larger effects)'), value=4, min=0.1, max=20)
+        if ok:
+            self.canvas.oilify_image(radius=val)
+
+
 def launch_editor(path_to_edit, path_is_raw=False):
     app = QApplication([])
     if path_is_raw:
@@ -322,6 +348,7 @@ def launch_editor(path_to_edit, path_is_raw=False):
     t.data = raw
     t.show()
     app.exec_()
+
 
 if __name__ == '__main__':
     launch_editor(sys.argv[-1])

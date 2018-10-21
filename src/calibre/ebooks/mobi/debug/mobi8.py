@@ -1,8 +1,8 @@
-#!/usr/bin/env python
+#!/usr/bin/env python2
 # vim:fileencoding=UTF-8:ts=4:sw=4:sta:et:sts=4:ai
 from __future__ import (unicode_literals, division, absolute_import,
                         print_function)
-from future_builtins import map
+from polyglot.builtins import map
 
 __license__   = 'GPL v3'
 __copyright__ = '2012, Kovid Goyal <kovid@kovidgoyal.net>'
@@ -20,6 +20,7 @@ from calibre.ebooks.mobi.utils import read_font_record, decode_tbs, RECORD_SIZE
 from calibre.ebooks.mobi.debug import format_bytes
 from calibre.ebooks.mobi.reader.headers import NULL_INDEX
 from calibre.utils.imghdr import what
+
 
 class FDST(object):
 
@@ -48,6 +49,7 @@ class FDST(object):
 
         return '\n'.join(ans)
 
+
 class File(object):
 
     def __init__(self, skel, skeleton, text, first_aid, sections):
@@ -66,6 +68,7 @@ class File(object):
             for i, text in enumerate(self.sections):
                 with open('sect-%04d.html'%i, 'wb') as f:
                     f.write(text)
+
 
 class MOBIFile(object):
 
@@ -125,8 +128,7 @@ class MOBIFile(object):
         text = self.raw_text
         self.files = []
         for skel in self.skel_index.records:
-            sects = [x for x in self.sect_index.records if x.file_number
-                    == skel.file_number]
+            sects = [x for x in self.sect_index.records if x.file_number == skel.file_number]
             skeleton = text[skel.start_position:skel.start_position+skel.length]
             ftext = skeleton
             first_aid = sects[0].toc_text
@@ -199,7 +201,10 @@ class MOBIFile(object):
                         prefix, ext = 'hd-images', q
                         resource_index = len(container.resources)
             elif sig == b'\xa0\xa0\xa0\xa0' and len(payload) == 4:
-                container.resources.append(None)
+                if container is None:
+                    print ('Found an end of container record with no container, ignoring')
+                else:
+                    container.resources.append(None)
                 continue
             elif sig not in known_types:
                 if container is not None and len(container.resources) == container.num_of_resource_records:
@@ -287,6 +292,7 @@ class MOBIFile(object):
                 desc.append('Calculated sequences: %r'%calculated_sequences)
             desc.append('')
             self.indexing_data.append('\n'.join(desc))
+
 
 def inspect_mobi(mobi_file, ddir):
     f = MOBIFile(mobi_file)

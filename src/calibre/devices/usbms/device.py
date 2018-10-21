@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 
+from __future__ import print_function
 __license__   = 'GPL v3'
 __copyright__ = '2009, John Schember <john at nachtimwald.com> ' \
                 '2009, Kovid Goyal <kovid@kovidgoyal.net>'
@@ -13,8 +14,9 @@ device. This class handles device detection.
 
 import os, subprocess, time, re, sys, glob
 from itertools import repeat
+from collections import namedtuple
 
-from calibre import prints, as_unicode
+from calibre import prints
 from calibre.constants import DEBUG
 from calibre.devices.interface import DevicePlugin
 from calibre.devices.errors import DeviceError
@@ -24,6 +26,16 @@ from calibre.utils.filenames import ascii_filename as sanitize
 
 if isosx:
     usbobserver, usbobserver_err = plugins['usbobserver']
+    osx_sanitize_name_pat = re.compile(r'[.-]')
+
+if iswindows:
+    usb_info_cache = {}
+
+
+def eject_exe():
+    base = sys.extensions_location if hasattr(sys, 'new_app_layout') else os.path.dirname(sys.executable)
+    return os.path.join(base, 'calibre-eject.exe')
+
 
 class USBDevice:
 
@@ -31,9 +43,14 @@ class USBDevice:
         self.idVendor = dev[0]
         self.idProduct = dev[1]
         self.bcdDevice = dev[2]
-        self.manufacturer = dev[3]
-        self.product = dev[4]
-        self.serial = dev[5]
+        if iswindows:
+            # Getting this information requires communicating with the device
+            # we only do that in the can_handle_windows() method, if needed.
+            self.manufacturer = self.serial = self.product = None
+        else:
+            self.manufacturer = dev[3]
+            self.product = dev[4]
+            self.serial = dev[5]
 
     def match_serial(self, serial):
         return self.serial and self.serial == serial
@@ -42,8 +59,17 @@ class USBDevice:
         return self.idVendor == vid and self.idProduct == pid and self.bcdDevice == bcd
 
     def match_strings(self, vid, pid, bcd, man, prod):
-        return self.match_numbers(vid, pid, bcd) and \
-                self.manufacturer == man and self.product == prod
+        if not self.match_numbers(vid, pid, bcd):
+            return False
+        if man == self.manufacturer and prod == self.product:
+            return True
+        # As of macOS 10.11.4 Apple started mangling the names returned via the
+        # IOKit registry. See
+        # https://www.mobileread.com/forums/showthread.php?t=273213
+        m = osx_sanitize_name_pat.sub('_', (self.manufacturer or ''))
+        p = osx_sanitize_name_pat.sub('_', (self.product or ''))
+        return m == man and p == prod
+
 
 class Device(DeviceConfig, DevicePlugin):
 
@@ -74,15 +100,9 @@ class Device(DeviceConfig, DevicePlugin):
     #: This can be None, string, list of strings or compiled regex
     WINDOWS_CARD_B_MEM = None
 
-    # The following are used by the check_ioreg_line method and can be either:
-    # None, a string, a list of strings or a compiled regular expression
-    OSX_MAIN_MEM = None
-    OSX_CARD_A_MEM = None
-    OSX_CARD_B_MEM = None
-
     #: Used by the new driver detection to disambiguate main memory from
     #: storage cards. Should be a regular expression that matches the
-    #: main memory mount point assigned by OS X
+    #: main memory mount point assigned by macOS
     OSX_MAIN_MEM_VOL_PAT = None
     OSX_EJECT_COMMAND = ['diskutil', 'eject']
 
@@ -108,10 +128,7 @@ class Device(DeviceConfig, DevicePlugin):
     def reset(self, key='-1', log_packets=False, report_progress=None,
             detected_device=None):
         self._main_prefix = self._card_a_prefix = self._card_b_prefix = None
-        try:
-            self.detected_device = USBDevice(detected_device)
-        except:  # On windows detected_device is None
-            self.detected_device = None
+        self.detected_device = None if detected_device is None else USBDevice(detected_device)
         self.set_progress_reporter(report_progress)
 
     def set_progress_reporter(self, report_progress):
@@ -184,37 +201,6 @@ class Device(DeviceConfig, DevicePlugin):
     def windows_filter_pnp_id(self, pnp_id):
         return False
 
-    def windows_match_device(self, pnp_id, attr):
-        device_id = getattr(self, attr)
-
-        def test_vendor():
-            vendors = [self.VENDOR_NAME] if isinstance(self.VENDOR_NAME,
-                    basestring) else self.VENDOR_NAME
-            for v in vendors:
-                if 'VEN_'+str(v).upper() in pnp_id:
-                    return True
-            return False
-
-        if device_id is None or not test_vendor():
-            return False
-
-        if self.windows_filter_pnp_id(pnp_id):
-            return False
-
-        if hasattr(device_id, 'search'):
-            return device_id.search(pnp_id) is not None
-
-        if isinstance(device_id, basestring):
-            device_id = [device_id]
-
-        for x in device_id:
-            x = x.upper()
-
-            if 'PROD_' + x in pnp_id:
-                return True
-
-        return False
-
     def windows_sort_drives(self, drives):
         '''
         Called to disambiguate main memory and storage card for devices that
@@ -223,80 +209,75 @@ class Device(DeviceConfig, DevicePlugin):
         '''
         return drives
 
-    def can_handle_windows(self, device_id, debug=False):
-        from calibre.devices.scanner import win_pnp_drives
-        drives = win_pnp_drives()
-        for pnp_id in drives.values():
-            if self.windows_match_device(pnp_id, 'WINDOWS_MAIN_MEM'):
-                return True
+    def can_handle_windows(self, usbdevice, debug=False):
+        from calibre.devices.interface import DevicePlugin
+        if self.can_handle.im_func is DevicePlugin.can_handle.im_func:
+            # No custom can_handle implementation
+            return True
+        # Delegate to the unix can_handle function, creating a unix like
+        # USBDevice object
+        from calibre.devices.winusb import get_usb_info
+        dev = usb_info_cache.get(usbdevice)
+        if dev is None:
+            try:
+                data = get_usb_info(usbdevice, debug=debug)
+            except Exception:
+                time.sleep(0.1)
+                try:
+                    data = get_usb_info(usbdevice, debug=debug)
+                except Exception:
+                    data = {}
+            dev = usb_info_cache[usbdevice] = namedtuple(
+                'USBDevice', 'vendor_id product_id bcd manufacturer product serial')(
+                usbdevice.vendor_id, usbdevice.product_id, usbdevice.bcd,
+                data.get('manufacturer') or '', data.get('product') or '', data.get('serial_number') or '')
             if debug:
-                print '\tNo match found in:', pnp_id
-        return False
+                prints('USB Info for device: {}'.format(dev))
+        return self.can_handle(dev, debug=debug)
 
     def open_windows(self):
-        from calibre.devices.scanner import win_pnp_drives, drivecmp
+        from calibre.devices.scanner import drive_is_ok
+        from calibre.devices.winusb import get_drive_letters_for_device
+        usbdev = self.device_being_opened
+        debug = DEBUG or getattr(self, 'do_device_debug', False)
+        try:
+            dlmap = get_drive_letters_for_device(usbdev, debug=debug)
+        except Exception:
+            dlmap = []
 
-        time.sleep(5)
+        if not dlmap['drive_letters']:
+            time.sleep(7)
+            dlmap = get_drive_letters_for_device(usbdev, debug=debug)
+
+        if debug:
+            from pprint import pformat
+            prints('Drive letters for {}'.format(usbdev))
+            prints(pformat(dlmap))
+
+        filtered = set()
+        for dl in dlmap['drive_letters']:
+            pnp_id = dlmap['pnp_id_map'][dl].upper()
+            if dl in dlmap['readonly_drives']:
+                filtered.add(dl)
+                if debug:
+                    prints('Ignoring the drive %s as it is readonly' % dl)
+            elif self.windows_filter_pnp_id(pnp_id):
+                filtered.add(dl)
+                if debug:
+                    prints('Ignoring the drive %s because of a PNP filter on %s' % (dl, pnp_id))
+            elif not drive_is_ok(dl, debug=debug):
+                filtered.add(dl)
+                if debug:
+                    prints('Ignoring the drive %s because failed to get free space for it' % dl)
+        dlmap['drive_letters'] = [dl for dl in dlmap['drive_letters'] if dl not in filtered]
+
+        if not dlmap['drive_letters']:
+            raise DeviceError(_('Unable to detect any disk drives for the device: %s. Try rebooting') % self.get_gui_name())
+
         drives = {}
-        seen = set()
-        prod_pat = re.compile(r'PROD_(.+?)&')
-        dup_prod_id = False
 
-        def check_for_dups(pnp_id):
-            try:
-                match = prod_pat.search(pnp_id)
-                if match is not None:
-                    prodid = match.group(1)
-                    if prodid in seen:
-                        return True
-                    else:
-                        seen.add(prodid)
-            except:
-                pass
-            return False
-
-        for drive, pnp_id in win_pnp_drives().items():
-            if self.windows_match_device(pnp_id, 'WINDOWS_CARD_A_MEM') and \
-                    not drives.get('carda', False):
-                drives['carda'] = drive
-                dup_prod_id |= check_for_dups(pnp_id)
-            elif self.windows_match_device(pnp_id, 'WINDOWS_CARD_B_MEM') and \
-                    not drives.get('cardb', False):
-                drives['cardb'] = drive
-                dup_prod_id |= check_for_dups(pnp_id)
-            elif self.windows_match_device(pnp_id, 'WINDOWS_MAIN_MEM') and \
-                    not drives.get('main', False):
-                drives['main'] = drive
-                dup_prod_id |= check_for_dups(pnp_id)
-
-            if 'main' in drives.keys() and 'carda' in drives.keys() and \
-                    'cardb' in drives.keys():
-                break
-
-        # This is typically needed when the device has the same
-        # WINDOWS_MAIN_MEM and WINDOWS_CARD_A_MEM in which case
-        # if the device is connected without a card, the above
-        # will incorrectly identify the main mem as carda
-        # See for example the driver for the Nook
-        if drives.get('carda', None) is not None and \
-                drives.get('main', None) is None:
-            drives['main'] = drives.pop('carda')
-
-        if drives.get('main', None) is None:
-            raise DeviceError(
-                _('Unable to detect the %s disk drive. Try rebooting.') %
-                self.__class__.__name__)
-
-        # Sort drives by their PNP drive numbers if the CARD and MAIN
-        # MEM strings are identical
-        if dup_prod_id or \
-                self.WINDOWS_MAIN_MEM in (self.WINDOWS_CARD_A_MEM,
-                self.WINDOWS_CARD_B_MEM) or \
-                self.WINDOWS_CARD_A_MEM == self.WINDOWS_CARD_B_MEM:
-            letters = sorted(drives.values(), cmp=drivecmp)
-            drives = {}
-            for which, letter in zip(['main', 'carda', 'cardb'], letters):
-                drives[which] = letter
+        for drive_letter, which in zip(dlmap['drive_letters'], 'main carda cardb'.split()):
+            drives[which] = drive_letter + ':\\'
 
         drives = self.windows_sort_drives(drives)
         self._main_prefix = drives.get('main')
@@ -323,49 +304,6 @@ class Device(DeviceConfig, DevicePlugin):
     def osx_sort_names(self, names):
         return names
 
-    def check_ioreg_line(self, line, pat):
-        if pat is None:
-            return False
-        if not line.strip().endswith('<class IOMedia>'):
-            return False
-        if hasattr(pat, 'search'):
-            return pat.search(line) is not None
-        if isinstance(pat, basestring):
-            pat = [pat]
-        for x in pat:
-            if x in line:
-                return True
-        return False
-
-    def get_osx_mountpoints(self, raw=None):
-        raw = self.run_ioreg(raw)
-        lines = raw.splitlines()
-        names = {}
-
-        def get_dev_node(lines, loc):
-            for line in lines:
-                line = line.strip()
-                if line.endswith('}'):
-                    break
-                match = re.search(r'"BSD Name"\s+=\s+"(.*?)"', line)
-                if match is not None:
-                    names[loc] = match.group(1)
-                    break
-
-        for i, line in enumerate(lines):
-            if 'main' not in names and self.check_ioreg_line(line, self.OSX_MAIN_MEM):
-                get_dev_node(lines[i+1:], 'main')
-                continue
-            if 'carda' not in names and self.check_ioreg_line(line, self.OSX_CARD_A_MEM):
-                get_dev_node(lines[i+1:], 'carda')
-                continue
-            if 'cardb' not in names and self.check_ioreg_line(line, self.OSX_CARD_B_MEM):
-                get_dev_node(lines[i+1:], 'cardb')
-                continue
-            if len(names.keys()) == 3:
-                break
-        return self.osx_sort_names(names)
-
     @classmethod
     def osx_run_mount(cls):
         for i in range(3):
@@ -391,20 +329,24 @@ class Device(DeviceConfig, DevicePlugin):
             for path, vid, pid, bcd, ven, prod, serial in drives:
                 if d.match_serial(serial):
                     matches.append(path)
+        if not matches and d.manufacturer and d.product:
+            for path, vid, pid, bcd, man, prod, serial in drives:
+                if d.match_strings(vid, pid, bcd, man, prod):
+                    matches.append(path)
         if not matches:
-            if d.manufacturer and d.product:
-                for path, vid, pid, bcd, man, prod, serial in drives:
-                    if d.match_strings(vid, pid, bcd, man, prod):
-                        matches.append(path)
-            else:
-                for path, vid, pid, bcd, man, prod, serial in drives:
-                    if d.match_numbers(vid, pid, bcd):
-                        matches.append(path)
+            # Since Apple started mangling the names stored in the IOKit
+            # registry, we cannot trust match_strings() so fallback to matching
+            # on just numbers. See http://www.mobileread.com/forums/showthread.php?t=273213
+            for path, vid, pid, bcd, man, prod, serial in drives:
+                if d.match_numbers(vid, pid, bcd):
+                    matches.append(path)
         if not matches:
+            from pprint import pformat
             raise DeviceError(
-             'Could not detect BSD names for %s. Try rebooting.' % self.name)
+                'Could not detect BSD names for %s. Try rebooting.\nOutput from osx_get_usb_drives():\n%s' % (self.name, pformat(drives)))
 
         pat = re.compile(r'(?P<m>\d+)([a-z]+(?P<p>\d+)){0,1}')
+
         def nums(x):
             'Return (disk num, partition number)'
             m = pat.search(x)
@@ -445,27 +387,34 @@ class Device(DeviceConfig, DevicePlugin):
         return drives
 
     def osx_bsd_names(self):
-        drives = []
+        drives = {}
         for i in range(3):
             try:
                 drives = self._osx_bsd_names()
-                if len(drives) > 1:
+                if len(drives) > 1:  # wait for device to settle and SD card (if any) to become available
                     return drives
-            except:
+            except Exception:
                 if i == 2:
                     raise
             time.sleep(3)
         return drives
 
     def open_osx(self):
-        drives = self.osx_bsd_names()
-        bsd_drives = dict(**drives)
-        drives = self.osx_sort_names(drives)
+        bsd_drives = self.osx_bsd_names()
+        drives = self.osx_sort_names(bsd_drives.copy())
         mount_map = usbobserver.get_mounted_filesystems()
-        for k, v in drives.items():
-            drives[k] = mount_map.get(v, None)
-        if drives['main'] is None:
-            print bsd_drives, mount_map, drives
+        drives = {k: mount_map.get(v) for k, v in drives.iteritems()}
+        if DEBUG:
+            print()
+            from pprint import pprint
+            pprint({'bsd_drives': bsd_drives, 'mount_map': mount_map, 'drives': drives})
+        if drives.get('carda') is None and drives.get('cardb') is not None:
+            drives['carda'] = drives.pop('cardb')
+        if drives.get('main') is None and drives.get('carda') is not None:
+            drives['main'] = drives.pop('carda')
+        if drives.get('carda') is None and drives.get('cardb') is not None:
+            drives['carda'] = drives.pop('cardb')
+        if drives.get('main') is None:
             raise DeviceError(_('Unable to detect the %s mount point. Try rebooting.')%self.__class__.__name__)
         pat = self.OSX_MAIN_MEM_VOL_PAT
         if pat is not None and len(drives) > 1 and 'main' in drives:
@@ -478,6 +427,7 @@ class Device(DeviceConfig, DevicePlugin):
                         break
 
         self._main_prefix = drives['main']+os.sep
+
         def get_card_prefix(c):
             ans = drives.get(c, None)
             if ans is not None:
@@ -554,12 +504,15 @@ class Device(DeviceConfig, DevicePlugin):
                             ok[node] = False
                     except:
                         ok[node] = False
+                    if DEBUG and not ok[node]:
+                        print('\nIgnoring the node: %s as could not read size from: %s' % (node, sz))
+
                     devnodes.append(node)
 
         devnodes += list(repeat(None, 3))
-        ans = ['/dev/'+x if ok.get(x, False) else None for x in devnodes[:3]]
+        ans = ['/dev/'+x if ok.get(x, False) else None for x in devnodes]
         ans.sort(key=lambda x: x[5:] if x else 'zzzzz')
-        return self.linux_swap_drives(ans)
+        return self.linux_swap_drives(ans[:3])
 
     def linux_swap_drives(self, drives):
         return drives
@@ -594,13 +547,14 @@ class Device(DeviceConfig, DevicePlugin):
             mp = self.node_mountpoint(node)
             if mp is not None:
                 return mp, 0
+
             def do_mount(node):
                 try:
                     from calibre.devices.udisks import mount
                     mount(node)
                     return 0
                 except:
-                    print 'Udisks mount call failed:'
+                    print('Udisks mount call failed:')
                     import traceback
                     traceback.print_exc()
                     return 1
@@ -617,7 +571,7 @@ class Device(DeviceConfig, DevicePlugin):
             'kernel is exporting a deprecated version of SYSFS.')
                     %self.__class__.__name__)
         if DEBUG:
-            print '\nFound device nodes:', main, carda, cardb
+            print('\nFound device nodes:', main, carda, cardb)
 
         self._linux_mount_map = {}
         mp, ret = mount(main, 'main')
@@ -636,7 +590,7 @@ class Device(DeviceConfig, DevicePlugin):
                 continue
             mp, ret = mount(card, typ)
             if mp is None:
-                print >>sys.stderr, 'Unable to mount card (Error code: %d)'%ret
+                print('Unable to mount card (Error code: %d)'%ret, file=sys.stderr)
             else:
                 if not mp.endswith('/'):
                     mp += '/'
@@ -653,7 +607,7 @@ class Device(DeviceConfig, DevicePlugin):
             path = os.path.join(mp, 'calibre_readonly_test')
             ro = True
             try:
-                with open(path, 'wb'):
+                with lopen(path, 'wb'):
                     ro = False
             except:
                 pass
@@ -663,7 +617,7 @@ class Device(DeviceConfig, DevicePlugin):
                 except:
                     pass
             if DEBUG and ro:
-                print '\nThe mountpoint', mp, 'is readonly, ignoring it'
+                print('\nThe mountpoint', mp, 'is readonly, ignoring it')
             return ro
 
         for mp in ('_main_prefix', '_card_a_prefix', '_card_b_prefix'):
@@ -725,7 +679,9 @@ class Device(DeviceConfig, DevicePlugin):
                         d.manufacturer == objif.GetProperty('usb.vendor') and \
                         d.product == objif.GetProperty('usb.product') and \
                         d.serial == objif.GetProperty('usb.serial'):
-                    dpaths = manager.FindDeviceStringMatch('storage.originating_device', path)
+                    midpath = manager.FindDeviceStringMatch('info.parent', path)
+                    dpaths = manager.FindDeviceStringMatch(
+                        'storage.originating_device', path) + manager.FindDeviceStringMatch('storage.originating_device', midpath[0])
                     for dpath in dpaths:
                         # devif = dbus.Interface(bus.get_object('org.freedesktop.Hal', dpath), 'org.freedesktop.Hal.Device')
                         try:
@@ -746,10 +702,10 @@ class Device(DeviceConfig, DevicePlugin):
                                             'label': vdevif.GetProperty('volume.label')}
                                     vols.append(vol)
                                 except dbus.exceptions.DBusException as e:
-                                    print e
+                                    print(e)
                                     continue
                         except dbus.exceptions.DBusException as e:
-                            print e
+                            print(e)
                             continue
             except dbus.exceptions.DBusException as e:
                 continue
@@ -764,7 +720,7 @@ class Device(DeviceConfig, DevicePlugin):
         vols.sort(cmp=ocmp)
 
         if verbose:
-            print "FBSD:	", vols
+            print("FBSD:	", vols)
 
         mtd=0
 
@@ -781,33 +737,33 @@ class Device(DeviceConfig, DevicePlugin):
                         time.sleep(1)
                         loops += 1
                         if loops > 100:
-                            print "ERROR: Timeout waiting for mount to complete"
+                            print("ERROR: Timeout waiting for mount to complete")
                             continue
                     mp = vol['dev'].GetProperty('volume.mount_point')
                 except dbus.exceptions.DBusException as e:
-                    print "Failed to mount ", e
+                    print("Failed to mount ", e)
                     continue
 
             # Mount Point becomes Mount Path
             mp += '/'
 
             if verbose:
-                print "FBSD:	  mounted", vol['label'], "on", mp
+                print("FBSD:	  mounted", vol['label'], "on", mp)
             if mtd == 0:
                 self._main_prefix = mp
                 self._main_vol = vol['vol']
                 if verbose:
-                    print "FBSD:	main = ", self._main_prefix
+                    print("FBSD:	main = ", self._main_prefix)
             if mtd == 1:
                 self._card_a_prefix = mp
                 self._card_a_vol = vol['vol']
                 if verbose:
-                    print "FBSD:	card a = ", self._card_a_prefix
+                    print("FBSD:	card a = ", self._card_a_prefix)
             if mtd == 2:
                 self._card_b_prefix = mp
                 self._card_b_vol = vol['vol']
                 if verbose:
-                    print "FBSD:	card b = ", self._card_b_prefix
+                    print("FBSD:	card b = ", self._card_b_prefix)
                 # Note that mtd is used as a bool... not incrementing is fine.
                 break
             mtd += 1
@@ -830,27 +786,27 @@ class Device(DeviceConfig, DevicePlugin):
 
         if self._main_prefix:
             if verbose:
-                print "FBSD:	umount main:", self._main_prefix
+                print("FBSD:	umount main:", self._main_prefix)
             try:
                 self._main_vol.Unmount([])
             except dbus.exceptions.DBusException as e:
-                print 'Unable to eject ', e
+                print('Unable to eject ', e)
 
         if self._card_a_prefix:
             if verbose:
-                print "FBSD:	umount card a:", self._card_a_prefix
+                print("FBSD:	umount card a:", self._card_a_prefix)
             try:
                 self._card_a_vol.Unmount([])
             except dbus.exceptions.DBusException as e:
-                print 'Unable to eject ', e
+                print('Unable to eject ', e)
 
         if self._card_b_prefix:
             if verbose:
-                print "FBSD:	umount card b:", self._card_b_prefix
+                print("FBSD:	umount card b:", self._card_b_prefix)
             try:
                 self._card_b_vol.Unmount([])
             except dbus.exceptions.DBusException as e:
-                print 'Unable to eject ', e
+                print('Unable to eject ', e)
 
         self._main_prefix = None
         self._card_a_prefix = None
@@ -876,11 +832,7 @@ class Device(DeviceConfig, DevicePlugin):
                     time.sleep(2)
                     self.open_freebsd()
             if iswindows:
-                try:
-                    self.open_windows()
-                except DeviceError:
-                    time.sleep(7)
-                    self.open_windows()
+                self.open_windows()
             if isosx:
                 try:
                     self.open_osx()
@@ -897,9 +849,7 @@ class Device(DeviceConfig, DevicePlugin):
         pass
 
     def eject_windows(self):
-        from calibre.constants import plugins
         from threading import Thread
-        winutil, winutil_err = plugins['winutil']
         drives = []
         for x in ('_main_prefix', '_card_a_prefix', '_card_b_prefix'):
             x = getattr(self, x, None)
@@ -907,21 +857,10 @@ class Device(DeviceConfig, DevicePlugin):
                 drives.append(x[0].upper())
 
         def do_it(drives):
-            for d in drives:
-                try:
-                    winutil.eject_drive(bytes(d)[0])
-                except Exception as e:
-                    try:
-                        prints("Eject failed:", as_unicode(e))
-                    except:
-                        pass
-
-        def do_it2(drives):
             import win32process
-            EJECT = os.path.join(os.path.dirname(sys.executable), 'calibre-eject.exe')
-            subprocess.Popen([EJECT] + drives, creationflags=win32process.CREATE_NO_WINDOW).wait()
+            subprocess.Popen([eject_exe()] + drives, creationflags=win32process.CREATE_NO_WINDOW).wait()
 
-        t = Thread(target=do_it2, args=[drives])
+        t = Thread(target=do_it, args=[drives])
         t.daemon = True
         t.start()
         self.__save_win_eject_thread = t
@@ -947,8 +886,8 @@ class Device(DeviceConfig, DevicePlugin):
             try:
                 eject(d)
             except Exception as e:
-                print 'Udisks eject call for:', d, 'failed:'
-                print '\t', e
+                print('Udisks eject call for:', d, 'failed:')
+                print('\t', e)
 
     def eject(self):
         if islinux:

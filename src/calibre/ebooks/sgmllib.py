@@ -1,4 +1,5 @@
 """A parser for SGML, using the derived class as a static DTD."""
+from __future__ import print_function
 
 # XXX This only supports those SGML features used by HTML.
 
@@ -23,7 +24,7 @@ incomplete = re.compile('&([a-zA-Z][a-zA-Z0-9]*|#[0-9]*)?|'
                               '![^<>]*)?')
 
 entityref = re.compile('&([a-zA-Z][-.a-zA-Z0-9]*)[^a-zA-Z0-9]')
-charref = re.compile('&#(x{0,1}[a-f0-9]+)[^a-f0-9]', re.IGNORECASE) # Changed by Kovid to handle hex numeric entities
+charref = re.compile('&#(x{0,1}[a-f0-9]+)[^a-f0-9]', re.IGNORECASE)  # Changed by Kovid to handle hex numeric entities
 
 starttagopen = re.compile('<[>a-zA-Z]')
 shorttagopen = re.compile('<[a-zA-Z][-.a-zA-Z0-9]*/')
@@ -118,12 +119,15 @@ class SGMLParser(markupbase.ParserBase):
                 i = n
                 break
             match = interesting.search(rawdata, i)
-            if match: j = match.start()
-            else: j = n
+            if match:
+                j = match.start()
+            else:
+                j = n
             if i < j:
                 self.handle_data(rawdata[i:j])
             i = j
-            if i == n: break
+            if i == n:
+                break
             if rawdata[i] == '<':
                 if starttagopen.match(rawdata, i):
                     if self.literal:
@@ -131,12 +135,14 @@ class SGMLParser(markupbase.ParserBase):
                         i = i+1
                         continue
                     k = self.parse_starttag(i)
-                    if k < 0: break
+                    if k < 0:
+                        break
                     i = k
                     continue
                 if rawdata.startswith("</", i):
                     k = self.parse_endtag(i)
-                    if k < 0: break
+                    if k < 0:
+                        break
                     i = k
                     self.literal = 0
                     continue
@@ -154,12 +160,14 @@ class SGMLParser(markupbase.ParserBase):
                         # This should be removed,
                         # and comments handled only in parse_declaration.
                     k = self.parse_comment(i)
-                    if k < 0: break
+                    if k < 0:
+                        break
                     i = k
                     continue
                 if rawdata.startswith("<?", i):
                     k = self.parse_pi(i)
-                    if k < 0: break
+                    if k < 0:
+                        break
                     i = i+k
                     continue
                 if rawdata.startswith("<!", i):
@@ -167,7 +175,8 @@ class SGMLParser(markupbase.ParserBase):
                     # deployed," this should only be the document type
                     # declaration ("<!DOCTYPE html...>").
                     k = self.parse_declaration(i)
-                    if k < 0: break
+                    if k < 0:
+                        break
                     i = k
                     continue
             elif rawdata[i] == '&':
@@ -180,14 +189,16 @@ class SGMLParser(markupbase.ParserBase):
                     name = match.group(1)
                     self.handle_charref(name)
                     i = match.end(0)
-                    if rawdata[i-1] != ';': i = i-1
+                    if rawdata[i-1] != ';':
+                        i = i-1
                     continue
                 match = entityref.match(rawdata, i)
                 if match:
                     name = match.group(1)
                     self.handle_entityref(name)
                     i = match.end(0)
-                    if rawdata[i-1] != ';': i = i-1
+                    if rawdata[i-1] != ';':
+                        i = i-1
                     continue
             else:
                 self.error('neither < nor & ??')
@@ -200,7 +211,7 @@ class SGMLParser(markupbase.ParserBase):
                 continue
             j = match.end(0)
             if j == n:
-                break # Really incomplete
+                break  # Really incomplete
             self.handle_data(rawdata[i:j])
             i = j
         # end while
@@ -272,7 +283,8 @@ class SGMLParser(markupbase.ParserBase):
             self.lasttag = tag
         while k < j:
             match = attrfind.match(rawdata, k)
-            if not match: break
+            if not match:
+                break
             attrname, rest, attrvalue = match.group(1, 2, 3)
             if not rest:
                 attrvalue = attrname
@@ -358,7 +370,8 @@ class SGMLParser(markupbase.ParserBase):
                 return
             found = len(self.stack)
             for i in range(found):
-                if self.stack[i] == tag: found = i
+                if self.stack[i] == tag:
+                    found = i
         while len(self.stack) > found:
             tag = self.stack[-1]
             try:
@@ -382,8 +395,8 @@ class SGMLParser(markupbase.ParserBase):
     # Example -- report an unbalanced </...> tag.
     def report_unbalanced(self, tag):
         if self.verbose:
-            print '*** Unbalanced </' + tag + '>'
-            print '*** Stack:', self.stack
+            print('*** Unbalanced </' + tag + '>')
+            print('*** Stack:', self.stack)
 
     def convert_charref(self, name):
         """Convert character reference, may be overridden."""
@@ -447,10 +460,17 @@ class SGMLParser(markupbase.ParserBase):
         pass
 
     # To be overridden -- handlers for unknown objects
-    def unknown_starttag(self, tag, attrs): pass
-    def unknown_endtag(self, tag): pass
-    def unknown_charref(self, ref): pass
-    def unknown_entityref(self, ref): pass
+    def unknown_starttag(self, tag, attrs):
+        pass
+
+    def unknown_endtag(self, tag):
+        pass
+
+    def unknown_charref(self, ref):
+        pass
+
+    def unknown_entityref(self, ref):
+        pass
 
 
 class TestSGMLParser(SGMLParser):
@@ -468,47 +488,47 @@ class TestSGMLParser(SGMLParser):
         data = self.testdata
         if data:
             self.testdata = ""
-            print 'data:', repr(data)
+            print('data:', repr(data))
 
     def handle_comment(self, data):
         self.flush()
         r = repr(data)
         if len(r) > 68:
             r = r[:32] + '...' + r[-32:]
-        print 'comment:', r
+        print('comment:', r)
 
     def unknown_starttag(self, tag, attrs):
         self.flush()
         if not attrs:
-            print 'start tag: <' + tag + '>'
+            print('start tag: <' + tag + '>')
         else:
-            print 'start tag: <' + tag,
+            print('start tag: <' + tag, end=' ')
             for name, value in attrs:
-                print name + '=' + '"' + value + '"',
-            print '>'
+                print(name + '=' + '"' + value + '"', end=' ')
+            print('>')
 
     def unknown_endtag(self, tag):
         self.flush()
-        print 'end tag: </' + tag + '>'
+        print('end tag: </' + tag + '>')
 
     def unknown_entityref(self, ref):
         self.flush()
-        print '*** unknown entity ref: &' + ref + ';'
+        print('*** unknown entity ref: &' + ref + ';')
 
     def unknown_charref(self, ref):
         self.flush()
-        print '*** unknown char ref: &#' + ref + ';'
+        print('*** unknown char ref: &#' + ref + ';')
 
     def unknown_decl(self, data):
         self.flush()
-        print '*** unknown decl: [' + data + ']'
+        print('*** unknown decl: [' + data + ']')
 
     def close(self):
         SGMLParser.close(self)
         self.flush()
 
 
-def test(args = None):
+def test(args=None):
     import sys
 
     if args is None:
@@ -530,8 +550,8 @@ def test(args = None):
     else:
         try:
             f = open(file, 'r')
-        except IOError, msg:
-            print file, ":", msg
+        except IOError as msg:
+            print(file, ":", msg)
             sys.exit(1)
 
     data = f.read()

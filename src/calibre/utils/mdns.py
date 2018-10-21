@@ -14,6 +14,7 @@ _server = None
 
 _all_ip_addresses = dict()
 
+
 class AllIpAddressesGetter(Thread):
 
     def get_all_ips(self):
@@ -41,7 +42,9 @@ class AllIpAddressesGetter(Thread):
 #        print 'slept'
         _all_ip_addresses = self.get_all_ips()
 
+
 _ip_address_getter_thread = None
+
 
 def get_all_ips(reinitialize=False):
     global _all_ip_addresses, _ip_address_getter_thread
@@ -52,6 +55,7 @@ def get_all_ips(reinitialize=False):
         _ip_address_getter_thread.setDaemon(True)
         _ip_address_getter_thread.start()
     return _all_ip_addresses
+
 
 def _get_external_ip():
     'Get IP address of interface used to connect to the outside world'
@@ -69,8 +73,9 @@ def _get_external_ip():
                     break
             except:
                 time.sleep(0.3)
-    #print 'ipaddr: %s' % ipaddr
+    # print 'ipaddr: %s' % ipaddr
     return ipaddr
+
 
 def verify_ipV4_address(ip_address):
     result = None
@@ -85,12 +90,20 @@ def verify_ipV4_address(ip_address):
             pass
     return result
 
+
 _ext_ip = None
+
+
 def get_external_ip():
     global _ext_ip
     if _ext_ip is None:
-        _ext_ip = _get_external_ip()
+        from calibre.utils.ip_routing import get_default_route_src_address
+        try:
+            _ext_ip = get_default_route_src_address() or _get_external_ip()
+        except Exception:
+            _ext_ip = _get_external_ip()
     return _ext_ip
+
 
 def start_server():
     global _server
@@ -98,13 +111,14 @@ def start_server():
         from calibre.utils.Zeroconf import Zeroconf
         try:
             _server = Zeroconf()
-        except:
-            time.sleep(0.2)
+        except Exception:
+            time.sleep(1)
             _server = Zeroconf()
 
         atexit.register(stop_server)
 
     return _server
+
 
 def create_service(desc, type, port, properties, add_hostname, use_ip_address=None):
     port = int(port)
@@ -126,6 +140,8 @@ def create_service(desc, type, port, properties, add_hostname, use_ip_address=No
         local_ip = use_ip_address
     else:
         local_ip = get_external_ip()
+    if not local_ip:
+        raise ValueError('Failed to determine local IP address to advertise via BonJour')
     type = type+'.local.'
     from calibre.utils.Zeroconf import ServiceInfo
     return ServiceInfo(type, desc+'.'+type,
@@ -149,6 +165,8 @@ def publish(desc, type, port, properties=None, add_hostname=True, use_ip_address
     service = create_service(desc, type, port, properties, add_hostname,
                              use_ip_address)
     server.registerService(service)
+    return service
+
 
 def unpublish(desc, type, port, properties=None, add_hostname=True):
     '''
@@ -161,6 +179,7 @@ def unpublish(desc, type, port, properties=None, add_hostname=True):
     server.unregisterService(service)
     if server.countRegisteredServices() == 0:
         stop_server()
+
 
 def stop_server():
     global _server

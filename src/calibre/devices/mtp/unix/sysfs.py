@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python2
 # vim:fileencoding=UTF-8:ts=4:sw=4:sta:et:sts=4:fdm=marker:ai
 from __future__ import (unicode_literals, division, absolute_import,
                         print_function)
@@ -8,6 +8,7 @@ __copyright__ = '2013, Kovid Goyal <kovid at kovidgoyal.net>'
 __docformat__ = 'restructuredtext en'
 
 import os, glob
+
 
 class MTPDetect(object):
 
@@ -24,11 +25,12 @@ class MTPDetect(object):
         Check if the device has an interface named "MTP" using sysfs, which
         avoids probing the device.
         '''
-        if not self.ok: return False
+        if not self.ok:
+            return False
 
         def read(x):
             try:
-                with open(x, 'rb') as f:
+                with lopen(x, 'rb') as f:
                     return f.read()
             except EnvironmentError:
                 pass
@@ -36,7 +38,8 @@ class MTPDetect(object):
         ipath = os.path.join(self.base, '{0}-*/{0}-*/interface'.format(dev.busnum))
         for x in glob.glob(ipath):
             raw = read(x)
-            if not raw or raw.strip() != b'MTP': continue
+            if not raw or raw.strip() != b'MTP':
+                continue
             raw = read(os.path.join(os.path.dirname(os.path.dirname(x)),
                                     'devnum'))
             try:

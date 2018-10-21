@@ -70,7 +70,9 @@ SEPARATE_TAGS = [
     'tr',
 ]
 
+
 class PMLMLizer(object):
+
     def __init__(self, log):
         self.log = log
         self.image_hrefs = {}
@@ -172,7 +174,7 @@ class PMLMLizer(object):
 
     def prepare_text(self, text):
         # Replace empty paragraphs with \c pml codes used to denote emtpy lines.
-        text = re.sub(ur'(?<=</p>)\s*<p[^>]*>[\xc2\xa0\s]*</p>', '\\c\n\\c', text)
+        text = re.sub(unicode(r'(?<=</p>)\s*<p[^>]*>[\xc2\xa0\s]*</p>'), '\\c\n\\c', text)
         return text
 
     def clean_text(self, text):
@@ -186,7 +188,7 @@ class PMLMLizer(object):
             text = text.replace('\\Q="%s"' % unused, '')
 
         # Remove \Cn tags that are within \x and \Xn tags
-        text = re.sub(ur'(?msu)(?P<t>\\(x|X[0-4]))(?P<a>.*?)(?P<c>\\C[0-4]\s*=\s*"[^"]*")(?P<b>.*?)(?P=t)', '\g<t>\g<a>\g<b>\g<t>', text)
+        text = re.sub(unicode(r'(?msu)(?P<t>\\(x|X[0-4]))(?P<a>.*?)(?P<c>\\C[0-4]\s*=\s*"[^"]*")(?P<b>.*?)(?P=t)'), '\\g<t>\\g<a>\\g<b>\\g<t>', text)
 
         # Replace bad characters.
         text = text.replace(u'\xc2', '')
@@ -204,14 +206,15 @@ class PMLMLizer(object):
         text = re.sub('[ ]{2,}', ' ', text)
 
         # Condense excessive \c empty line sequences.
-        text = re.sub('(\\c\s*\\c\s*){2,}', '\\c \n\\c\n', text)
+        text = re.sub('(\\c\\s*\\c\\s*){2,}', '\\c \n\\c\n', text)
 
         # Remove excessive newlines.
         text = re.sub('\n[ ]+\n', '\n\n', text)
         if self.opts.remove_paragraph_spacing:
             text = re.sub('\n{2,}', '\n', text)
             # Only indent lines that don't have special formatting
-            text = re.sub('(?imu)^(?P<text>.+)$', lambda mo: mo.group('text') if re.search(r'\\[XxCmrctTp]', mo.group('text')) else '        %s' % mo.group('text'), text)
+            text = re.sub('(?imu)^(?P<text>.+)$', lambda mo: mo.group('text')
+                          if re.search(r'\\[XxCmrctTp]', mo.group('text')) else '        %s' % mo.group('text'), text)
         else:
             text = re.sub('\n{3,}', '\n\n', text)
 
@@ -251,7 +254,8 @@ class PMLMLizer(object):
                     if len(self.image_hrefs.keys()) == 0:
                         self.image_hrefs[page.abshref(elem.attrib['src'])] = 'cover.png'
                     else:
-                        self.image_hrefs[page.abshref(elem.attrib['src'])] = image_name('%s.png' % len(self.image_hrefs.keys()), self.image_hrefs.keys()).strip('\x00')
+                        self.image_hrefs[page.abshref(elem.attrib['src'])] = image_name(
+                            '%s.png' % len(self.image_hrefs.keys()), self.image_hrefs.keys()).strip('\x00')
                 text.append('\\m="%s"' % self.image_hrefs[page.abshref(elem.attrib['src'])])
         elif tag == 'hr':
             w = '\\w'
@@ -351,7 +355,7 @@ class PMLMLizer(object):
         tags.reverse()
         text += self.close_tags(tags)
 
-        #if tag in SEPARATE_TAGS:
+        # if tag in SEPARATE_TAGS:
         #    text.append('\n\n')
 
         if style['page-break-after'] == 'always':

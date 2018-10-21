@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python2
 # vim:fileencoding=UTF-8:ts=4:sw=4:sta:et:sts=4:ai
 from __future__ import with_statement
 
@@ -8,12 +8,15 @@ __docformat__ = 'restructuredtext en'
 
 import os, sys, importlib
 
+from PyQt5.Qt import QDialog, QCoreApplication, QSize, QScrollArea
+
 from calibre.customize.ui import config
 from calibre.gui2.dialogs.catalog_ui import Ui_Dialog
-from calibre.gui2 import dynamic, ResizableDialog, info_dialog
+from calibre.gui2 import dynamic, info_dialog
 from calibre.customize.ui import catalog_plugins
 
-class Catalog(ResizableDialog, Ui_Dialog):
+
+class Catalog(QDialog, Ui_Dialog):
 
     ''' Catalog Dialog builder'''
 
@@ -22,7 +25,8 @@ class Catalog(ResizableDialog, Ui_Dialog):
         from calibre import prints as info
         from PyQt5.uic import compileUi
 
-        ResizableDialog.__init__(self, parent)
+        QDialog.__init__(self, parent)
+        self.setupUi(self)
         self.dbspec, self.ids = dbspec, ids
 
         # Display the number of books we've been passed
@@ -30,7 +34,7 @@ class Catalog(ResizableDialog, Ui_Dialog):
 
         # Display the last-used title
         self.title.setText(dynamic.get('catalog_last_used_title',
-            _('My Books')))
+            _('My books')))
 
         self.fmts, self.widgets = [], []
 
@@ -114,6 +118,7 @@ class Catalog(ResizableDialog, Ui_Dialog):
 
         if self.sync.isEnabled():
             self.sync.setChecked(dynamic.get('catalog_sync_to_device', True))
+        self.add_to_library.setChecked(dynamic.get('catalog_add_to_library', True))
 
         self.format.currentIndexChanged.connect(self.show_plugin_tab)
         self.buttonBox.button(self.buttonBox.Apply).clicked.connect(self.apply)
@@ -123,6 +128,25 @@ class Catalog(ResizableDialog, Ui_Dialog):
         geom = dynamic.get('catalog_window_geom', None)
         if geom is not None:
             self.restoreGeometry(bytes(geom))
+        else:
+            self.resize(self.sizeHint())
+        d = QCoreApplication.instance().desktop()
+        g = d.availableGeometry(d.screenNumber(self))
+        self.setMaximumWidth(g.width() - 50)
+        self.setMaximumHeight(g.height() - 50)
+
+    def sizeHint(self):
+        desktop = QCoreApplication.instance().desktop()
+        geom = desktop.availableGeometry(self)
+        nh, nw = max(300, geom.height()-50), max(400, geom.width()-70)
+        return QSize(nw, nh)
+
+    @property
+    def options_widget(self):
+        ans = self.tabs.widget(1)
+        if isinstance(ans, QScrollArea):
+            ans = ans.widget()
+        return ans
 
     def show_plugin_tab(self, idx):
         cf = unicode(self.format.currentText()).lower()
@@ -130,9 +154,14 @@ class Catalog(ResizableDialog, Ui_Dialog):
             self.tabs.removeTab(1)
         for pw in self.widgets:
             if cf in pw.formats:
-                self.tabs.addTab(pw, pw.TITLE)
+                if getattr(pw, 'handles_scrolling', False):
+                    self.tabs.addTab(pw, pw.TITLE)
+                else:
+                    self.sw__mem = s = QScrollArea(self)
+                    s.setWidget(pw), s.setWidgetResizable(True)
+                    self.tabs.addTab(s, pw.TITLE)
                 break
-        if hasattr(self.tabs.widget(1),'show_help'):
+        if hasattr(self.options_widget, 'show_help'):
             self.buttonBox.button(self.buttonBox.Help).setVisible(True)
         else:
             self.buttonBox.button(self.buttonBox.Help).setVisible(False)
@@ -150,14 +179,14 @@ class Catalog(ResizableDialog, Ui_Dialog):
         When title/format change, invalidate Preset in E-book options tab
         '''
         cf = unicode(self.format.currentText()).lower()
-        if cf in ['azw3', 'epub', 'mobi'] and hasattr(self.tabs.widget(1), 'settings_changed'):
-            self.tabs.widget(1).settings_changed("title/format")
+        if cf in ['azw3', 'epub', 'mobi'] and hasattr(self.options_widget, 'settings_changed'):
+            self.options_widget.settings_changed("title/format")
 
     @property
     def fmt_options(self):
         ans = {}
         if self.tabs.count() > 1:
-            w = self.tabs.widget(1)
+            w = self.options_widget
             ans = w.options()
         return ans
 
@@ -169,16 +198,17 @@ class Catalog(ResizableDialog, Ui_Dialog):
         self.catalog_sync = bool(self.sync.isChecked())
         dynamic.set('catalog_sync_to_device', self.catalog_sync)
         dynamic.set('catalog_window_geom', bytearray(self.saveGeometry()))
+        dynamic.set('catalog_add_to_library', self.add_to_library.isChecked())
 
     def apply(self, *args):
         # Store current values without building catalog
         self.save_catalog_settings()
         if self.tabs.count() > 1:
-            self.tabs.widget(1).options()
+            self.options_widget.options()
 
     def accept(self):
         self.save_catalog_settings()
-        return ResizableDialog.accept(self)
+        return QDialog.accept(self)
 
     def help(self):
         '''
@@ -194,9 +224,9 @@ class Catalog(ResizableDialog, Ui_Dialog):
 
         Create the help file at resources/catalog/help_<format>.html
         '''
-        if self.tabs.count() > 1 and hasattr(self.tabs.widget(1),'show_help'):
+        if self.tabs.count() > 1 and hasattr(self.options_widget,'show_help'):
             try:
-                self.tabs.widget(1).show_help()
+                self.options_widget.show_help()
             except:
                 info_dialog(self, _('No help available'),
                     _('No help available for this output format.'),
@@ -205,4 +235,4 @@ class Catalog(ResizableDialog, Ui_Dialog):
 
     def reject(self):
         dynamic.set('catalog_window_geom', bytearray(self.saveGeometry()))
-        ResizableDialog.reject(self)
+        QDialog.reject(self)

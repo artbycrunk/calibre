@@ -51,6 +51,15 @@ class CalibreUtils
                 process.stdout.write(msg + '\n')
     # }}}
 
+    stack_trace: () -> # {{{
+        currentFunction = arguments.callee.caller
+        while (currentFunction)
+            fn = currentFunction.toString()
+            this.log(fn)
+            currentFunction = currentFunction.caller
+
+    # }}}
+
     window_scroll_pos: (win=window) -> # {{{
         # The current scroll position of the browser window
         if typeof(win.pageXOffset) == 'number'
@@ -125,6 +134,16 @@ class CalibreUtils
         matches = ans.split(/\b/)
         return if matches.length > 0 then matches[0] else null
 
+    # }}}
+
+    setup_epub_reading_system: (name, version, layout, features) ->  # {{{
+        window.navigator.epubReadingSystem = {
+            'name':name, 'version':version, 'layoutStyle':layout,
+            'hasFeature': (feature, version=1.0) ->
+                if (version == null or version == 1.0) and feature.toLowerCase() in features
+                    return true
+                return false
+        }
     # }}}
 
 if window?

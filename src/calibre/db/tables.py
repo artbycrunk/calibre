@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python2
 # vim:fileencoding=UTF-8:ts=4:sw=4:sta:et:sts=4:ai
 from __future__ import (unicode_literals, division, absolute_import,
                         print_function)
@@ -15,6 +15,7 @@ from calibre.utils.date import parse_date, UNDEFINED_DATE, utc_tz
 from calibre.ebooks.metadata import author_to_author_sort
 
 _c_speedup = plugins['speedup'][0].parse_date
+
 
 def c_parse(val):
     try:
@@ -41,9 +42,11 @@ def c_parse(val):
     except (ValueError, TypeError):
         return UNDEFINED_DATE
 
+
 ONE_ONE, MANY_ONE, MANY_MANY = xrange(3)
 
 null = object()
+
 
 class Table(object):
 
@@ -76,6 +79,7 @@ class Table(object):
         ascii text. '''
         pass
 
+
 class VirtualTable(Table):
 
     '''
@@ -86,6 +90,7 @@ class VirtualTable(Table):
         metadata = {'datatype':datatype, 'table':name}
         self.table_type = table_type
         Table.__init__(self, name, metadata)
+
 
 class OneToOneTable(Table):
 
@@ -122,12 +127,14 @@ class OneToOneTable(Table):
                 clean.add(val)
         return clean
 
+
 class PathTable(OneToOneTable):
 
     def set_path(self, book_id, path, db):
         self.book_col_map[book_id] = path
         db.execute('UPDATE books SET path=? WHERE id=?',
                         (path, book_id))
+
 
 class SizeTable(OneToOneTable):
 
@@ -139,6 +146,7 @@ class SizeTable(OneToOneTable):
 
     def update_sizes(self, size_map):
         self.book_col_map.update(size_map)
+
 
 class UUIDTable(OneToOneTable):
 
@@ -163,6 +171,7 @@ class UUIDTable(OneToOneTable):
     def lookup_by_uuid(self, uuid):
         return self.uuid_to_id_map.get(uuid, None)
 
+
 class CompositeTable(OneToOneTable):
 
     def read(self, db):
@@ -176,6 +185,7 @@ class CompositeTable(OneToOneTable):
 
     def remove_books(self, book_ids, db):
         return set()
+
 
 class ManyToOneTable(Table):
 
@@ -265,8 +275,37 @@ class ManyToOneTable(Table):
                 [(x,) for x in clean])
         return clean
 
-    def remove_items(self, item_ids, db):
+    def remove_items(self, item_ids, db, restrict_to_book_ids=None):
         affected_books = set()
+
+        if restrict_to_book_ids is not None:
+            items_to_process_normally = set()
+            # Check if all the books with the item are in the restriction. If
+            # so, process them normally
+            for item_id in item_ids:
+                books_to_process = self.col_book_map.get(item_id, set())
+                books_not_to_delete = books_to_process - restrict_to_book_ids
+                if books_not_to_delete:
+                    # Some books not in restriction. Must do special processing
+                    books_to_delete = books_to_process & restrict_to_book_ids
+                    # remove the books from the old id maps
+                    self.col_book_map[item_id] = books_not_to_delete
+                    for book_id in books_to_delete:
+                        self.book_col_map.pop(book_id, None)
+                    if books_to_delete:
+                        # Delete links to the affected books from the link table. As
+                        # this is a many-to-one mapping we know that we can delete
+                        # links without checking the item ID
+                        db.executemany(
+                            'DELETE FROM {0} WHERE book=?'.format(self.link_table), tuple((x,) for x in books_to_delete))
+                        affected_books |= books_to_delete
+                else:
+                    # Process normally any items where the VL was not significant
+                    items_to_process_normally.add(item_id)
+            if items_to_process_normally:
+                affected_books |= self.remove_items(items_to_process_normally, db)
+            return affected_books
+
         for item_id in item_ids:
             val = self.id_map.pop(item_id, null)
             if val is null:
@@ -305,6 +344,7 @@ class ManyToOneTable(Table):
                 self.link_table, lcol, table), (existing_item, item_id, item_id))
         return affected_books, new_id
 
+
 class RatingTable(ManyToOneTable):
 
     def read_id_maps(self, db):
@@ -318,6 +358,7 @@ class RatingTable(ManyToOneTable):
                                 tuple((x,) for x in bad_ids))
             db.execute('DELETE FROM {0} WHERE {1}=0'.format(
                 self.metadata['table'], self.metadata['column']))
+
 
 class ManyToManyTable(ManyToOneTable):
 
@@ -373,8 +414,37 @@ class ManyToManyTable(ManyToOneTable):
                 [(x,) for x in clean])
         return clean
 
-    def remove_items(self, item_ids, db):
+    def remove_items(self, item_ids, db, restrict_to_book_ids=None):
         affected_books = set()
+        if restrict_to_book_ids is not None:
+            items_to_process_normally = set()
+            # Check if all the books with the item are in the restriction. If
+            # so, process them normally
+            for item_id in item_ids:
+                books_to_process = self.col_book_map.get(item_id, set())
+                books_not_to_delete = books_to_process - restrict_to_book_ids
+                if books_not_to_delete:
+                    # Some books not in restriction. Must do special processing
+                    books_to_delete = books_to_process & restrict_to_book_ids
+                    # remove the books from the old id maps
+                    self.col_book_map[item_id] = books_not_to_delete
+                    for book_id in books_to_delete:
+                        self.book_col_map[book_id] = tuple(
+                           x for x in self.book_col_map.get(book_id, ()) if x != item_id)
+                    affected_books |= books_to_delete
+                else:
+                    items_to_process_normally.add(item_id)
+            # Delete book/item pairs from the link table. We don't need to do
+            # anything with the main table because books with the old ID are
+            # still in the library.
+            db.executemany('DELETE FROM {0} WHERE {1}=? and {2}=?'.format(
+                    self.link_table, 'book', self.metadata['link_column']),
+                           [(b, i) for b in affected_books for i in item_ids])
+            # Take care of any items where the VL was not significant
+            if items_to_process_normally:
+                affected_books |= self.remove_items(items_to_process_normally, db)
+            return affected_books
+
         for item_id in item_ids:
             val = self.id_map.pop(item_id, null)
             if val is null:
@@ -453,6 +523,7 @@ class ManyToManyTable(ManyToOneTable):
                 db.executemany('DELETE FROM {0} WHERE id=?'.format(self.metadata['table']),
                     tuple((x,) for x in v))
 
+
 class AuthorsTable(ManyToManyTable):
 
     def read_id_maps(self, db):
@@ -504,6 +575,7 @@ class AuthorsTable(ManyToManyTable):
     def remove_items(self, item_ids, db):
         raise ValueError('Direct removal of authors is not allowed')
 
+
 class FormatsTable(ManyToManyTable):
 
     do_clean_on_remove = False
@@ -554,6 +626,7 @@ class FormatsTable(ManyToManyTable):
                     pass
         db.executemany('DELETE FROM data WHERE book=? AND format=?',
             [(book_id, fmt) for book_id, fmts in formats_map.iteritems() for fmt in fmts])
+
         def zero_max(book_id):
             try:
                 return max(self.size_map[book_id].itervalues())
@@ -587,6 +660,7 @@ class FormatsTable(ManyToManyTable):
         db.execute('INSERT OR REPLACE INTO data (book,format,uncompressed_size,name) VALUES (?,?,?,?)',
                         (book_id, fmt, size, fname))
         return max(self.size_map[book_id].itervalues())
+
 
 class IdentifiersTable(ManyToManyTable):
 
@@ -627,4 +701,3 @@ class IdentifiersTable(ManyToManyTable):
 
     def all_identifier_types(self):
         return frozenset(k for k, v in self.col_book_map.iteritems() if v)
-

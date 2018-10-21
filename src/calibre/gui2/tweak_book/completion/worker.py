@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python2
 # vim:fileencoding=utf-8
 from __future__ import (unicode_literals, division, absolute_import,
                         print_function)
@@ -7,7 +7,7 @@ __license__ = 'GPL v3'
 __copyright__ = '2014, Kovid Goyal <kovid at kovidgoyal.net>'
 
 import cPickle, os, sys
-from threading import Thread, Event, Lock
+from threading import Thread, Event, RLock
 from Queue import Queue
 from contextlib import closing
 from collections import namedtuple
@@ -19,6 +19,7 @@ from calibre.utils.ipc import eintr_retry_call
 
 COMPLETION_REQUEST = 'completion request'
 CLEAR_REQUEST = 'clear request'
+
 
 class CompletionWorker(Thread):
 
@@ -36,7 +37,7 @@ class CompletionWorker(Thread):
         self.current_completion_request = None
         self.latest_completion_request_id = None
         self.request_count = 0
-        self.lock = Lock()
+        self.lock = RLock()
 
     def launch_worker_process(self):
         from calibre.utils.ipc.server import create_listener
@@ -139,7 +140,7 @@ class CompletionWorker(Thread):
     def shutdown(self):
         self.shutting_down = True
         self.main_queue.put(None)
-        for conn in (self.control_conn, self.data_conn):
+        for conn in (getattr(self, 'control_conn', None), getattr(self, 'data_conn', None)):
             try:
                 conn.close()
             except Exception:
@@ -158,12 +159,16 @@ class CompletionWorker(Thread):
             self.worker_process.kill()
         return self.worker_process.returncode
 
+
 _completion_worker = None
+
+
 def completion_worker():
     global _completion_worker
     if _completion_worker is None:
         _completion_worker = CompletionWorker()
     return _completion_worker
+
 
 def run_main(func):
     from multiprocessing.connection import Client
@@ -171,14 +176,16 @@ def run_main(func):
     with closing(Client(address, authkey=key)) as control_conn, closing(Client(address, authkey=key)) as data_conn:
         func(control_conn, data_conn)
 
+
 Result = namedtuple('Result', 'request_id ans traceback query')
+
 
 def main(control_conn, data_conn):
     from calibre.gui2.tweak_book.completion.basic import handle_control_request
     while True:
         try:
             request = eintr_retry_call(control_conn.recv)
-        except EOFError:
+        except (KeyboardInterrupt, EOFError):
             break
         if request is None:
             break
@@ -196,9 +203,11 @@ def main(control_conn, data_conn):
             except EOFError:
                 break
 
+
 def test_main(control_conn, data_conn):
     obj = control_conn.recv()
     control_conn.send(obj)
+
 
 def test():
     w = CompletionWorker(worker_entry_point='test_main')

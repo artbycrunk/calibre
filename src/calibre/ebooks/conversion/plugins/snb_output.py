@@ -10,16 +10,18 @@ from calibre.customize.conversion import OutputFormatPlugin, OptionRecommendatio
 from calibre.ptempfile import TemporaryDirectory
 from calibre.constants import __appname__, __version__
 
+
 class SNBOutput(OutputFormatPlugin):
 
     name = 'SNB Output'
     author = 'Li Fanxi'
     file_type = 'snb'
+    commit_name = 'snb_output'
 
-    options = set([
+    options = {
         OptionRecommendation(name='snb_output_encoding', recommended_value='utf-8',
             level=OptionRecommendation.LOW,
-            help=_('Specify the character encoding of the output document. ' \
+            help=_('Specify the character encoding of the output document. '
             'The default is utf-8.')),
         OptionRecommendation(name='snb_max_line_length',
             recommended_value=0, level=OptionRecommendation.LOW,
@@ -43,13 +45,12 @@ class SNBOutput(OutputFormatPlugin):
         OptionRecommendation(name='snb_full_screen',
             recommended_value=False, level=OptionRecommendation.LOW,
             help=_('Resize all the images for full screen view. ')),
-     ])
+     }
 
     def convert(self, oeb_book, output_path, input_plugin, opts, log):
         from lxml import etree
         from calibre.ebooks.snb.snbfile import SNBFile
         from calibre.ebooks.snb.snbml import SNBMLizer, ProcessFileName
-
 
         self.opts = opts
         from calibre.ebooks.oeb.transforms.rasterize import SVGRasterizer, Unavailable
@@ -107,7 +108,7 @@ class SNBOutput(OutputFormatPlugin):
             etree.SubElement(headTree, "generator").text = __appname__ + ' ' + __version__
             etree.SubElement(headTree, "created")
             etree.SubElement(headTree, "abstract").text = abstract
-            if href != None:
+            if href is not None:
                 etree.SubElement(headTree, "cover").text = ProcessFileName(href)
             else:
                 etree.SubElement(headTree, "cover")
@@ -119,12 +120,12 @@ class SNBOutput(OutputFormatPlugin):
             tocInfoTree = etree.Element("toc-snbf")
             tocHead = etree.SubElement(tocInfoTree, "head")
             tocBody = etree.SubElement(tocInfoTree, "body")
-            outputFiles = { }
+            outputFiles = {}
             if oeb_book.toc.count() == 0:
                 log.warn('This SNB file has no Table of Contents. '
                     'Creating a default TOC')
                 first = iter(oeb_book.spine).next()
-                oeb_book.toc.add(_('Start Page'), first.href)
+                oeb_book.toc.add(_('Start page'), first.href)
             else:
                 first = iter(oeb_book.spine).next()
                 if oeb_book.toc[0].href != first.href:
@@ -134,9 +135,9 @@ class SNBOutput(OutputFormatPlugin):
                     # the tocInfoTree directly instead of modifying the toc
                     ch = etree.SubElement(tocBody, "chapter")
                     ch.set("src", ProcessFileName(first.href) + ".snbc")
-                    ch.text = _('Cover Pages')
+                    ch.text = _('Cover pages')
                     outputFiles[first.href] = []
-                    outputFiles[first.href].append(("", _("Cover Pages")))
+                    outputFiles[first.href].append(("", _("Cover pages")))
 
             for tocitem in oeb_book.toc:
                 if tocitem.href.find('#') != -1:
@@ -148,7 +149,7 @@ class SNBOutput(OutputFormatPlugin):
                             outputFiles[item[0]].append((item[1], tocitem.title))
                         else:
                             outputFiles[item[0]] = []
-                            if not "" in outputFiles[item[0]]:
+                            if "" not in outputFiles[item[0]]:
                                 outputFiles[item[0]].append(("", tocitem.title + _(" (Preface)")))
                                 ch = etree.SubElement(tocBody, "chapter")
                                 ch.set("src", ProcessFileName(item[0]) + ".snbc")
@@ -164,7 +165,6 @@ class SNBOutput(OutputFormatPlugin):
                 ch.set("src", ProcessFileName(tocitem.href) + ".snbc")
                 ch.text = tocitem.title
 
-
             etree.SubElement(tocHead, "chapters").text = '%d' % len(tocBody)
 
             tocInfoFile = open(os.path.join(snbfDir, 'toc.snbf'), 'wb')
@@ -178,11 +178,11 @@ class SNBOutput(OutputFormatPlugin):
             for item in s:
                 from calibre.ebooks.oeb.base import OEB_DOCS, OEB_IMAGES
                 if m.hrefs[item.href].media_type in OEB_DOCS:
-                    if not item.href in outputFiles:
+                    if item.href not in outputFiles:
                         log.debug('File %s is unused in TOC. Continue in last chapter' % item.href)
                         mergeLast = True
                     else:
-                        if oldTree != None and mergeLast:
+                        if oldTree is not None and mergeLast:
                             log.debug('Output the modified chapter again: %s' % lastName)
                             outputFile = open(os.path.join(snbcDir, lastName), 'wb')
                             outputFile.write(etree.tostring(oldTree, pretty_print=True, encoding='utf-8'))
@@ -209,7 +209,7 @@ class SNBOutput(OutputFormatPlugin):
 
             # Output the last one if needed
             log.debug('Output the last modified chapter again: %s' % lastName)
-            if oldTree != None and mergeLast:
+            if oldTree is not None and mergeLast:
                 outputFile = open(os.path.join(snbcDir, lastName), 'wb')
                 outputFile.write(etree.tostring(oldTree, pretty_print=True, encoding='utf-8'))
                 outputFile.close()
@@ -228,10 +228,9 @@ class SNBOutput(OutputFormatPlugin):
             snbFile.Output(output_path)
 
     def HandleImage(self, imageData, imagePath):
-        from calibre.utils.magick import Image
-        img = Image()
-        img.load(imageData)
-        (x,y) = img.size
+        from calibre.utils.img import image_from_data, resize_image, image_to_data
+        img = image_from_data(imageData)
+        x, y = img.width(), img.height()
         if self.opts:
             if self.opts.snb_full_screen:
                 SCREEN_X, SCREEN_Y = self.opts.output_profile.screen_size
@@ -248,14 +247,17 @@ class SNBOutput(OutputFormatPlugin):
             # TODO : intelligent image rotation
             #     img = img.rotate(90)
             #     x,y = y,x
-            img.size = (x / scale, y / scale)
-        img.save(imagePath)
+            img = resize_image(img, x / scale, y / scale)
+        with lopen(imagePath, 'wb') as f:
+            f.write(image_to_data(img, fmt=imagePath.rpartition('.')[-1]))
+
 
 if __name__ == '__main__':
     from calibre.ebooks.oeb.reader import OEBReader
     from calibre.ebooks.oeb.base import OEBBook
     from calibre.ebooks.conversion.preprocess import HTMLPreProcessor
     from calibre.customize.profiles import HanlinV3Output
+
     class OptionValues(object):
         pass
 
@@ -267,4 +269,4 @@ if __name__ == '__main__':
     oeb = OEBBook(default_log, html_preprocessor)
     reader = OEBReader
     reader()(oeb, '/tmp/bbb/processed/')
-    SNBOutput(None).convert(oeb, '/tmp/test.snb', None, None, default_log);
+    SNBOutput(None).convert(oeb, '/tmp/test.snb', None, None, default_log)

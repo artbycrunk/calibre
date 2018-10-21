@@ -1,6 +1,7 @@
-#!/usr/bin/env python
+#!/usr/bin/env python2
 # vim:fileencoding=UTF-8:ts=4:sw=4:sta:et:sts=4:ai
 
+from __future__ import print_function
 __license__   = 'GPL v3'
 __copyright__ = '2010, Kovid Goyal <kovid@kovidgoyal.net>'
 __docformat__ = 'restructuredtext en'
@@ -10,7 +11,7 @@ import textwrap
 from collections import OrderedDict
 
 from calibre.gui2.preferences import ConfigWidgetBase, test_widget, AbortCommit
-from calibre.gui2.preferences.tweaks_ui import Ui_Form
+from calibre.gui2.search_box import SearchBox2
 from calibre.gui2 import error_dialog, info_dialog
 from calibre.utils.config import read_raw_tweaks, write_tweaks
 from calibre.gui2.widgets import PythonHighlighter
@@ -19,18 +20,44 @@ from calibre.utils.icu import lower
 from calibre.utils.search_query_parser import (ParseException,
         SearchQueryParser)
 
-from PyQt5.Qt import (QAbstractListModel, Qt, QStyledItemDelegate, QStyle,
-    QStyleOptionViewItem, QFont, QDialogButtonBox, QDialog, QApplication,
-    QVBoxLayout, QPlainTextEdit, QLabel, QModelIndex, QMenu, QIcon)
+from PyQt5.Qt import (
+    QAbstractListModel, Qt, QStyledItemDelegate, QStyle, QStyleOptionViewItem,
+    QFont, QDialogButtonBox, QDialog, QApplication, QVBoxLayout,
+    QPlainTextEdit, QLabel, QModelIndex, QMenu, QIcon, QListView, QGridLayout,
+    QSizePolicy, QGroupBox, QWidget, QPushButton, QSplitter, pyqtSignal)
 
 ROOT = QModelIndex()
+
+
+def format_doc(doc):
+    current_indent = default_indent = None
+    lines = ['']
+    for line in doc.splitlines():
+        if not line.strip():
+            lines.append('')
+            continue
+        line = line[1:]
+        indent = len(line) - len(line.lstrip())
+        if indent != current_indent:
+            lines.append('')
+        if default_indent is None:
+            default_indent = indent
+        current_indent = indent
+        if indent == default_indent:
+            lines[-1] += ' ' + line
+        else:
+            lines.append('    ' + line.strip())
+    return '\n'.join(lines).lstrip()
+
 
 class AdaptSQP(SearchQueryParser):
 
     def __init__(self, *args, **kwargs):
         pass
 
+
 class Delegate(QStyledItemDelegate):  # {{{
+
     def __init__(self, view):
         QStyledItemDelegate.__init__(self, view)
         self.view = view
@@ -44,17 +71,17 @@ class Delegate(QStyledItemDelegate):  # {{{
 
 # }}}
 
+
 class Tweak(object):  # {{{
 
     def __init__(self, name, doc, var_names, defaults, custom):
         translate = _
         self.name = translate(name)
         self.doc = doc.strip()
-        if self.doc:
-            self.doc = translate(self.doc)
+        self.doc = ' ' + self.doc
         self.var_names = var_names
         if self.var_names:
-            self.doc = u"%s: %s\n\n%s"%(_('ID'), self.var_names[0], self.doc)
+            self.doc = u"%s: %s\n\n%s"%(_('ID'), self.var_names[0], format_doc(self.doc))
         self.default_values = OrderedDict()
         for x in var_names:
             self.default_values[x] = defaults[x]
@@ -103,6 +130,7 @@ class Tweak(object):  # {{{
 
 # }}}
 
+
 class Tweaks(QAbstractListModel, AdaptSQP):  # {{{
 
     def __init__(self, parent=None):
@@ -128,7 +156,7 @@ class Tweaks(QAbstractListModel, AdaptSQP):  # {{{
             ans.setBold(True)
             return ans
         if role == Qt.ToolTipRole:
-            tt = _('This tweak has it default value')
+            tt = _('This tweak has its default value')
             if tweak.is_customized:
                 tt = '<p>'+_('This tweak has been customized')
                 tt += '<pre>'
@@ -144,7 +172,7 @@ class Tweaks(QAbstractListModel, AdaptSQP):  # {{{
         try:
             exec(custom, g, l)
         except:
-            print 'Failed to load custom tweaks file'
+            print('Failed to load custom tweaks file')
             import traceback
             traceback.print_exc()
         dl, dg = {}, {}
@@ -168,14 +196,22 @@ class Tweaks(QAbstractListModel, AdaptSQP):  # {{{
 
     def read_tweak(self, lines, pos, defaults, custom):
         name = lines[pos][2:].strip()
-        doc, var_names = [], []
+        doc, stripped_doc, leading, var_names = [], [], [], []
         while True:
             pos += 1
             line = lines[pos]
             if not line.startswith('#'):
                 break
-            doc.append(line[1:].strip())
-        doc = '\n'.join(doc)
+            line = line[1:]
+            doc.append(line.rstrip())
+            stripped_doc.append(line.strip())
+            leading.append(line[:len(line) - len(line.lstrip())])
+        translate = _
+        stripped_doc = translate('\n'.join(stripped_doc).strip())
+        final_doc = []
+        for prefix, line in zip(leading, stripped_doc.splitlines()):
+            final_doc.append(prefix + line)
+        doc = '\n'.join(final_doc)
         while True:
             try:
                 line = lines[pos]
@@ -295,6 +331,7 @@ class Tweaks(QAbstractListModel, AdaptSQP):  # {{{
 
 # }}}
 
+
 class PluginTweaks(QDialog):  # {{{
 
     def __init__(self, raw, parent=None):
@@ -321,13 +358,96 @@ class PluginTweaks(QDialog):  # {{{
 
 # }}}
 
-class ConfigWidget(ConfigWidgetBase, Ui_Form):
+
+class TweaksView(QListView):
+
+    current_changed = pyqtSignal(object, object)
+
+    def __init__(self, parent=None):
+        QListView.__init__(self, parent)
+        self.setSizePolicy(QSizePolicy.Minimum, QSizePolicy.Expanding)
+        self.setAlternatingRowColors(True)
+        self.setSpacing(5)
+        self.setUniformItemSizes(True)
+        self.setVerticalScrollMode(self.ScrollPerPixel)
+
+    def currentChanged(self, cur, prev):
+        QListView.currentChanged(self, cur, prev)
+        self.current_changed.emit(cur, prev)
+
+
+class ConfigWidget(ConfigWidgetBase):
+
+    def setupUi(self, x):
+        self.l = l = QVBoxLayout(self)
+        self.la1 = la = QLabel(
+            _("Values for the tweaks are shown below. Edit them to change the behavior of calibre."
+              " Your changes will only take effect <b>after a restart</b> of calibre."))
+        l.addWidget(la), la.setWordWrap(True)
+        self.splitter = s = QSplitter(self)
+        s.setChildrenCollapsible(False)
+        l.addWidget(s, 10)
+
+        self.lv = lv = QWidget(self)
+        lv.l = l2 = QVBoxLayout(lv)
+        l2.setContentsMargins(0, 0, 0, 0)
+        self.tweaks_view = tv = TweaksView(self)
+        l2.addWidget(tv)
+        self.plugin_tweaks_button = b = QPushButton(self)
+        b.setToolTip(_("Edit tweaks for any custom plugins you have installed"))
+        b.setText(_("&Plugin tweaks"))
+        l2.addWidget(b)
+        s.addWidget(lv)
+
+        self.lv1 = lv = QWidget(self)
+        s.addWidget(lv)
+        lv.g = g = QGridLayout(lv)
+        g.setContentsMargins(0, 0, 0, 0)
+
+        self.search = sb = SearchBox2(self)
+        sb.sizePolicy().setHorizontalStretch(10)
+        sb.setSizeAdjustPolicy(sb.AdjustToMinimumContentsLength)
+        sb.setMinimumContentsLength(10)
+        g.addWidget(self.search, 0, 0, 1, 1)
+        self.next_button = b = QPushButton(self)
+        b.setIcon(QIcon(I("arrow-down.png")))
+        b.setText(_("&Next"))
+        g.addWidget(self.next_button, 0, 1, 1, 1)
+        self.previous_button = b = QPushButton(self)
+        b.setIcon(QIcon(I("arrow-up.png")))
+        b.setText(_("&Previous"))
+        g.addWidget(self.previous_button, 0, 2, 1, 1)
+
+        self.hb = hb = QGroupBox(self)
+        hb.setTitle(_("Help"))
+        hb.l = l2 = QVBoxLayout(hb)
+        self.help = h = QPlainTextEdit(self)
+        l2.addWidget(h)
+        h.setReadOnly(True)
+        g.addWidget(hb, 1, 0, 1, 3)
+
+        self.eb = eb = QGroupBox(self)
+        g.addWidget(eb, 2, 0, 1, 3)
+        eb.setTitle(_("Edit tweak"))
+        eb.g = ebg = QGridLayout(eb)
+        self.edit_tweak = et = QPlainTextEdit(self)
+        et.setMinimumWidth(400)
+        et.setLineWrapMode(QPlainTextEdit.NoWrap)
+        ebg.addWidget(et, 0, 0, 1, 2)
+        self.restore_default_button = b = QPushButton(self)
+        b.setToolTip(_("Restore this tweak to its default value"))
+        b.setText(_("&Reset this tweak"))
+        ebg.addWidget(b, 1, 0, 1, 1)
+        self.apply_button = ab = QPushButton(self)
+        ab.setToolTip(_("Apply any changes you made to this tweak"))
+        ab.setText(_("&Apply changes to this tweak"))
+        ebg.addWidget(ab, 1, 1, 1, 1)
 
     def genesis(self, gui):
         self.gui = gui
         self.delegate = Delegate(self.tweaks_view)
         self.tweaks_view.setItemDelegate(self.delegate)
-        self.tweaks_view.currentChanged = self.current_changed
+        self.tweaks_view.current_changed.connect(self.current_changed)
         self.view = self.tweaks_view
         self.highlighter = PythonHighlighter(self.edit_tweak.document())
         self.restore_default_button.clicked.connect(self.restore_to_default)
@@ -415,7 +535,7 @@ class ConfigWidget(ConfigWidgetBase, Ui_Form):
                 import traceback
                 error_dialog(self.gui, _('Failed'),
                         _('There was a syntax error in your tweak. Click '
-                            'the show details button for details.'),
+                            'the "Show details" button for details.'),
                         det_msg=traceback.format_exc(), show=True)
                 return
             self.tweaks.update_tweak(idx, l)
@@ -479,9 +599,8 @@ class ConfigWidget(ConfigWidgetBase, Ui_Form):
 
 
 if __name__ == '__main__':
-    app = QApplication([])
+    from calibre.gui2 import Application
+    app = Application([])
     # Tweaks()
     # test_widget
     test_widget('Advanced', 'Tweaks')
-
-

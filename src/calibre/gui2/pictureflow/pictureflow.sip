@@ -1,7 +1,7 @@
 //Define the SIP wrapper to the pictureflow widget
 //Author - Kovid Goyal <kovid@kovidgoyal.net>
 
-%Module(name=pictureflow, version=1)
+%Module(name=pictureflow)
 
 %Import QtWidgets/QtWidgetsmod.sip
 
@@ -74,7 +74,6 @@ public slots:
 
 signals:
   void itemActivated(int index);
-  void inputReceived();
   void currentChanged(int index);
   void stop();
 

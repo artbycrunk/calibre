@@ -1,11 +1,13 @@
-#!/usr/bin/env python
+#!/usr/bin/env python2
 # vim:fileencoding=UTF-8:ts=4:sw=4:sta:et:sts=4:ai
 
+from __future__ import print_function
 __license__   = 'GPL v3'
 __copyright__ = '2010, Kovid Goyal <kovid@kovidgoyal.net>'
 __docformat__ = 'restructuredtext en'
 
 import os, re
+
 
 def node_mountpoint(node):
 
@@ -19,8 +21,10 @@ def node_mountpoint(node):
             return de_mangle(line[1])
     return None
 
+
 class NoUDisks1(Exception):
     pass
+
 
 class UDisks(object):
 
@@ -65,8 +69,10 @@ class UDisks(object):
         d = self.device(parent)
         d.DriveEject([])
 
+
 class NoUDisks2(Exception):
     pass
+
 
 class UDisks2(object):
 
@@ -153,6 +159,7 @@ class UDisks2(object):
         drive.Eject({'auth.no_user_interaction':True},
                 dbus_interface=self.DRIVE)
 
+
 def get_udisks(ver=None):
     if ver is None:
         try:
@@ -161,6 +168,7 @@ def get_udisks(ver=None):
             u = UDisks()
         return u
     return UDisks2() if ver == 2 else UDisks()
+
 
 def get_udisks1():
     u = None
@@ -175,31 +183,34 @@ def get_udisks1():
         raise EnvironmentError('UDisks not available on your system')
     return u
 
+
 def mount(node_path):
     u = get_udisks1()
     u.mount(node_path)
+
 
 def eject(node_path):
     u = get_udisks1()
     u.eject(node_path)
 
+
 def umount(node_path):
     u = get_udisks1()
     u.unmount(node_path)
 
+
 def test_udisks(ver=None):
     import sys
     dev = sys.argv[1]
-    print 'Testing with node', dev
+    print('Testing with node', dev)
     u = get_udisks(ver=ver)
-    print 'Using Udisks:', u.__class__.__name__
-    print 'Mounted at:', u.mount(dev)
-    print 'Unmounting'
+    print('Using Udisks:', u.__class__.__name__)
+    print('Mounted at:', u.mount(dev))
+    print('Unmounting')
     u.unmount(dev)
-    print 'Ejecting:'
+    print('Ejecting:')
     u.eject(dev)
+
 
 if __name__ == '__main__':
     test_udisks()
-
-

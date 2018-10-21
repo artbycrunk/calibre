@@ -50,8 +50,8 @@ get_containing_block = (node) ->
 trim = (str) ->
     return str.replace(/^\s\s*/, '').replace(/\s\s*$/, '')
 
-is_footnote_link = (node, url, linked_to_anchors) ->
-    if not url or url.substr(0, 'file://'.length).toLowerCase() != 'file://'
+is_footnote_link = (node, url, linked_to_anchors, prefix) ->
+    if not url or url.substr(0, prefix.length) != prefix
         return false  # Ignore non-local links
     epub_type = get_epub_type(node, ['noteref'])
     if epub_type and epub_type.toLowerCase() == 'noteref'
@@ -63,7 +63,9 @@ is_footnote_link = (node, url, linked_to_anchors) ->
     [x, num] = [node, 3]
     while x and num > 0
         style = window.getComputedStyle(x)
-        if style.verticalAlign in ['sub', 'super']
+        if not style.display not in ['inline', 'inline-block']
+            break
+        if style.verticalAlign in ['sub', 'super', 'top', 'bottom']
             return true
         x = x.parentNode
         num -= 1
@@ -72,8 +74,10 @@ is_footnote_link = (node, url, linked_to_anchors) ->
     children = (x for x in node.childNodes when x.nodeType == Node.ELEMENT_NODE)
     if children.length == 1
         style = window.getComputedStyle(children[0])
-        if style.verticalAlign in ['sub', 'super']
-            return true
+        if style.display in ['inline', 'inline-block'] and style.verticalAlign in ['sub', 'super', 'top', 'bottom']
+            text_children = (x for x in node.childNodes when x.nodeType == Node.TEXT_NODE and x.nodeValue and /\S+/.test(x.nodeValue))
+            if not text_children.length
+                return true
 
     eid = node.getAttribute('id') or node.getAttribute('name')
     if eid and linked_to_anchors.hasOwnProperty(eid)
@@ -103,6 +107,16 @@ is_epub_footnote = (node) ->
         return true
     return false
 
+block_tags = ['p', 'div', 'li', 'td', 'h1', 'h2', 'h2', 'h3', 'h4', 'h5', 'h6', 'body']
+block_display_styles = ['block', 'list-item', 'table-cell', 'table']
+
+get_note_container = (node) ->
+    until node.tagName.toLowerCase() in block_tags or is_epub_footnote(node) or getComputedStyle(node).display in block_display_styles
+        node = node.parentNode
+        if not node
+            break
+    return node
+
 get_parents_and_self = (node) ->
     ans = []
     while node and node isnt document.body
@@ -122,8 +136,14 @@ hide_children = (node) ->
         if child.nodeType == Node.ELEMENT_NODE
             if child.do_not_hide
                 hide_children(child)
+                delete child.do_not_hide
             else
                 child.style.display = 'none'
+
+unhide_tree = (elem) ->
+    elem.do_not_hide = true
+    for c in elem.getElementsByTagName('*')
+        c.do_not_hide = true
 
 class CalibreExtract
     # This class is a namespace to expose functions via the
@@ -143,8 +163,8 @@ class CalibreExtract
         cnode = inline_styles(node)
         return cnode.outerHTML
 
-    is_footnote_link: (a) ->
-        return is_footnote_link(a, a.href, py_bridge.value)
+    is_footnote_link: (a, prefix, linked_to_anchors) ->
+        return is_footnote_link(a, a.href, linked_to_anchors, prefix)
 
     show_footnote: (target, known_targets) ->
         if not target
@@ -152,34 +172,40 @@ class CalibreExtract
         start_elem = document.getElementById(target)
         if not start_elem
             return
-        in_note = false
-        is_footnote_container = is_epub_footnote(start_elem)
+        start_elem = get_note_container(start_elem)
         for elem in get_parents_and_self(start_elem)
             elem.do_not_hide = true
-        for elem in document.body.getElementsByTagName('*')
-            if in_note
-                if known_targets.hasOwnProperty(elem.getAttribute('id'))
-                    in_note = false
-                    continue
-                pb = get_page_break(elem)
-                if pb['before']
-                    in_note = false
-                else if pb['after']
-                    in_note = false
-                    for child in elem.getElementsByTagName('*')
-                        child.do_not_hide = true
-                else
+            style = window.getComputedStyle(elem)
+            if style.display == 'list-item' and style.listStyleType not in ['disc', 'circle', 'square']
+                # We cannot display list numbers since they will be
+                # incorrect as we are removing siblings of this element.
+                elem.style.listStyleType = 'none'
+        if is_epub_footnote(start_elem)
+            unhide_tree(start_elem)
+        else
+            # Try to detect natural boundaries based on markup for this note
+            found_note_start = false
+            for elem in document.body.getElementsByTagName('*')
+                if found_note_start
+                    eid = elem.getAttribute('id')
+                    if eid != target and known_targets.hasOwnProperty(eid) and get_note_container(elem) != start_elem
+                        console.log('Breaking footnote on anchor: ' + elem.getAttribute('id'))
+                        delete get_note_container(elem).do_not_hide
+                        break
+                    pb = get_page_break(elem)
+                    if pb['before']
+                        console.log('Breaking footnote on page break before')
+                        break
+                    if pb['after']
+                        unhide_tree(elem)
+                        console.log('Breaking footnote on page break after')
+                        break
                     elem.do_not_hide = true
-            else
-                if elem is start_elem
-                    in_note = not is_footnote_container and not get_page_break(elem)['after']
-                    if not in_note
-                        for child in elem.getElementsByTagName('*')
-                            child.do_not_hide = true
+                else if elem is start_elem
+                    found_note_start = true
+
         hide_children(document.body)
         location.hash = '#' + target
 
 if window?
     window.calibre_extract = new CalibreExtract()
-
-

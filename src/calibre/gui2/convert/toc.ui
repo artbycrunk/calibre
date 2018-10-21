@@ -38,7 +38,7 @@
    <item row="6" column="0">
     <widget class="QLabel" name="label_10">
      <property name="text">
-      <string>Number of &amp;links to add to Table of Contents</string>
+      <string>Number of &amp;links to add to Table of Contents:</string>
      </property>
      <property name="buddy">
       <cstring>opt_max_toc_links</cstring>
@@ -48,7 +48,7 @@
    <item row="8" column="0">
     <widget class="QLabel" name="label">
      <property name="text">
-      <string>TOC &amp;Filter:</string>
+      <string>TOC &amp;filter:</string>
      </property>
      <property name="buddy">
       <cstring>opt_toc_filter</cstring>
@@ -68,7 +68,7 @@
    <item row="7" column="0">
     <widget class="QLabel" name="label_16">
      <property name="text">
-      <string>Chapter &amp;threshold</string>
+      <string>Chapter &amp;threshold:</string>
      </property>
      <property name="buddy">
       <cstring>opt_toc_threshold</cstring>

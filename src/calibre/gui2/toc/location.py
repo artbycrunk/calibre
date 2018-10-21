@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python2
 # vim:fileencoding=UTF-8:ts=4:sw=4:sta:et:sts=4:fdm=marker:ai
 from __future__ import (unicode_literals, division, absolute_import,
                         print_function)
@@ -17,8 +17,9 @@ from PyQt5.QtWebKitWidgets import QWebView, QWebPage
 from PyQt5.QtWebKit import QWebElement
 
 from calibre.ebooks.oeb.display.webview import load_html
-from calibre.gui2 import error_dialog, question_dialog, gprefs
+from calibre.gui2 import error_dialog, question_dialog, gprefs, secure_web_page
 from calibre.utils.logging import default_log
+
 
 class Page(QWebPage):  # {{{
 
@@ -27,9 +28,9 @@ class Page(QWebPage):  # {{{
     def __init__(self):
         self.log = default_log
         QWebPage.__init__(self)
+        secure_web_page(self.settings())
         self.js = None
         self.evaljs = self.mainFrame().evaluateJavaScript
-        self.bridge_value = None
         nam = self.networkAccessManager()
         nam.setNetworkAccessible(nam.NotAccessible)
         self.setLinkDelegationPolicy(self.DelegateAllLinks)
@@ -58,6 +59,7 @@ class Page(QWebPage):  # {{{
         self.mainFrame().addToJavaScriptWindowObject("py_bridge", self)
         self.evaljs(self.js)
 # }}}
+
 
 class WebView(QWebView):  # {{{
 
@@ -95,10 +97,12 @@ class WebView(QWebView):  # {{{
         return val
 # }}}
 
+
 class ItemEdit(QWidget):
 
-    def __init__(self, parent):
+    def __init__(self, parent, prefs=None):
         QWidget.__init__(self, parent)
+        self.prefs = prefs or gprefs
         self.setLayout(QVBoxLayout())
 
         self.la = la = QLabel('<b>'+_(
@@ -168,7 +172,7 @@ class ItemEdit(QWidget):
 
         l.addStretch()
 
-        state = gprefs.get('toc_edit_splitter_state', None)
+        state = self.prefs.get('toc_edit_splitter_state', None)
         if state is not None:
             sp.restoreState(state)
 
@@ -217,6 +221,7 @@ class ItemEdit(QWidget):
 
     def current_changed(self, item):
         name = self.current_name = unicode(item.data(Qt.DisplayRole) or '')
+        self.current_frag = None
         path = self.container.name_to_abspath(name)
         # Ensure encoding map is populated
         root = self.container.parsed(name)
@@ -304,5 +309,3 @@ class ItemEdit(QWidget):
     def result(self):
         return (self.current_item, self.current_where, self.current_name,
                 self.current_frag, unicode(self.name.text()))
-
-

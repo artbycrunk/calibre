@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python2
 # vim:fileencoding=UTF-8:ts=4:sw=4:sta:et:sts=4:ai
 from __future__ import with_statement
 
@@ -19,6 +19,7 @@ from calibre.web.feeds.recipes.collection import \
         update_custom_recipes, add_custom_recipe, add_custom_recipes, \
         remove_custom_recipe, get_custom_recipe, get_builtin_recipe
 from calibre.utils.search_query_parser import ParseException
+
 
 class NewsTreeItem(object):
 
@@ -55,6 +56,7 @@ class NewsTreeItem(object):
             if len(child.children) == 0:
                 self.children.remove(child)
                 child.parent = None
+
 
 class NewsCategory(NewsTreeItem):
 
@@ -126,10 +128,12 @@ class NewsItem(NewsTreeItem):
     def __cmp__(self, other):
         return cmp(self.title.lower(), getattr(other, 'title', '').lower())
 
+
 class AdaptSQP(SearchQueryParser):
 
     def __init__(self, *args, **kwargs):
         pass
+
 
 class RecipeModel(QAbstractItemModel, AdaptSQP):
 

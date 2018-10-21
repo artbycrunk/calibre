@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python2
 # vim:fileencoding=UTF-8:ts=4:sw=4:sta:et:sts=4:ai
 
 __license__   = 'GPL v3'
@@ -8,12 +8,13 @@ __docformat__ = 'restructuredtext en'
 from PyQt5.Qt import QApplication
 
 from calibre.gui2.preferences import ConfigWidgetBase, test_widget, \
-        CommaSeparatedList
+        CommaSeparatedList, AbortCommit
 from calibre.gui2.preferences.search_ui import Ui_Form
 from calibre.gui2 import config, error_dialog, gprefs
 from calibre.utils.config import prefs
 from calibre.utils.icu import sort_key
 from calibre.library.caches import set_use_primary_find_in_search
+
 
 class ConfigWidget(ConfigWidgetBase, Ui_Form):
 
@@ -29,6 +30,7 @@ class ConfigWidget(ConfigWidgetBase, Ui_Form):
         r('show_highlight_toggle_button', gprefs)
         r('limit_search_columns', prefs)
         r('use_primary_find_in_search', prefs)
+        r('case_sensitive', prefs)
         r('limit_search_columns_to', prefs, setting=CommaSeparatedList)
         fl = db.field_metadata.get_search_terms()
         self.opt_limit_search_columns_to.update_items_cache(fl)
@@ -46,15 +48,15 @@ class ConfigWidget(ConfigWidgetBase, Ui_Form):
     "to search in the value box, then push the Save button. "
     "<p>Note: Search terms are forced to lower case; <code>MySearch</code> "
     "and <code>mysearch</code> are the same term."
-    "<p>You can have your grouped search term show up as user categories in "
-    " the Tag Browser. Just add the grouped search term names to the Make user "
+    "<p>You can have your grouped search term show up as User categories in "
+    " the Tag browser. Just add the grouped search term names to the Make User "
     "categories from box. You can add multiple terms separated by commas. "
-    "The new user category will be automatically "
+    "The new User category will be automatically "
     "populated with all the items in the categories included in the grouped "
-    "search term. <p>Automatic user categories permit you to see easily "
+    "search term. <p>Automatic User categories permit you to see easily "
     "all the category items that "
     "are in the columns contained in the grouped search term. Using the above "
-    "<code>allseries</code> example, the automatically-generated user category "
+    "<code>allseries</code> example, the automatically-generated User category "
     "will contain all the series mentioned in <code>series</code>, "
     "<code>#myseries</code>, and <code>#myseries2</code>. This "
     "can be useful to check for duplicates, to find which column contains "
@@ -73,6 +75,12 @@ class ConfigWidget(ConfigWidgetBase, Ui_Form):
             fl.append(f)
         self.gst_value.update_items_cache(fl)
         self.fill_gst_box(select=None)
+
+        self.user_category_layout.setContentsMargins(0, 30, 0, 0)
+        self.gst_names.lineEdit().setPlaceholderText(
+                         _('Enter new or select existing name'))
+        self.gst_value.lineEdit().setPlaceholderText(
+                         _('Enter list of column lookup names to search'))
 
         self.category_fields = fl
         ml = [(_('Match any'), 'match_any'), (_('Match all'), 'match_all')]
@@ -96,7 +104,7 @@ class ConfigWidget(ConfigWidgetBase, Ui_Form):
         self.gst_changed = False
 
         if db.prefs.get('grouped_search_make_user_categories', None) is None:
-            db.prefs.set('grouped_search_make_user_categories', [])
+            db.new_api.set_pref('grouped_search_make_user_categories', [])
         r('grouped_search_make_user_categories', db.prefs, setting=CommaSeparatedList)
         self.muc_changed = False
         self.opt_grouped_search_make_user_categories.lineEdit().editingFinished.connect(
@@ -137,7 +145,7 @@ class ConfigWidget(ConfigWidgetBase, Ui_Form):
         idx = self.gst_names.currentIndex()
         name = icu_lower(unicode(self.gst_names.currentText()))
         if not name:
-            return error_dialog(self.gui, _('Grouped Search Terms'),
+            return error_dialog(self.gui, _('Grouped search terms'),
                                 _('The search term cannot be blank'),
                                 show=True)
         if idx != 0:
@@ -147,17 +155,17 @@ class ConfigWidget(ConfigWidgetBase, Ui_Form):
         if name != orig_name:
             if name in self.db.field_metadata.get_search_terms() and \
                     name not in self.orig_gst_keys:
-                return error_dialog(self.gui, _('Grouped Search Terms'),
+                return error_dialog(self.gui, _('Grouped search terms'),
                     _('That name is already used for a column or grouped search term'),
                     show=True)
             if name in [icu_lower(p) for p in self.db.prefs.get('user_categories', {})]:
-                return error_dialog(self.gui, _('Grouped Search Terms'),
-                    _('That name is already used for user category'),
+                return error_dialog(self.gui, _('Grouped search terms'),
+                    _('That name is already used for User category'),
                     show=True)
 
         val = [v.strip() for v in unicode(self.gst_value.text()).split(',') if v.strip()]
         if not val:
-            return error_dialog(self.gui, _('Grouped Search Terms'),
+            return error_dialog(self.gui, _('Grouped search terms'),
                 _('The value box cannot be empty'), show=True)
 
         if orig_name and name != orig_name:
@@ -170,7 +178,7 @@ class ConfigWidget(ConfigWidgetBase, Ui_Form):
 
     def gst_delete_clicked(self):
         if self.gst_names.currentIndex() == 0:
-            return error_dialog(self.gui, _('Grouped Search Terms'),
+            return error_dialog(self.gui, _('Grouped search terms'),
                 _('The empty grouped search term cannot be deleted'), show=True)
         name = unicode(self.gst_names.currentText())
         if name in self.gst:
@@ -196,7 +204,8 @@ class ConfigWidget(ConfigWidgetBase, Ui_Form):
                 self.gst_names.setCurrentIndex(self.gst_names.findText(select))
 
     def gst_text_changed(self):
-        self.gst_delete_button.setEnabled(False)
+        t = self.gst_names.currentText()
+        self.gst_delete_button.setEnabled(len(t) > 0 and t in self.gst)
         self.gst_save_button.setEnabled(True)
 
     def gst_index_changed(self, idx):
@@ -211,20 +220,26 @@ class ConfigWidget(ConfigWidgetBase, Ui_Form):
         self.gst_value.blockSignals(False)
 
     def commit(self):
+        if self.opt_case_sensitive.isChecked() and self.opt_use_primary_find_in_search.isChecked():
+            error_dialog(self, _('Incompatible options'), _(
+                'The option to have un-accented characters match accented characters has no effect'
+                ' if you also turn on case-sensitive searching. So only turn on one of those options'), show=True)
+            raise AbortCommit()
         if self.gst_changed:
-            self.db.prefs.set('grouped_search_terms', self.gst)
+            self.db.new_api.set_pref('grouped_search_terms', self.gst)
             self.db.field_metadata.add_grouped_search_terms(self.gst)
-        self.db.prefs.set('similar_authors_search_key',
+        self.db.new_api.set_pref('similar_authors_search_key',
                           unicode(self.similar_authors_search_key.currentText()))
-        self.db.prefs.set('similar_tags_search_key',
+        self.db.new_api.set_pref('similar_tags_search_key',
                           unicode(self.similar_tags_search_key.currentText()))
-        self.db.prefs.set('similar_series_search_key',
+        self.db.new_api.set_pref('similar_series_search_key',
                           unicode(self.similar_series_search_key.currentText()))
-        self.db.prefs.set('similar_publisher_search_key',
+        self.db.new_api.set_pref('similar_publisher_search_key',
                           unicode(self.similar_publisher_search_key.currentText()))
         return ConfigWidgetBase.commit(self)
 
     def refresh_gui(self, gui):
+        gui.current_db.new_api.clear_caches()
         set_use_primary_find_in_search(prefs['use_primary_find_in_search'])
         gui.set_highlight_only_button_icon()
         if self.muc_changed:
@@ -237,8 +252,11 @@ class ConfigWidget(ConfigWidgetBase, Ui_Form):
             if key.endswith('_search_history') and isinstance(val, list):
                 config[key] = []
         self.gui.search.clear_history()
+        from calibre.gui2.widgets import history
+        for key in 'bulk_edit_search_for bulk_edit_replace_with'.split():
+            history.set('lineedit_history_' + key, [])
+
 
 if __name__ == '__main__':
     app = QApplication([])
     test_widget('Interface', 'Search')
-

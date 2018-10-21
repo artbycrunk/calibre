@@ -1,5 +1,6 @@
-#!/usr/bin/env  python
+#!/usr/bin/env  python2
 
+from __future__ import print_function
 __license__   = 'GPL v3'
 __copyright__ = '2008, Kovid Goyal <kovid at kovidgoyal.net>'
 '''
@@ -8,9 +9,10 @@ Contains the logic for parsing feeds.
 import time, traceback, copy, re
 
 from calibre.utils.logging import default_log
-from calibre import entity_to_unicode, strftime
+from calibre import entity_to_unicode, strftime, force_unicode
 from calibre.utils.date import dt_factory, utcnow, local_tz
-from calibre.utils.cleantext import clean_ascii_chars
+from calibre.utils.cleantext import clean_ascii_chars, clean_xml_chars
+
 
 class Article(object):
 
@@ -18,30 +20,32 @@ class Article(object):
         from lxml import html
         self.downloaded = False
         self.id = id
-        self._title = title.strip() if title else title
+        if not title or not isinstance(title, basestring):
+            title = _('Unknown')
+        title = force_unicode(title, 'utf-8')
+        self._title = clean_xml_chars(title).strip()
         try:
             self._title = re.sub(r'&(\S+?);',
                 entity_to_unicode, self._title)
         except:
             pass
-        if not isinstance(self._title, unicode):
-            self._title = self._title.decode('utf-8', 'replace')
         self._title = clean_ascii_chars(self._title)
         self.url = url
         self.author = author
         self.toc_thumbnail = None
         if author and not isinstance(author, unicode):
             author = author.decode('utf-8', 'replace')
-        self.summary = summary
         if summary and not isinstance(summary, unicode):
             summary = summary.decode('utf-8', 'replace')
+        summary = clean_xml_chars(summary) if summary else summary
+        self.summary = summary
         if summary and '<' in summary:
             try:
                 s = html.fragment_fromstring(summary, create_parent=True)
                 summary = html.tostring(s, method='text', encoding=unicode)
             except:
-                print 'Failed to process article summary, deleting:'
-                print summary.encode('utf-8')
+                print('Failed to process article summary, deleting:')
+                print(summary.encode('utf-8'))
                 traceback.print_exc()
                 summary = u''
         self.text_summary = clean_ascii_chars(summary)
@@ -74,6 +78,7 @@ class Article(object):
             if not isinstance(t, unicode) and hasattr(t, 'decode'):
                 t = t.decode('utf-8', 'replace')
             return t
+
         def fset(self, val):
             self._title = clean_ascii_chars(val)
         return property(fget=fget, fset=fset)
@@ -278,6 +283,7 @@ class Feed(object):
         except ValueError:
             pass
 
+
 class FeedCollection(list):
 
     def __init__(self, feeds):
@@ -291,8 +297,8 @@ class FeedCollection(list):
                     return x
             return None
 
-        print '#feeds', len(self)
-        print map(len, self)
+        print('#feeds', len(self))
+        print(map(len, self))
         for f in self:
             dups = []
             for a in f:
@@ -306,8 +312,8 @@ class FeedCollection(list):
                 f.articles.remove(x)
 
         self.duplicates = duplicates
-        print len(duplicates)
-        print map(len, self)
+        print(len(duplicates))
+        print(map(len, self))
         # raise
 
     def find_article(self, article):
@@ -341,6 +347,7 @@ def feed_from_xml(raw_xml, title=None, oldest_article=7,
                             oldest_article=oldest_article,
                             max_articles_per_feed=max_articles_per_feed)
     return pfeed
+
 
 def feeds_from_index(index, oldest_article=7, max_articles_per_feed=100,
         log=default_log):

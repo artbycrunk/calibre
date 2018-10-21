@@ -1,8 +1,8 @@
-#!/usr/bin/env python
+#!/usr/bin/env python2
 # vim:fileencoding=UTF-8:ts=4:sw=4:sta:et:sts=4:ai
 from __future__ import (unicode_literals, division, absolute_import,
                         print_function)
-from future_builtins import map
+from polyglot.builtins import map
 
 __license__   = 'GPL v3'
 __copyright__ = '2011, Kovid Goyal <kovid@kovidgoyal.net>'
@@ -13,9 +13,12 @@ from textwrap import dedent
 
 color_row_key = '*row'
 
-class Rule(object): # {{{
+
+class Rule(object):  # {{{
 
     SIGNATURE = '# BasicColorRule():'
+
+    INVALID_CONDITION = _('INVALID CONDITION')
 
     def __init__(self, fm, color=None):
         self.color = color
@@ -28,6 +31,8 @@ class Rule(object): # {{{
         v = self.validate_condition(col, action, val)
         if v:
             raise ValueError(v)
+        if self.apply_condition((col, action, val)) is None:
+            action = self.INVALID_CONDITION
         self.conditions.append((col, action, val))
 
     def validate_condition(self, col, action, val):
@@ -56,7 +61,7 @@ class Rule(object): # {{{
     def template(self):
         if not self.color or not self.conditions:
             return None
-        conditions = map(self.apply_condition, self.conditions)
+        conditions = [x for x in map(self.apply_condition, self.conditions) if x is not None]
         conditions = (',\n' + ' '*9).join(conditions)
         return dedent('''\
                 program:
@@ -194,8 +199,13 @@ class Rule(object): # {{{
             return "contains(field('%s'), \"%s\", '1', '')"%(col, val)
         if action == 'does not match pattern':
             return "contains(field('%s'), \"%s\", '', '1')"%(col, val)
+        if action == 'contains':
+            return "contains(field('%s'), \"%s\", '1', '')"%(col, re.escape(val))
+        if action == 'does not contain':
+            return "contains(field('%s'), \"%s\", '', '1')"%(col, re.escape(val))
 
 # }}}
+
 
 def rule_from_template(fm, template):
     ok_lines = []
@@ -219,6 +229,7 @@ def rule_from_template(fm, template):
             ok_lines.append(line)
     return '\n'.join(ok_lines)
 
+
 def conditionable_columns(fm):
     for key in fm:
         m = fm[key]
@@ -230,12 +241,14 @@ def conditionable_columns(fm):
             else:
                 yield key
 
+
 def displayable_columns(fm):
     yield color_row_key
     for key in fm.displayable_field_keys():
         if key not in ('sort', 'author_sort', 'comments', 'formats',
                 'identifiers', 'path'):
             yield key
+
 
 def migrate_old_rule(fm, template):
     if template.startswith('program:\n#tag wizard'):
@@ -248,4 +261,3 @@ def migrate_old_rule(fm, template):
                 rules.append(r.template)
         return rules
     return [template]
-

@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python2
 # vim:fileencoding=utf-8
 from __future__ import (unicode_literals, division, absolute_import,
                         print_function)
@@ -13,6 +13,7 @@ from contextlib import closing
 from calibre import detect_ncpus as cpu_count
 
 DEBUG, INFO, WARN, ERROR, CRITICAL = xrange(5)
+
 
 class BaseError(object):
 
@@ -32,6 +33,7 @@ class BaseError(object):
 
     __repr__ = __str__
 
+
 def worker(func, args):
     try:
         result = func(*args)
@@ -41,6 +43,7 @@ def worker(func, args):
         import traceback
         tb = traceback.format_exc()
     return result, tb
+
 
 def run_checkers(func, args_list):
     num = cpu_count()

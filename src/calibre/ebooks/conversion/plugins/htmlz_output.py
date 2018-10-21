@@ -14,35 +14,48 @@ from calibre.customize.conversion import OutputFormatPlugin, \
     OptionRecommendation
 from calibre.ptempfile import TemporaryDirectory
 
+
 class HTMLZOutput(OutputFormatPlugin):
 
     name = 'HTMLZ Output'
     author = 'John Schember'
     file_type = 'htmlz'
+    commit_name = 'htmlz_output'
+    ui_data = {
+            'css_choices': {
+                'class': _('Use CSS classes'),
+                'inline': _('Use the style attribute'),
+                'tag': _('Use HTML tags wherever possible')
+            },
+            'sheet_choices': {
+                'external': _('Use an external CSS file'),
+                'inline': _('Use a <style> tag in the HTML file')
+            }
+    }
 
-    options = set([
+    options = {
         OptionRecommendation(name='htmlz_css_type', recommended_value='class',
             level=OptionRecommendation.LOW,
-            choices=['class', 'inline', 'tag'],
+            choices=list(ui_data['css_choices']),
             help=_('Specify the handling of CSS. Default is class.\n'
-                   'class: Use CSS classes and have elements reference them.\n'
-                   'inline: Write the CSS as an inline style attribute.\n'
-                   'tag: Turn as many CSS styles as possible into HTML tags.'
-            )),
+                   'class: {class}\n'
+                   'inline: {inline}\n'
+                   'tag: {tag}'
+            ).format(**ui_data['css_choices'])),
         OptionRecommendation(name='htmlz_class_style', recommended_value='external',
             level=OptionRecommendation.LOW,
-            choices=['external', 'inline'],
+            choices=list(ui_data['sheet_choices']),
             help=_('How to handle the CSS when using css-type = \'class\'.\n'
                    'Default is external.\n'
-                   'external: Use an external CSS file that is linked in the document.\n'
-                   'inline: Place the CSS in the head section of the document.'
-            )),
+                   'external: {external}\n'
+                   'inline: {inline}'
+            ).format(**ui_data['sheet_choices'])),
         OptionRecommendation(name='htmlz_title_filename',
             recommended_value=False, level=OptionRecommendation.LOW,
-            help=_('If set this option causes the file name of the html file'
-                ' inside the htmlz archive to be based on the book title.')
+            help=_('If set this option causes the file name of the HTML file'
+                ' inside the HTMLZ archive to be based on the book title.')
             ),
-    ])
+    }
 
     def convert(self, oeb_book, output_path, input_plugin, opts, log):
         from lxml import etree
@@ -70,6 +83,8 @@ class HTMLZOutput(OutputFormatPlugin):
                 from calibre.utils.filenames import shorten_components_to
                 fname = shorten_components_to(100, (ascii_filename(unicode(oeb_book.metadata.title[0])),))[0]
             with open(os.path.join(tdir, fname+u'.html'), 'wb') as tf:
+                if isinstance(html, unicode):
+                    html = html.encode('utf-8')
                 tf.write(html)
 
             # CSS
@@ -100,9 +115,9 @@ class HTMLZOutput(OutputFormatPlugin):
                     term = oeb_book.metadata.cover[0].term
                     cover_data = oeb_book.guide[term].item.data
                 if cover_data:
-                    from calibre.utils.magick.draw import save_cover_data_to
+                    from calibre.utils.img import save_cover_data_to
                     cover_path = os.path.join(tdir, u'cover.jpg')
-                    with open(cover_path, 'w') as cf:
+                    with lopen(cover_path, 'w') as cf:
                         cf.write('')
                     save_cover_data_to(cover_data, cover_path)
             except:

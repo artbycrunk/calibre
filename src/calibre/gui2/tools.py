@@ -1,4 +1,4 @@
-#!/usr/bin/env  python
+#!/usr/bin/env  python2
 __license__   = 'GPL v3'
 __copyright__ = '2008, Kovid Goyal kovid@kovidgoyal.net'
 __docformat__ = 'restructuredtext en'
@@ -13,16 +13,16 @@ from PyQt5.Qt import QDialog, QProgressDialog, QTimer
 
 from calibre.ptempfile import PersistentTemporaryFile
 from calibre.gui2 import warning_dialog, question_dialog
-from calibre.gui2.convert.single import NoSupportedInputFormats
-from calibre.gui2.convert.single import Config as SingleConfig, \
-    get_input_format_for_book
+from calibre.gui2.convert.single import Config as SingleConfig
 from calibre.gui2.convert.bulk import BulkConfig
 from calibre.gui2.convert.metadata import create_opf_file, create_cover_file
 from calibre.customize.conversion import OptionRecommendation
 from calibre.utils.config import prefs
-from calibre.ebooks.conversion.config import GuiRecommendations, \
-    load_defaults, load_specifics, save_specifics
+from calibre.ebooks.conversion.config import (
+        GuiRecommendations, load_defaults, load_specifics, save_specifics,
+        get_input_format_for_book, NoSupportedInputFormats)
 from calibre.gui2.convert import bulk_defaults_for_input_format
+
 
 def convert_single_ebook(parent, db, book_ids, auto_conversion=False,  # {{{
         out_format=None, show_no_format_warning=True):
@@ -99,12 +99,12 @@ def convert_single_ebook(parent, db, book_ids, auto_conversion=False,  # {{{
     if bad and show_no_format_warning:
         if len(bad) == 1 and not bad[0][1]:
             title = db.title(bad[0][0], True)
-            warning_dialog(parent, _('Could not convert'), '<p>'+
-                _('Could not convert <b>%s</b> as it has no ebook files. If you '
-                  'think it should have files, but calibre is not finding '
-                  'them, that is most likely because you moved the book\'s '
-                  'files around outside of calibre. You will need to find those files '
-                  'and re-add them to calibre.')%title, show=True)
+            warning_dialog(parent, _('Could not convert'), '<p>'+ _(
+                'Could not convert <b>%s</b> as it has no e-book files. If you '
+                'think it should have files, but calibre is not finding '
+                'them, that is most likely because you moved the book\'s '
+                'files around outside of calibre. You will need to find those files '
+                'and re-add them to calibre.')%title, show=True)
         else:
             res = []
             for id, available_formats in bad:
@@ -113,19 +113,23 @@ def convert_single_ebook(parent, db, book_ids, auto_conversion=False,  # {{{
                     msg = _('No supported formats (Available formats: %s)')%(
                         ', '.join(available_formats))
                 else:
-                    msg = _('This book has no actual ebook files')
+                    msg = _('This book has no actual e-book files')
                 res.append('%s - %s'%(title, msg))
 
             msg = '%s' % '\n'.join(res)
             warning_dialog(parent, _('Could not convert some books'),
-                _('Could not convert %(num)d of %(tot)d books, because no supported source'
-                ' formats were found.') % dict(num=len(res), tot=total),
+                ngettext(
+                    'Could not convert the book because no supported source format was found',
+                    'Could not convert {num} of {tot} books, because no supported source formats were found.',
+                    len(res)).format(num=len(res), tot=total),
                 msg).exec_()
 
     return jobs, changed, bad
 # }}}
 
 # Bulk convert {{{
+
+
 def convert_bulk_ebook(parent, queue, db, book_ids, out_format=None, args=[]):
     total = len(book_ids)
     if total == 0:
@@ -145,6 +149,7 @@ def convert_bulk_ebook(parent, queue, db, book_ids, out_format=None, args=[]):
     use_saved_single_settings = d.opt_individual_saved_settings.isChecked()
     return QueueBulk(parent, book_ids, output_format, queue, db, user_recs,
             args, use_saved_single_settings=use_saved_single_settings)
+
 
 class QueueBulk(QProgressDialog):
 
@@ -196,6 +201,13 @@ class QueueBulk(QProgressDialog):
                 combined_recs[item[0]] = item[1]
             save_specifics(self.db, book_id, combined_recs)
             lrecs = list(combined_recs.to_recommendations())
+            from calibre.customize.ui import plugin_for_output_format
+            op = plugin_for_output_format(self.output_format)
+            if op and op.recommendations:
+                prec = {x[0] for x in op.recommendations}
+                for i, r in enumerate(list(lrecs)):
+                    if r[0] in prec:
+                        lrecs[i] = (r[0], r[1], OptionRecommendation.HIGH)
 
             cover_file = create_cover_file(self.db, book_id)
 
@@ -253,6 +265,7 @@ class QueueBulk(QProgressDialog):
 
 # }}}
 
+
 def fetch_scheduled_recipe(arg):  # {{{
     fmt = prefs['output_format'].lower()
     # Never use AZW3 for periodicals...
@@ -293,15 +306,16 @@ def fetch_scheduled_recipe(arg):  # {{{
         for opt in p.options:
             recs.append((opt.option.name, pdf.get(opt.option.name, opt.recommended_value), OptionRecommendation.HIGH))
 
-    args = [arg['recipe'], pt.name, recs]
+    args = [arg['urn'], pt.name, recs]
     if arg['username'] is not None:
         recs.append(('username', arg['username'], OptionRecommendation.HIGH))
     if arg['password'] is not None:
         recs.append(('password', arg['password'], OptionRecommendation.HIGH))
 
-    return 'gui_convert', args, _('Fetch news from ')+arg['title'], fmt.upper(), [pt]
+    return 'gui_convert_recipe', args, _('Fetch news from %s')%arg['title'], fmt.upper(), [pt]
 
 # }}}
+
 
 def generate_catalog(parent, dbspec, ids, device_manager, db):  # {{{
     from calibre.gui2.dialogs.catalog import Catalog
@@ -316,7 +330,7 @@ def generate_catalog(parent, dbspec, ids, device_manager, db):  # {{{
     out = PersistentTemporaryFile(suffix='_catalog_out.'+d.catalog_format.lower())
 
     # Profile the connected device
-    # Parallel initialization in calibre.library.cli:command_catalog()
+    # Parallel initialization in calibre.db.cli.cmd_catalog
     connected_device = {
                          'is_device_connected': device_manager.is_device_present,
                          'kind': device_manager.connected_device_kind,
@@ -363,6 +377,7 @@ def generate_catalog(parent, dbspec, ids, device_manager, db):  # {{{
             d.catalog_title
 # }}}
 
+
 def convert_existing(parent, db, book_ids, output_format):  # {{{
     already_converted_ids = []
     already_converted_titles = []
@@ -380,5 +395,3 @@ def convert_existing(parent, db, book_ids, output_format):  # {{{
 
     return book_ids
 # }}}
-
-

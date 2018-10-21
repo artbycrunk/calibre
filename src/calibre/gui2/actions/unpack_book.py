@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python2
 # vim:fileencoding=UTF-8:ts=4:sw=4:sta:et:sts=4:ai
 
 __license__   = 'GPL v3'
@@ -18,6 +18,7 @@ from calibre.ptempfile import (PersistentTemporaryDirectory,
         PersistentTemporaryFile)
 from calibre.utils.config import prefs, tweaks
 
+
 class UnpackBook(QDialog):
 
     def __init__(self, parent, book_id, fmts, db):
@@ -29,7 +30,7 @@ class UnpackBook(QDialog):
         self._cleanup_files = []
 
         self.setup_ui()
-        self.setWindowTitle(_('Unpack Book') + ' - ' + db.title(book_id,
+        self.setWindowTitle(_('Unpack book') + ' - ' + db.title(book_id,
             index_is_id=True))
 
         button = self.fmt_choice_buttons[0]
@@ -73,20 +74,20 @@ class UnpackBook(QDialog):
         self.fmt_choice_box.setVisible(len(fmts) > 1)
 
         self.help_label = QLabel(_('''\
-            <h2>About Unpack Book</h2>
-            <p>Unpack Book allows you to fine tune the appearance of an ebook by
-            making small changes to its internals. In order to use Unpack Book,
+            <h2>About Unpack book</h2>
+            <p>Unpack book allows you to fine tune the appearance of an e-book by
+            making small changes to its internals. In order to use Unpack book,
             you need to know a little bit about HTML and CSS, technologies that
-            are used in ebooks. Follow the steps:</p>
+            are used in e-books. Follow the steps:</p>
             <br>
             <ol>
-            <li>Click "Explode Book": This will "explode" the book into its
+            <li>Click "Explode book": This will "explode" the book into its
             individual internal components.<br></li>
             <li>Right click on any individual file and select "Open with..." to
             edit it in your favorite text editor.<br></li>
             <li>When you are done: <b>close the file browser window
             and the editor windows you used to make your tweaks</b>. Then click
-            the "Rebuild Book" button, to update the book in your calibre
+            the "Rebuild book" button, to update the book in your calibre
             library.</li>
             </ol>'''))
         self.help_label.setWordWrap(True)
@@ -101,10 +102,10 @@ class UnpackBook(QDialog):
         b.setContentsMargins(left, top, right, bottom)
         l.addLayout(b, stretch=10)
 
-        self.explode_button = QPushButton(QIcon(I('wizard.png')), _('&Explode Book'))
-        self.preview_button = QPushButton(QIcon(I('view.png')), _('&Preview Book'))
+        self.explode_button = QPushButton(QIcon(I('wizard.png')), _('&Explode book'))
+        self.preview_button = QPushButton(QIcon(I('view.png')), _('&Preview book'))
         self.cancel_button  = QPushButton(QIcon(I('window-close.png')), _('&Cancel'))
-        self.rebuild_button = QPushButton(QIcon(I('exec.png')), _('&Rebuild Book'))
+        self.rebuild_button = QPushButton(QIcon(I('exec.png')), _('&Rebuild book'))
 
         self.explode_button.setToolTip(
                 _('Explode the book to edit its components'))
@@ -176,8 +177,7 @@ class UnpackBook(QDialog):
             det_msg = e.orig_tb
         except Error as e:
             return error_dialog(self, _('Failed to unpack'),
-                (_('Could not explode the %s file.')%self.current_format) + ' '
-                + as_unicode(e), show=True)
+                (_('Could not explode the %s file.')%self.current_format) + ' ' + as_unicode(e), show=True)
         except:
             import traceback
             det_msg = traceback.format_exc()
@@ -283,6 +283,7 @@ class UnpackBook(QDialog):
             if b.isChecked():
                 return unicode(b.text())
 
+
 class UnpackBookAction(InterfaceAction):
 
     name = 'Unpack Book'
@@ -323,7 +324,7 @@ class UnpackBookAction(InterfaceAction):
     def tweak_book(self):
         row = self.gui.library_view.currentIndex()
         if not row.isValid():
-            return error_dialog(self.gui, _('Cannot unpack Book'),
+            return error_dialog(self.gui, _('Cannot unpack book'),
                     _('No book selected'), show=True)
 
         book_id = self.gui.library_view.model().id(row)
@@ -336,13 +337,10 @@ class UnpackBookAction(InterfaceAction):
         tweakable_fmts = set(fmts).intersection({'epub', 'htmlz', 'azw3',
             'mobi', 'azw'})
         if not tweakable_fmts:
-            return error_dialog(self.gui, _('Cannot unpack Book'),
+            return error_dialog(self.gui, _('Cannot unpack book'),
                     _('The book must be in ePub, HTMLZ or AZW3 formats to unpack.'
                         '\n\nFirst convert the book to one of these formats.'),
                     show=True)
         dlg = UnpackBook(self.gui, book_id, tweakable_fmts, db)
         dlg.exec_()
         dlg.cleanup()
-
-
-

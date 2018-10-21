@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python2
 # vim:fileencoding=UTF-8:ts=4:sw=4:sta:et:sts=4:ai
 from __future__ import with_statement
 
@@ -6,9 +6,10 @@ __license__   = 'GPL v3'
 __copyright__ = '2009, Kovid Goyal <kovid@kovidgoyal.net>'
 __docformat__ = 'restructuredtext en'
 
-import os, traceback, re, shutil
+import os, traceback, re, errno
 
 from calibre.constants import DEBUG
+from calibre.db.errors import NoSuchFormat
 from calibre.utils.config import Config, StringConfig, tweaks
 from calibre.utils.formatter import TemplateFormatter
 from calibre.utils.filenames import shorten_components_to, supports_long_names, ascii_filename
@@ -17,7 +18,6 @@ from calibre.ebooks.metadata import fmt_sidx
 from calibre.ebooks.metadata import title_sort
 from calibre.utils.date import as_local_time
 from calibre import strftime, prints, sanitize_file_name_unicode
-from calibre.ptempfile import SpooledTemporaryFile
 from calibre.db.lazy import FormatsList
 
 plugboard_any_device_value = 'any device'
@@ -72,6 +72,7 @@ def find_plugboard(device_name, format, plugboards):
         prints('Device using plugboard', format, device_name, cpb)
     return cpb
 
+
 def config(defaults=None):
     if defaults is None:
         c = Config('save_to_disk', _('Options to control saving to disk'))
@@ -87,7 +88,7 @@ def config(defaults=None):
                 ' actual e-book files.'))
     x('save_cover', default=True,
             help=_('Normally, calibre will save the cover in a separate file along with the '
-                'actual e-book file(s).'))
+                'actual e-book files.'))
     x('formats', default='all',
             help=_('Comma separated list of formats to save for each book.'
                 ' By default all available formats are saved.'))
@@ -127,6 +128,7 @@ def config(defaults=None):
                 ' directory structure'))
     return c
 
+
 def preprocess_template(template):
     template = template.replace('//', '/')
     template = template.replace('{author}', '{authors}')
@@ -134,6 +136,7 @@ def preprocess_template(template):
     if not isinstance(template, unicode):
         template = template.decode(preferred_encoding, 'replace')
     return template
+
 
 class Formatter(TemplateFormatter):
     '''
@@ -167,10 +170,11 @@ class Formatter(TemplateFormatter):
             traceback.print_exc()
             return key
 
+
 def get_components(template, mi, id, timefmt='%b %Y', length=250,
         sanitize_func=ascii_filename, replace_whitespace=False,
-        to_lowercase=False, safe_format=True, last_has_extension=True):
-
+        to_lowercase=False, safe_format=True, last_has_extension=True,
+        single_dir=False):
     tsorder = tweaks['save_template_title_series_sorting']
     format_args = FORMAT_ARGS.copy()
     format_args.update(mi.all_non_none_fields())
@@ -223,7 +227,7 @@ def get_components(template, mi, id, timefmt='%b %Y', length=250,
                 if key+'_index' in format_args:
                     format_args[key+'_index'] = fmt_sidx(format_args[key+'_index'])
             elif cm['datatype'] == 'datetime':
-                format_args[key] = strftime(timefmt, format_args[key].timetuple())
+                format_args[key] = strftime(timefmt, as_local_time(format_args[key]).timetuple())
             elif cm['datatype'] == 'bool':
                 format_args[key] = _('yes') if format_args[key] else _('no')
             elif cm['datatype'] == 'rating':
@@ -248,38 +252,28 @@ def get_components(template, mi, id, timefmt='%b %Y', length=250,
     if replace_whitespace:
         components = [re.sub(r'\s', '_', x) for x in components]
 
+    if single_dir:
+        components = components[-1:]
     return shorten_components_to(length, components, last_has_extension=last_has_extension)
 
 
-def save_book_to_disk(id_, db, root, opts, length):
-    mi = db.get_metadata(id_, index_is_id=True)
-    cover = db.cover(id_, index_is_id=True)
-    plugboards = db.prefs.get('plugboards', {})
-
-    available_formats = db.formats(id_, index_is_id=True)
-    if not available_formats:
-        available_formats = []
+def get_formats(available_formats, formats):
+    available_formats = {x.lower().strip() for x in available_formats}
+    if formats == 'all':
+        asked_formats = available_formats
     else:
-        available_formats = [x.lower().strip() for x in
-                available_formats.split(',')]
-    formats = {}
-    fmts = db.formats(id_, index_is_id=True, verify_formats=False)
-    if fmts:
-        fmts = fmts.split(',')
-        for fmt in fmts:
-            fpath = db.format(id_, fmt, index_is_id=True, as_path=True)
-            if fpath is not None:
-                formats[fmt.lower()] = fpath
+        asked_formats = {x.lower().strip() for x in formats.split(',')}
+    return available_formats & asked_formats
 
-    try:
-        return do_save_book_to_disk(id_, mi, cover, plugboards,
-            formats, root, opts, length)
-    finally:
-        for temp in formats.itervalues():
-            try:
-                os.remove(temp)
-            except:
-                pass
+
+def save_book_to_disk(book_id, db, root, opts, length):
+    db = db.new_api
+    mi = db.get_metadata(book_id, index_is_id=True)
+    plugboards = db.pref('plugboards', {})
+    formats = get_formats(db.formats(book_id), opts.formats)
+    return do_save_book_to_disk(db, book_id, mi, plugboards,
+        formats, root, opts, length)
+
 
 def get_path_components(opts, mi, book_id, path_length):
     try:
@@ -287,13 +281,11 @@ def get_path_components(opts, mi, book_id, path_length):
             ascii_filename if opts.asciiize else sanitize_file_name_unicode,
             to_lowercase=opts.to_lowercase,
             replace_whitespace=opts.replace_whitespace, safe_format=False,
-            last_has_extension=False)
-    except Exception, e:
+            last_has_extension=False, single_dir=opts.single_dir)
+    except Exception as e:
         raise ValueError(_('Failed to calculate path for '
             'save to disk. Template: %(templ)s\n'
             'Error: %(err)s')%dict(templ=opts.template, err=e))
-    if opts.single_dir:
-        components = components[-1:]
     if not components:
         raise ValueError(_('Template evaluation resulted in no'
             ' path components. Template: %s')%opts.template)
@@ -326,70 +318,59 @@ def update_metadata(mi, fmt, stream, plugboards, cdata, error_report=None, plugb
         else:
             error_report(fmt, traceback.format_exc())
 
-def do_save_book_to_disk(id_, mi, cover, plugboards,
-        format_map, root, opts, length):
-    available_formats = [x.lower().strip() for x in format_map.keys()]
-    if mi.pubdate:
-        mi.pubdate = as_local_time(mi.pubdate)
-    if mi.timestamp:
-        mi.timestamp = as_local_time(mi.timestamp)
 
-    if opts.formats == 'all':
-        asked_formats = available_formats
-    else:
-        asked_formats = [x.lower().strip() for x in opts.formats.split(',')]
-    formats = set(available_formats).intersection(set(asked_formats))
-    if not formats:
-        return True, id_, mi.title
-
-    components = get_path_components(opts, mi, id_, length)
-    base_path = os.path.join(root, *components)
-    base_name = os.path.basename(base_path)
-    dirpath = os.path.dirname(base_path)
-    # Don't test for existence first as the test could fail but
-    # another worker process could create the directory before
-    # the call to makedirs
+def do_save_book_to_disk(db, book_id, mi, plugboards,
+        formats, root, opts, length):
+    originals = mi.cover, mi.pubdate, mi.timestamp
+    formats_written = False
     try:
-        os.makedirs(dirpath)
-    except BaseException:
-        if not os.path.exists(dirpath):
-            raise
+        if mi.pubdate:
+            mi.pubdate = as_local_time(mi.pubdate)
+        if mi.timestamp:
+            mi.timestamp = as_local_time(mi.timestamp)
 
-    ocover = mi.cover
-    if opts.save_cover and cover:
-        with open(base_path+'.jpg', 'wb') as f:
-            f.write(cover)
-        mi.cover = base_name+'.jpg'
-    else:
-        mi.cover = None
+        components = get_path_components(opts, mi, book_id, length)
+        base_path = os.path.join(root, *components)
+        base_name = os.path.basename(base_path)
+        dirpath = os.path.dirname(base_path)
+        try:
+            os.makedirs(dirpath)
+        except EnvironmentError as err:
+            if err.errno != errno.EEXIST:
+                raise
 
-    if opts.write_opf:
-        from calibre.ebooks.metadata.opf2 import metadata_to_opf
-        opf = metadata_to_opf(mi)
-        with open(base_path+'.opf', 'wb') as f:
-            f.write(opf)
+        cdata = None
+        if opts.save_cover:
+            cdata = db.cover(book_id)
+            if cdata:
+                cpath = base_path + '.jpg'
+                with lopen(cpath, 'wb') as f:
+                    f.write(cdata)
+                mi.cover = base_name+'.jpg'
+        if opts.write_opf:
+            from calibre.ebooks.metadata.opf2 import metadata_to_opf
+            opf = metadata_to_opf(mi)
+            with lopen(base_path+'.opf', 'wb') as f:
+                f.write(opf)
+    finally:
+        mi.cover, mi.pubdate, mi.timestamp = originals
 
-    mi.cover = ocover
+    if not formats:
+        return not formats_written, book_id, mi.title
 
-    written = False
     for fmt in formats:
-        fp = format_map.get(fmt, None)
-        if fp is None:
-            continue
-        stream = SpooledTemporaryFile(20*1024*1024, '_save_to_disk.'+(fmt or
-            'tmp'))
-        with open(fp, 'rb') as f:
-            shutil.copyfileobj(f, stream)
-        stream.seek(0)
-        written = True
-        if opts.update_metadata:
-            update_metadata(mi, fmt, stream, plugboards, cover)
-            stream.seek(0)
         fmt_path = base_path+'.'+str(fmt)
-        with open(fmt_path, 'wb') as f:
-            shutil.copyfileobj(stream, f)
+        try:
+            db.copy_format_to(book_id, fmt, fmt_path)
+            formats_written = True
+        except NoSuchFormat:
+            continue
+        if opts.update_metadata:
+            with lopen(fmt_path, 'r+b') as stream:
+                update_metadata(mi, fmt, stream, plugboards, cdata)
 
-    return not written, id_, mi.title
+    return not formats_written, book_id, mi.title
+
 
 def sanitize_args(root, opts):
     if opts is None:
@@ -402,6 +383,7 @@ def sanitize_args(root, opts):
     if length < 5:
         raise ValueError('%r is too long.'%root)
     return root, opts, length
+
 
 def save_to_disk(db, ids, root, opts=None, callback=None):
     '''
@@ -432,6 +414,7 @@ def save_to_disk(db, ids, root, opts=None, callback=None):
                 break
     return failures
 
+
 def read_serialized_metadata(data):
     from calibre.ebooks.metadata.opf2 import OPF
     from calibre.utils.date import parse_date
@@ -447,6 +430,7 @@ def read_serialized_metadata(data):
             cdata = f.read()
     return mi, cdata
 
+
 def update_serialized_metadata(book, common_data=None):
     result = []
     plugboard_cache = common_data
@@ -455,6 +439,7 @@ def update_serialized_metadata(book, common_data=None):
 
             fmts = [fp.rpartition(os.extsep)[-1] for fp in book['fmts']]
             mi, cdata = read_serialized_metadata(book)
+
             def report_error(fmt, tb):
                 result.append((fmt, tb))
 

@@ -241,7 +241,7 @@
  * Direct PTP match required.
  * (libgphoto2)
  */
-#define DEVICE_FLAG_MATCH_PTP_INTERFACE		0x00800000
+#define DEVICE_FLAG_OLYMPUS_XML_WRAPPED		0x00800000
 /**
  * This flag is like DEVICE_FLAG_OGG_IS_UNKNOWN but for FLAC
  * files instead. Using the unknown filetype for FLAC files.
@@ -272,6 +272,9 @@
  * Early Creative Zen (etc) models actually only support
  * command 9805 (Get object property list) and will hang
  * if you try to get individual properties of an object.
+ * Or so it seemed. Later bug fixes to the library has made
+ * this work flawlessly so the bug flag is moot.
+ * NOT USED ANYMORE, THIS FLAG MAY BE RECYCLED.
  */
 #define DEVICE_FLAG_BROKEN_GET_OBJECT_PROPVAL	0x20000000
 /**
@@ -295,7 +298,7 @@
   (DEVICE_FLAG_UNLOAD_DRIVER | \
    DEVICE_FLAG_BROKEN_MTPGETOBJPROPLIST | \
    DEVICE_FLAG_UNIQUE_FILENAMES | \
-   DEVICE_FLAG_FORCE_RESET_ON_CLOSE )
+   DEVICE_FLAG_FORCE_RESET_ON_CLOSE)
 /**
  * All these bug flags need to be set on Android devices,
  * they claim to support MTP operations they actually
@@ -308,7 +311,8 @@
    DEVICE_FLAG_BROKEN_SET_OBJECT_PROPLIST | \
    DEVICE_FLAG_BROKEN_SEND_OBJECT_PROPLIST | \
    DEVICE_FLAG_UNLOAD_DRIVER | \
-   DEVICE_FLAG_LONG_TIMEOUT )
+   DEVICE_FLAG_LONG_TIMEOUT | \
+   DEVICE_FLAG_FORCE_RESET_ON_CLOSE)
 /**
  * All these bug flags appear on a number of SonyEricsson
  * devices including Android devices not using the stock
@@ -326,4 +330,4 @@
 #define DEVICE_FLAGS_ARICENT_BUGS \
   (DEVICE_FLAG_IGNORE_HEADER_ERRORS | \
    DEVICE_FLAG_BROKEN_SEND_OBJECT_PROPLIST | \
-   DEVICE_FLAG_BROKEN_MTPGETOBJPROPLIST )
+   DEVICE_FLAG_BROKEN_MTPGETOBJPROPLIST)

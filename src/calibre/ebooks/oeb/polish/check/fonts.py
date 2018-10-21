@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python2
 # vim:fileencoding=utf-8
 from __future__ import (unicode_literals, division, absolute_import,
                         print_function)
@@ -9,47 +9,39 @@ __copyright__ = '2013, Kovid Goyal <kovid at kovidgoyal.net>'
 from cssutils.css import CSSRule
 
 from calibre import force_unicode
-from calibre.constants import plugins
 from calibre.ebooks.oeb.base import OEB_DOCS, OEB_STYLES
 from calibre.ebooks.oeb.polish.check.base import BaseError, WARN
 from calibre.ebooks.oeb.polish.container import OEB_FONTS
-from calibre.ebooks.oeb.polish.fonts import change_font_family_value
-from calibre.ebooks.oeb.polish.utils import guess_type
 from calibre.ebooks.oeb.polish.pretty import pretty_script_or_style
-from calibre.utils.fonts.utils import get_all_font_names
+from calibre.ebooks.oeb.polish.fonts import change_font_in_declaration
+from calibre.utils.fonts.utils import get_all_font_names, is_font_embeddable, UnsupportedFont
+from tinycss.fonts3 import parse_font_family
 
-woff = plugins['woff'][0]
 
 class InvalidFont(BaseError):
 
     HELP = _('This font could not be processed. It most likely will'
-             ' not work in an ebook reader, either')
+             ' not work in an e-book reader, either')
 
-def fix_property(prop, css_name, font_name):
-    changed = False
-    ff = prop.propertyValue
-    for i in xrange(ff.length):
-        val = ff.item(i)
-        if hasattr(val.value, 'lower') and val.value.lower() == css_name.lower():
-            change_font_family_value(val, font_name)
-            changed = True
-    return changed
-
-def fix_declaration(style, css_name, font_name):
-    changed = False
-    for x in ('font-family', 'font'):
-        prop = style.getProperty(x)
-        if prop is not None:
-            changed |= fix_property(prop, css_name, font_name)
-    return changed
 
 def fix_sheet(sheet, css_name, font_name):
     changed = False
     for rule in sheet.cssRules:
         if rule.type in (CSSRule.FONT_FACE_RULE, CSSRule.STYLE_RULE):
-            if fix_declaration(rule.style, css_name, font_name):
-                changed = True
+            changed = change_font_in_declaration(rule.style, css_name, font_name) or changed
     return changed
+
+
+class NotEmbeddable(BaseError):
+
+    level = WARN
+
+    def __init__(self, name, fs_type):
+        BaseError.__init__(self, _('The font {} is not allowed to be embedded').format(name), name)
+        self.HELP = _('The font has a flag in its metadata ({:09b}) set indicating that it is'
+                      ' not licensed for embedding. You can ignore this warning, if you are'
+                      ' sure you have permission to embed this font.').format(fs_type)
+
 
 class FontAliasing(BaseError):
 
@@ -83,11 +75,12 @@ class FontAliasing(BaseError):
                             changed = True
                 for elem in container.parsed(name).xpath('//*[@style and contains(@style, "font-family")]'):
                     style = container.parse_css(elem.get('style'), is_declaration=True)
-                    if fix_declaration(style, self.css_name, self.font_name):
+                    if change_font_in_declaration(style, self.css_name, self.font_name):
                         elem.set('style', force_unicode(style.cssText, 'utf-8').replace('\n', ' '))
                         container.dirty(name)
                         changed = True
         return changed
+
 
 def check_fonts(container):
     font_map = {}
@@ -95,18 +88,18 @@ def check_fonts(container):
     for name, mt in container.mime_map.iteritems():
         if mt in OEB_FONTS:
             raw = container.raw_data(name)
-            if mt == guess_type('a.woff'):
-                try:
-                    raw = woff.from_woff(raw)
-                except Exception as e:
-                    errors.append(InvalidFont(_('Not a valid WOFF font: %s') % e, name))
-                    continue
             try:
                 name_map = get_all_font_names(raw)
             except Exception as e:
                 errors.append(InvalidFont(_('Not a valid font: %s') % e, name))
                 continue
             font_map[name] = name_map.get('family_name', None) or name_map.get('preferred_family_name', None) or name_map.get('wws_family_name', None)
+            try:
+                embeddable, fs_type = is_font_embeddable(raw)
+            except UnsupportedFont:
+                embeddable = True
+            if not embeddable:
+                errors.append(NotEmbeddable(name, fs_type))
 
     sheets = []
     for name, mt in container.mime_map.iteritems():
@@ -130,10 +123,9 @@ def check_fonts(container):
                     font_name = font_map.get(fname, None)
                     if font_name is None:
                         continue
-                    ff = rule.style.getPropertyCSSValue('font-family')
-                    if ff is not None and ff.length > 0:
-                        ff = getattr(ff.item(0), 'value', None)
-                        if ff is not None and ff != font_name:
-                            errors.append(FontAliasing(font_name, ff, name, line_offset))
+                    families = parse_font_family(rule.style.getPropertyValue('font-family'))
+                    if families:
+                        if families[0] != font_name:
+                            errors.append(FontAliasing(font_name, families[0], name, line_offset))
 
     return errors

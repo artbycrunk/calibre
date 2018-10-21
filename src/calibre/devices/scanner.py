@@ -1,3 +1,4 @@
+from __future__ import print_function
 __license__   = 'GPL v3'
 __copyright__ = '2008, Kovid Goyal <kovid at kovidgoyal.net>'
 '''
@@ -5,113 +6,43 @@ Device scanner that fetches list of devices on system ina  platform dependent
 manner.
 '''
 
-import sys, os, re
-from threading import RLock
+import sys, os, time
 from collections import namedtuple
+from threading import Lock
 
 from calibre import prints, as_unicode
 from calibre.constants import (iswindows, isosx, plugins, islinux, isfreebsd,
         isnetbsd)
 
-osx_scanner = win_scanner = linux_scanner = freebsd_scanner = netbsd_scanner = None
+osx_scanner = linux_scanner = freebsd_scanner = netbsd_scanner = None
 
 if iswindows:
-    try:
-        win_scanner = plugins['winutil'][0].get_usb_devices
-    except:
-        raise RuntimeError('Failed to load the winutil plugin: %s'%plugins['winutil'][1])
+    drive_ok_lock = Lock()
 
-class Drive(str):
-
-    def __new__(self, val, order=0):
-        typ = str.__new__(self, val)
-        typ.order = order
-        return typ
-
-def drivecmp(a, b):
-    ans = cmp(getattr(a, 'order', 0), getattr(b, 'order', 0))
-    if ans == 0:
-        ans = cmp(a, b)
-    return ans
-
-
-class WinPNPScanner(object):
-
-    def __init__(self):
-        self.scanner = None
-        if iswindows:
-            self.scanner = plugins['winutil'][0].get_removable_drives
-            self.lock = RLock()
-
-    def drive_is_ok(self, letter, debug=False):
-        import win32api, win32file
-        with self.lock:
-            oldError = win32api.SetErrorMode(1)  # SEM_FAILCRITICALERRORS = 1
-            try:
-                ans = True
+    def drive_is_ok(letter, max_tries=10, debug=False):
+        import win32file
+        with drive_ok_lock:
+            for i in xrange(max_tries):
                 try:
                     win32file.GetDiskFreeSpaceEx(letter+':\\')
+                    return True
                 except Exception as e:
-                    if debug:
+                    if i >= max_tries - 1 and debug:
                         prints('Unable to get free space for drive:', letter)
                         prints(as_unicode(e))
-                    ans = False
-                return ans
-            finally:
-                win32api.SetErrorMode(oldError)
-
-    def drive_order(self, pnp_id):
-        order = 0
-        match = re.search(r'REV_.*?&(\d+)#', pnp_id)
-        if match is None:
-            # Windows XP
-            # On the Nook Color this is the last digit
-            #
-            # USBSTOR\DISK&VEN_B&N&PROD_EBOOK_DISK&REV_0100\7&13EAFDB8&0&2004760017462009&1
-            # USBSTOR\DISK&VEN_B&N&PROD_EBOOK_DISK&REV_0100\7&13EAFDB8&0&2004760017462009&0
-            #
-            match = re.search(r'REV_.*&(\d+)', pnp_id)
-        if match is not None:
-            order = int(match.group(1))
-        return order
-
-    def __call__(self, debug=False):
-        # import traceback
-        # traceback.print_stack()
-
-        if self.scanner is None:
-            return {}
-        try:
-            drives = self.scanner(debug)
-        except:
-            drives = {}
-            if debug:
-                import traceback
-                traceback.print_exc()
-        remove = set([])
-        for letter in drives:
-            if not self.drive_is_ok(letter, debug=debug):
-                remove.add(letter)
-        for letter in remove:
-            drives.pop(letter)
-        ans = {}
-        for key, val in drives.items():
-            val = [x.upper() for x in val]
-            val = [x for x in val if 'USBSTOR' in x]
-            if val:
-                ans[Drive(key+':\\', order=self.drive_order(val[-1]))] = val[-1]
-        return ans
-
-win_pnp_drives = WinPNPScanner()
+                    time.sleep(0.2)
+            return False
 
 _USBDevice = namedtuple('USBDevice',
     'vendor_id product_id bcd manufacturer product serial')
 
+
 class USBDevice(_USBDevice):
 
-    def __init__(self, *args, **kwargs):
-        _USBDevice.__init__(self, *args, **kwargs)
+    def __new__(cls, *args, **kwargs):
+        self = super(USBDevice, cls).__new__(cls, *args)
         self.busnum = self.devnum = -1
+        return self
 
     def __repr__(self):
         return (u'USBDevice(busnum=%s, devnum=%s, '
@@ -122,6 +53,7 @@ class USBDevice(_USBDevice):
 
     __str__ = __repr__
     __unicode__ = __repr__
+
 
 class LibUSBScanner(object):
 
@@ -159,8 +91,9 @@ class LibUSBScanner(object):
                 self()
             for i in xrange(3):
                 gc.collect()
-            print 'Mem consumption increased by:', memory() - start, 'MB',
-            print 'after', num, 'repeats'
+            print('Mem consumption increased by:', memory() - start, 'MB', end=' ')
+            print('after', num, 'repeats')
+
 
 class LinuxScanner(object):
 
@@ -178,7 +111,7 @@ class LinuxScanner(object):
             raise RuntimeError('DeviceScanner requires the /sys filesystem to work.')
 
         def read(f):
-            with open(f, 'rb') as s:
+            with lopen(f, 'rb') as s:
                 return s.read().strip()
 
         for x in os.listdir(self.base):
@@ -233,59 +166,6 @@ class LinuxScanner(object):
             ans.add(dev)
         return ans
 
-class FreeBSDScanner(object):
-
-    def __call__(self):
-        ans = set([])
-        import dbus
-
-        try:
-            bus = dbus.SystemBus()
-            manager = dbus.Interface(bus.get_object('org.freedesktop.Hal',
-                          '/org/freedesktop/Hal/Manager'), 'org.freedesktop.Hal.Manager')
-            paths = manager.FindDeviceStringMatch('freebsd.driver','da')
-            for path in paths:
-                obj = bus.get_object('org.freedesktop.Hal', path)
-                objif = dbus.Interface(obj, 'org.freedesktop.Hal.Device')
-                parentdriver = None
-                while parentdriver != 'umass':
-                    try:
-                        obj = bus.get_object('org.freedesktop.Hal',
-                              objif.GetProperty('info.parent'))
-                        objif = dbus.Interface(obj, 'org.freedesktop.Hal.Device')
-                        try:
-                            parentdriver = objif.GetProperty('freebsd.driver')
-                        except dbus.exceptions.DBusException as e:
-                            continue
-                    except dbus.exceptions.DBusException as e:
-                        break
-                if parentdriver != 'umass':
-                    continue
-                dev = []
-                try:
-                    dev.append(objif.GetProperty('usb.vendor_id'))
-                    dev.append(objif.GetProperty('usb.product_id'))
-                    dev.append(objif.GetProperty('usb.device_revision_bcd'))
-                except dbus.exceptions.DBusException as e:
-                    continue
-                try:
-                    dev.append(objif.GetProperty('info.vendor'))
-                except:
-                    dev.append('')
-                try:
-                    dev.append(objif.GetProperty('info.product'))
-                except:
-                    dev.append('')
-                try:
-                    dev.append(objif.GetProperty('usb.serial'))
-                except:
-                    dev.append('')
-                dev.append(path)
-                ans.add(tuple(dev))
-        except dbus.exceptions.DBusException as e:
-            print >>sys.stderr, "Execution failed:", e
-        return ans
-
 
 if islinux:
     linux_scanner = LinuxScanner()
@@ -303,15 +183,18 @@ if False and isosx:
     osx_scanner = usbobserver.get_usb_devices
 
 if isfreebsd:
-    freebsd_scanner = FreeBSDScanner()
+    freebsd_scanner = libusb_scanner
 
 ''' NetBSD support currently not written yet '''
 if isnetbsd:
     netbsd_scanner = None
 
+
 class DeviceScanner(object):
 
     def __init__(self, *args):
+        if iswindows:
+            from calibre.devices.winusb import scan_usb_devices as win_scanner
         self.scanner = (win_scanner if iswindows else osx_scanner if isosx else
                 freebsd_scanner if isfreebsd else netbsd_scanner if isnetbsd
                 else linux_scanner if islinux else libusb_scanner)
@@ -324,10 +207,10 @@ class DeviceScanner(object):
         self.devices = self.scanner()
 
     def is_device_connected(self, device, debug=False, only_presence=False):
-        ''' If only_presence is True don't perform any expensive checks (used
-        only in windows)'''
+        ''' If only_presence is True don't perform any expensive checks '''
         return device.is_usb_connected(self.devices, debug=debug,
                 only_presence=only_presence)
+
 
 def test_for_mem_leak():
     from calibre.utils.mem import memory, gc_histogram, diff_hists
@@ -355,28 +238,11 @@ def test_for_mem_leak():
         diff_hists(h1, gc_histogram())
         prints()
 
-    if not iswindows:
-        return
-
-    for reps in (1, 10, 100, 1000):
-        for i in xrange(3):
-            gc.collect()
-        h1 = gc_histogram()
-        startmem = memory()
-        for i in xrange(reps):
-            win_pnp_drives()
-        for i in xrange(3):
-            gc.collect()
-        usedmem = memory(startmem)
-        prints('Memory used in %d repetitions of pnp_scan(): %.5f KB'%(reps,
-            1024*usedmem))
-        prints('Differences in python object counts:')
-        diff_hists(h1, gc_histogram())
-        prints()
 
 def main(args=sys.argv):
     test_for_mem_leak()
     return 0
+
 
 if __name__ == '__main__':
     sys.exit(main())

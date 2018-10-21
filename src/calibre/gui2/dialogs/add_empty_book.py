@@ -1,19 +1,21 @@
-#!/usr/bin/env python
+#!/usr/bin/env python2
 __copyright__ = '2008, Kovid Goyal kovid@kovidgoyal.net'
 __docformat__ = 'restructuredtext en'
 __license__   = 'GPL v3'
 
 
-from PyQt5.Qt import QDialog, QGridLayout, QLabel, QDialogButtonBox,  \
-            QApplication, QSpinBox, QToolButton, QIcon, QCheckBox
+from PyQt5.Qt import (
+    QDialog, QGridLayout, QLabel, QDialogButtonBox,  QApplication, QSpinBox,
+    QToolButton, QIcon, QLineEdit, QComboBox, QCheckBox)
 from calibre.ebooks.metadata import string_to_authors
 from calibre.gui2.complete2 import EditWithComplete
 from calibre.utils.config import tweaks
 from calibre.gui2 import gprefs
 
+
 class AddEmptyBookDialog(QDialog):
 
-    def __init__(self, parent, db, author, series=None):
+    def __init__(self, parent, db, author, series=None, title=None, dup_title=None):
         QDialog.__init__(self, parent)
         self.db = db
 
@@ -50,7 +52,7 @@ class AddEmptyBookDialog(QDialog):
         self._layout.addWidget(self.series_label, 4, 0, 1, 2)
 
         self.series_combo = EditWithComplete(self)
-        self.authors_combo.setSizeAdjustPolicy(
+        self.series_combo.setSizeAdjustPolicy(
                 self.authors_combo.AdjustToMinimumContentsLengthWithIcon)
         self.series_combo.setEditable(True)
         self._layout.addWidget(self.series_combo, 5, 0, 1, 1)
@@ -62,22 +64,74 @@ class AddEmptyBookDialog(QDialog):
         self.sclear_button.clicked.connect(self.reset_series)
         self._layout.addWidget(self.sclear_button, 5, 1, 1, 1)
 
-        self.create_epub = c = QCheckBox(_('Create an empty EPUB file as well'))
-        c.setChecked(gprefs.get('create_empty_epub_file', False))
-        c.setToolTip(_('Also create an empty EPUB file that you can subsequently edit'))
-        self._layout.addWidget(c, 6, 0, 1, -1)
+        self.title_label = QLabel(_('Set the title of the new books to:'))
+        self._layout.addWidget(self.title_label, 6, 0, 1, 2)
+
+        self.title_edit = QLineEdit(self)
+        self.title_edit.setText(title or '')
+        self._layout.addWidget(self.title_edit, 7, 0, 1, 1)
+
+        self.tclear_button = QToolButton(self)
+        self.tclear_button.setIcon(QIcon(I('trash.png')))
+        self.tclear_button.setToolTip(_('Reset title'))
+        self.tclear_button.clicked.connect(self.title_edit.clear)
+        self._layout.addWidget(self.tclear_button, 7, 1, 1, 1)
+
+        self.format_label = QLabel(_('Also create an empty e-book in format:'))
+        self._layout.addWidget(self.format_label, 8, 0, 1, 2)
+        c = self.format_value = QComboBox(self)
+        from calibre.ebooks.oeb.polish.create import valid_empty_formats
+        possible_formats = [''] + sorted(x.upper() for x in valid_empty_formats)
+        c.addItems(possible_formats)
+        c.setToolTip(_('Also create an empty book format file that you can subsequently edit'))
+        if gprefs.get('create_empty_epub_file', False):
+            # Migration of the check box
+            gprefs.set('create_empty_format_file', 'epub')
+            del gprefs['create_empty_epub_file']
+        use_format = gprefs.get('create_empty_format_file', '').upper()
+        try:
+            c.setCurrentIndex(possible_formats.index(use_format))
+        except Exception:
+            pass
+        self._layout.addWidget(c, 9, 0, 1, 1)
+
+        self.copy_formats = cf = QCheckBox(_('Also copy book &formats when duplicating a book'), self)
+        cf.setToolTip(_(
+            'Also copy all e-book files into the newly created duplicate'
+            ' books.'))
+        cf.setChecked(gprefs.get('create_empty_copy_dup_formats', False))
+        self._layout.addWidget(cf, 10, 0, 1, -1)
 
         button_box = self.bb = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
         button_box.accepted.connect(self.accept)
         button_box.rejected.connect(self.reject)
-        self._layout.addWidget(button_box, 7, 0, 1, -1)
+        self._layout.addWidget(button_box, 11, 0, 1, -1)
+        if dup_title:
+            self.dup_button = b = button_box.addButton(_('&Duplicate current book'), button_box.ActionRole)
+            b.clicked.connect(self.do_duplicate_book)
+            b.setIcon(QIcon(I('edit-copy.png')))
+            b.setToolTip(_(
+                'Make the new empty book records exact duplicates\n'
+                'of the current book "%s", with all metadata identical'
+            ) % dup_title)
         self.resize(self.sizeHint())
+        self.duplicate_current_book = False
+
+    def do_duplicate_book(self):
+        self.duplicate_current_book = True
+        self.accept()
 
     def accept(self):
-        oval = gprefs.get('create_empty_epub_file', False)
-        if self.create_epub.isChecked() != oval:
-            gprefs['create_empty_epub_file'] = self.create_epub.isChecked()
+        self.save_settings()
         return QDialog.accept(self)
+
+    def save_settings(self):
+        gprefs['create_empty_format_file'] = self.format_value.currentText().lower()
+        gprefs['create_empty_copy_dup_formats'] = self.copy_formats.isChecked()
+
+    def reject(self):
+        self.save_settings()
+        return QDialog.reject(self)
 
     def reset_author(self, *args):
         self.authors_combo.setEditText(_('Unknown'))
@@ -113,7 +167,14 @@ class AddEmptyBookDialog(QDialog):
     def selected_series(self):
         return unicode(self.series_combo.text())
 
+    @property
+    def selected_title(self):
+        return self.title_edit.text().strip()
+
+
 if __name__ == '__main__':
+    from calibre.library import db
+    db = db()
     app = QApplication([])
-    d = AddEmptyBookDialog()
+    d = AddEmptyBookDialog(None, db, 'Test Author')
     d.exec_()

@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python2
 # vim:fileencoding=UTF-8:ts=4:sw=4:sta:et:sts=4:ai
 from __future__ import (unicode_literals, division, absolute_import,
                         print_function)
@@ -31,7 +31,6 @@ from calibre.ebooks.metadata import title_sort
 from calibre.ebooks.metadata.book.base import Metadata
 from calibre.ebooks.metadata.book.json_codec import JsonCodec
 from calibre.library import current_library_name
-from calibre.library.server import server_config as content_server_config
 from calibre.ptempfile import PersistentTemporaryFile
 from calibre.utils.ipc import eintr_retry_call
 from calibre.utils.config_base import tweaks
@@ -39,6 +38,7 @@ from calibre.utils.filenames import ascii_filename as sanitize, shorten_componen
 from calibre.utils.mdns import (publish as publish_zeroconf, unpublish as
         unpublish_zeroconf, get_all_ips)
 from calibre.utils.socket_inheritance import set_socket_inherit
+
 
 def synchronous(tlockname):
     """A decorator to place an instance based lock around a method """
@@ -63,6 +63,14 @@ class ConnectionListener(Thread):
 
     def stop(self):
         self.keep_running = False
+
+    def _close_socket(self, the_socket):
+        try:
+            the_socket.shutdown(socket.SHUT_RDWR)
+        except:
+            # the shutdown can fail if the socket isn't fully connected. Ignore it
+            pass
+        the_socket.close()
 
     def run(self):
         device_socket = None
@@ -105,10 +113,10 @@ class ConnectionListener(Thread):
                             packet = self.driver.broadcast_socket.recvfrom(100)
                             remote = packet[1]
                             content_server_port = b''
-                            try :
-                                content_server_port = \
-                                    str(content_server_config().parse().port)
-                            except:
+                            try:
+                                from calibre.srv.opts import server_config
+                                content_server_port = str(server_config().port)
+                            except Exception:
                                 pass
                             message = str(self.driver.ZEROCONF_CLIENT_STRING + b' (on ' +
                                             str(socket.gethostname().partition('.')[0]) +
@@ -125,12 +133,12 @@ class ConnectionListener(Thread):
                         getattr(self.driver, 'listen_socket', None) is not None:
                 ans = select.select((self.driver.listen_socket,), (), (), 0)
                 if len(ans[0]) > 0:
-                    # timeout in 10 ms to detect rare case where the socket goes
+                    # timeout in 100 ms to detect rare case where the socket goes
                     # away between the select and the accept
                     try:
                         self.driver._debug('attempt to open device socket')
                         device_socket = None
-                        self.driver.listen_socket.settimeout(0.010)
+                        self.driver.listen_socket.settimeout(0.100)
                         device_socket, ign = eintr_retry_call(
                                 self.driver.listen_socket.accept)
                         set_socket_inherit(device_socket, False)
@@ -140,7 +148,7 @@ class ConnectionListener(Thread):
                         try:
                             self.driver.connection_queue.put_nowait(device_socket)
                         except Queue.Full:
-                            device_socket.close()
+                            self._close_socket(device_socket)
                             device_socket = None
                             self.driver._debug('driver is not answering')
 
@@ -149,7 +157,7 @@ class ConnectionListener(Thread):
                     except socket.error:
                         x = sys.exc_info()[1]
                         self.driver._debug('unexpected socket exception', x.args[0])
-                        device_socket.close()
+                        self._close_socket(device_socket)
                         device_socket = None
 #                        raise
 
@@ -160,6 +168,7 @@ class SDBook(Book):
         Book.__init__(self, prefix, lpath, size=size, other=other)
         path = getattr(self, 'path', lpath)
         self.path = path.replace('\\', '/')
+
 
 class SMART_DEVICE_APP(DeviceConfig, DevicePlugin):
     name = 'SmartDevice App Interface'
@@ -323,6 +332,13 @@ class SMART_DEVICE_APP(DeviceConfig, DevicePlugin):
               'option disables keeping the copy, forcing the device to send '
               'metadata to calibre on every connect. Unset this option if '
               'you think that the cache might not be operating correctly.') + '</p>',
+        '',
+        _('Additional file extensions to send to the device') + ':::<p>' +
+        _('This is a comma-separated list of format file extensions you want '
+              'to be able to send to the device. For example, you might have '
+              'audio books in your library with the extension "m4b" that you '
+              'want to listen to on your device. Don\'t worry about the "extra '
+              'enabled extensions" warning.')
         ]
     EXTRA_CUSTOMIZATION_DEFAULT = [
                 False, '',
@@ -332,7 +348,8 @@ class SMART_DEVICE_APP(DeviceConfig, DevicePlugin):
                 '',    '',
                 False, '',
                 True,   '75',
-                True
+                True,   '',
+                ''
     ]
     OPT_AUTOSTART               = 0
     OPT_PASSWORD                = 2
@@ -345,13 +362,26 @@ class SMART_DEVICE_APP(DeviceConfig, DevicePlugin):
     OPT_OVERWRITE_BOOKS_UUID    = 12
     OPT_COMPRESSION_QUALITY     = 13
     OPT_USE_METADATA_CACHE      = 14
+    OPT_EXTRA_EXTENSIONS        = 16
+    OPTNAME_TO_NUMBER_MAP = {
+        'password': OPT_PASSWORD,
+        'autostart': OPT_AUTOSTART,
+        'use_fixed_port': OPT_USE_PORT,
+        'port_number': OPT_PORT_NUMBER,
+        'force_ip_address': OPT_FORCE_IP_ADDRESS,
+        'thumbnail_compression_quality': OPT_COMPRESSION_QUALITY,
+    }
 
     def __init__(self, path):
         self.sync_lock = threading.RLock()
         self.noop_counter = 0
         self.debug_start_time = time.time()
         self.debug_time = time.time()
+        self.is_connected = False
 
+    # Don't call this method from the GUI unless you are sure that there is no
+    # network traffic in progress. Otherwise the gui might hang waiting for the
+    # network timeout
     def _debug(self, *args):
         # manual synchronization so we don't lose the calling method name
         import inspect
@@ -657,7 +687,7 @@ class SMART_DEVICE_APP(DeviceConfig, DevicePlugin):
     def _put_file(self, infile, lpath, book_metadata, this_book, total_books):
         close_ = False
         if not hasattr(infile, 'read'):
-            infile, close_ = open(infile, 'rb'), True
+            infile, close_ = lopen(infile, 'rb'), True
         infile.seek(0, os.SEEK_END)
         length = infile.tell()
         book_metadata.size = length
@@ -668,9 +698,14 @@ class SMART_DEVICE_APP(DeviceConfig, DevicePlugin):
                                'totalBooks': total_books,
                                'willStreamBooks': True,
                                'willStreamBinary' : True,
-                               'wantsSendOkToSendbook' : self.can_send_ok_to_sendbook},
+                               'wantsSendOkToSendbook' : self.can_send_ok_to_sendbook,
+                               'canSupportLpathChanges': True},
                           print_debug_info=False,
                           wait_for_response=self.can_send_ok_to_sendbook)
+
+        if self.can_send_ok_to_sendbook:
+            lpath = result.get('lpath', lpath)
+            book_metadata.lpath = lpath
         self._set_known_metadata(book_metadata)
         pos = 0
         failed = False
@@ -685,23 +720,7 @@ class SMART_DEVICE_APP(DeviceConfig, DevicePlugin):
         self.time = None
         if close_:
             infile.close()
-        return -1 if failed else length
-
-    def _get_smartdevice_option_number(self, opt_string):
-        if opt_string == 'password':
-            return self.OPT_PASSWORD
-        elif opt_string == 'autostart':
-            return self.OPT_AUTOSTART
-        elif opt_string == 'use_fixed_port':
-            return self.OPT_USE_PORT
-        elif opt_string == 'port_number':
-            return self.OPT_PORT_NUMBER
-        elif opt_string == 'force_ip_address':
-            return self.OPT_FORCE_IP_ADDRESS
-        elif opt_string == 'thumbnail_compression_quality':
-            return self.OPT_COMPRESSION_QUALITY
-        else:
-            return None
+        return (-1, None) if failed else (length, lpath)
 
     def _metadata_in_cache(self, uuid, ext_or_lpath, lastmod):
         from calibre.utils.date import now, parse_date
@@ -777,7 +796,7 @@ class SMART_DEVICE_APP(DeviceConfig, DevicePlugin):
         try:
             count = 0
             if os.path.exists(cache_file_name):
-                with open(cache_file_name, mode='rb') as fd:
+                with lopen(cache_file_name, mode='rb') as fd:
                     while True:
                         rec_len = fd.readline()
                         if len(rec_len) != 8:
@@ -814,7 +833,7 @@ class SMART_DEVICE_APP(DeviceConfig, DevicePlugin):
             count = 0
             prefix = os.path.join(cache_dir(),
                         'wireless_device_' + self.device_uuid + '_metadata_cache')
-            with open(prefix + '.tmp', mode='wb') as fd:
+            with lopen(prefix + '.tmp', mode='wb') as fd:
                 for key,book in self.device_book_cache.iteritems():
                     if (now_ - book['last_used']).days > self.PURGE_CACHE_ENTRIES_DAYS:
                         purged += 1
@@ -868,10 +887,20 @@ class SMART_DEVICE_APP(DeviceConfig, DevicePlugin):
                 self.device_book_cache[key]['book'] = new_book
                 self.device_book_cache[key]['last_used'] = now()
 
+    # Force close a socket. The shutdown permits the close even if data transfer
+    # is in progress
+    def _close_socket(self, the_socket):
+        try:
+            the_socket.shutdown(socket.SHUT_RDWR)
+        except:
+            # the shutdown can fail if the socket isn't fully connected. Ignore it
+            pass
+        the_socket.close()
+
     def _close_device_socket(self):
         if self.device_socket is not None:
             try:
-                self.device_socket.close()
+                self._close_socket(self.device_socket)
             except:
                 pass
             self.device_socket = None
@@ -896,18 +925,18 @@ class SMART_DEVICE_APP(DeviceConfig, DevicePlugin):
         return port
 
     def _close_listen_socket(self):
-        self.listen_socket.close()
+        self._close_socket(self.listen_socket)
         self.listen_socket = None
         self.is_connected = False
         if getattr(self, 'broadcast_socket', None) is not None:
-            self.broadcast_socket.close()
+            self._close_socket(self.broadcast_socket)
             self.broadcast_socket = None
 
     def _read_file_metadata(self, temp_file_name):
         from calibre.ebooks.metadata.meta import get_metadata
         from calibre.customize.ui import quick_metadata
         ext = temp_file_name.rpartition('.')[-1].lower()
-        with open(temp_file_name, 'rb') as stream:
+        with lopen(temp_file_name, 'rb') as stream:
             with quick_metadata:
                 return get_metadata(stream, stream_type=ext,
                         force_read_metadata=True,
@@ -1004,9 +1033,13 @@ class SMART_DEVICE_APP(DeviceConfig, DevicePlugin):
             else:
                 challenge = ''
                 hash_digest = ''
+            formats = self.ALL_FORMATS[:]
+            extras = [f.lower() for f in
+                 self.settings().extra_customization[self.OPT_EXTRA_EXTENSIONS].split(',') if f]
+            formats.extend(extras)
             opcode, result = self._call_client('GET_INITIALIZATION_INFO',
                     {'serverProtocolVersion': self.PROTOCOL_VERSION,
-                    'validExtensions': self.ALL_FORMATS,
+                    'validExtensions': formats,
                     'passwordChallenge': challenge,
                     'currentLibraryName': self.current_library_name,
                     'currentLibraryUUID': library_uuid,
@@ -1014,7 +1047,8 @@ class SMART_DEVICE_APP(DeviceConfig, DevicePlugin):
                     'timestampFormat': tweaks['gui_timestamp_display_format'],
                     'lastModifiedFormat': tweaks['gui_last_modified_display_format'],
                     'calibre_version': numeric_version,
-                    'canSupportUpdateBooks': True})
+                    'canSupportUpdateBooks': True,
+                    'canSupportLpathChanges': True})
             if opcode != 'OK':
                 # Something wrong with the return. Close the socket
                 # and continue.
@@ -1442,7 +1476,7 @@ class SMART_DEVICE_APP(DeviceConfig, DevicePlugin):
             if not hasattr(infile, 'read'):
                 infile = USBMS.normalize_path(infile)
             book = SDBook(self.PREFIX, lpath, other=mdata)
-            length = self._put_file(infile, lpath, book, i, len(files))
+            length, lpath = self._put_file(infile, lpath, book, i, len(files))
             if length < 0:
                 raise ControlError(desc='Sending book %s to device failed' % lpath)
             paths.append((lpath, length))
@@ -1559,10 +1593,15 @@ class SMART_DEVICE_APP(DeviceConfig, DevicePlugin):
     def set_library_info(self, library_name, library_uuid, field_metadata):
         self._debug(library_name, library_uuid)
         if self.can_accept_library_info:
+            other_info = {}
+            from calibre.ebooks.metadata.sources.prefs import msprefs
+            other_info['id_link_rules'] = msprefs.get('id_link_rules', {})
+
             self._call_client('SET_LIBRARY_INFO',
                                     {'libraryName' : library_name,
                                      'libraryUuid': library_uuid,
-                                     'fieldMetadata': field_metadata.all_metadata()},
+                                     'fieldMetadata': field_metadata.all_metadata(),
+                                     'otherInfo': other_info},
                                     print_debug_info=True)
 
     @synchronous('sync_lock')
@@ -1595,7 +1634,7 @@ class SMART_DEVICE_APP(DeviceConfig, DevicePlugin):
                                              'for details'))
                     return (None, True)
 
-                cc_mtime = parse_date(book.get('_format_mtime_'), as_utc=False)
+                cc_mtime = parse_date(book.get('_format_mtime_'), as_utc=True)
                 self._debug(book.title, 'cal_mtime', calibre_mtime, 'cc_mtime', cc_mtime)
                 if cc_mtime < calibre_mtime:
                     book.set('_format_mtime_', isoformat(self.now))
@@ -1643,7 +1682,7 @@ class SMART_DEVICE_APP(DeviceConfig, DevicePlugin):
                 elif fm[self.is_read_date_sync_col]['datatype'] != 'datetime':
                     self._debug('is_read_date_sync_col not date type')
                     self._show_message(_("The read date sync column %s is "
-                             "not a Date column")%self.is_read_date_sync_col)
+                             "not a date column")%self.is_read_date_sync_col)
                     self.have_bad_sync_columns = True
 
             self.have_checked_sync_columns = True
@@ -1798,183 +1837,184 @@ class SMART_DEVICE_APP(DeviceConfig, DevicePlugin):
     @synchronous('sync_lock')
     def startup(self):
         self.listen_socket = None
+        self.is_connected = False
 
-    @synchronous('sync_lock')
-    def startup_on_demand(self):
+    def _startup_on_demand(self):
         if getattr(self, 'listen_socket', None) is not None:
             # we are already running
             return
-        if len(self.opcodes) != len(self.reverse_opcodes):
-            self._debug(self.opcodes, self.reverse_opcodes)
-        self.is_connected = False
-        self.listen_socket = None
-        self.device_socket = None
-        self.json_codec = JsonCodec()
-        self.known_metadata = {}
-        self.device_book_cache = defaultdict(dict)
-        self.debug_time = time.time()
-        self.debug_start_time = time.time()
-        self.max_book_packet_len = 0
-        self.noop_counter = 0
-        self.connection_attempts = {}
-        self.client_wants_uuid_file_names = False
-        self.is_read_sync_col = None
-        self.is_read_date_sync_col = None
-        self.have_checked_sync_columns = False
-        self.have_bad_sync_columns = False
-        self.have_sent_future_dated_book_message = False
-        self.now = None
 
         message = None
-        compression_quality_ok = True
-        try:
-            cq = int(self.settings().extra_customization[self.OPT_COMPRESSION_QUALITY])
-            if cq < 50 or cq > 99:
-                compression_quality_ok = False
-            else:
-                self.THUMBNAIL_COMPRESSION_QUALITY = cq
-        except:
-            compression_quality_ok = False
-        if not compression_quality_ok:
-            self.THUMBNAIL_COMPRESSION_QUALITY = 70
-            message = _('Bad compression quality setting. It must be a number '
-                        'between 50 and 99. Forced to be %d.')%self.DEFAULT_THUMBNAIL_COMPRESSION_QUALITY
-            self._debug(message)
-            self.set_option('thumbnail_compression_quality',
-                            str(self.DEFAULT_THUMBNAIL_COMPRESSION_QUALITY))
+        # The driver is not running so must be started. It needs to protect itself
+        # from access by the device thread before it is fully setup. Thus the lock.
+        with self.sync_lock:
+            if len(self.opcodes) != len(self.reverse_opcodes):
+                self._debug(self.opcodes, self.reverse_opcodes)
+            self.is_connected = False
+            self.listen_socket = None
+            self.device_socket = None
+            self.json_codec = JsonCodec()
+            self.known_metadata = {}
+            self.device_book_cache = defaultdict(dict)
+            self.debug_time = time.time()
+            self.debug_start_time = time.time()
+            self.max_book_packet_len = 0
+            self.noop_counter = 0
+            self.connection_attempts = {}
+            self.client_wants_uuid_file_names = False
+            self.is_read_sync_col = None
+            self.is_read_date_sync_col = None
+            self.have_checked_sync_columns = False
+            self.have_bad_sync_columns = False
+            self.have_sent_future_dated_book_message = False
+            self.now = None
 
-        try:
-            self.listen_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            set_socket_inherit(self.listen_socket, False)
-        except:
-            traceback.print_exc()
-            message = 'creation of listen socket failed'
-            self._debug(message)
-            return message
-
-        i = 0
-
-        if self.settings().extra_customization[self.OPT_USE_PORT]:
+            compression_quality_ok = True
             try:
-                opt_port = int(self.settings().extra_customization[self.OPT_PORT_NUMBER])
+                cq = int(self.settings().extra_customization[self.OPT_COMPRESSION_QUALITY])
+                if cq < 50 or cq > 99:
+                    compression_quality_ok = False
+                else:
+                    self.THUMBNAIL_COMPRESSION_QUALITY = cq
             except:
-                message = _('Invalid port in options: %s')% \
-                            self.settings().extra_customization[self.OPT_PORT_NUMBER]
+                compression_quality_ok = False
+            if not compression_quality_ok:
+                self.THUMBNAIL_COMPRESSION_QUALITY = 70
+                message = _('Bad compression quality setting. It must be a number '
+                            'between 50 and 99. Forced to be %d.')%self.DEFAULT_THUMBNAIL_COMPRESSION_QUALITY
+                self._debug(message)
+                self.set_option('thumbnail_compression_quality',
+                                str(self.DEFAULT_THUMBNAIL_COMPRESSION_QUALITY))
+
+            try:
+                self.listen_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                set_socket_inherit(self.listen_socket, False)
+            except:
+                traceback.print_exc()
+                message = 'creation of listen socket failed'
+                self._debug(message)
+                return message
+
+            i = 0
+
+            if self.settings().extra_customization[self.OPT_USE_PORT]:
+                try:
+                    opt_port = int(self.settings().extra_customization[self.OPT_PORT_NUMBER])
+                except:
+                    message = _('Invalid port in options: %s')% \
+                                self.settings().extra_customization[self.OPT_PORT_NUMBER]
+                    self._debug(message)
+                    self._close_listen_socket()
+                    return message
+
+                port = self._attach_to_port(self.listen_socket, opt_port)
+                if port == 0:
+                    message = _('Failed to connect to port %d. Try a different value.')%opt_port
+                    self._debug(message)
+                    self._close_listen_socket()
+                    return message
+            else:
+                while i < 100:  # try 9090 then up to 99 random port numbers
+                    i += 1
+                    port = self._attach_to_port(self.listen_socket,
+                                    9090 if i == 1 else random.randint(8192, 32000))
+                    if port != 0:
+                        break
+                if port == 0:
+                    message = _('Failed to allocate a random port')
+                    self._debug(message)
+                    self._close_listen_socket()
+                    return message
+
+            try:
+                self.listen_socket.listen(1)
+            except:
+                message = 'listen on port %d failed' % port
                 self._debug(message)
                 self._close_listen_socket()
                 return message
 
-            port = self._attach_to_port(self.listen_socket, opt_port)
-            if port == 0:
-                message = _('Failed to connect to port %d. Try a different value.')%opt_port
+            try:
+                ip_addr = self.settings().extra_customization[self.OPT_FORCE_IP_ADDRESS]
+                publish_zeroconf('calibre smart device client',
+                                 '_calibresmartdeviceapp._tcp', port, {},
+                                 use_ip_address=ip_addr)
+            except:
+                self._debug('registration with bonjour failed')
+                traceback.print_exc()
+
+            self._debug('listening on port', port)
+            self.port = port
+
+            # Now try to open a UDP socket to receive broadcasts on
+
+            try:
+                self.broadcast_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+                set_socket_inherit(self.broadcast_socket, False)
+            except:
+                message = 'creation of broadcast socket failed. This is not fatal.'
                 self._debug(message)
-                self._close_listen_socket()
-                return message
-        else:
-            while i < 100:  # try 9090 then up to 99 random port numbers
-                i += 1
-                port = self._attach_to_port(self.listen_socket,
-                                9090 if i == 1 else random.randint(8192, 32000))
-                if port != 0:
-                    break
-            if port == 0:
-                message = _('Failed to allocate a random port')
-                self._debug(message)
-                self._close_listen_socket()
-                return message
-
-        try:
-            self.listen_socket.listen(0)
-        except:
-            message = 'listen on port %d failed' % port
-            self._debug(message)
-            self._close_listen_socket()
-            return message
-
-        try:
-            ip_addr = self.settings().extra_customization[self.OPT_FORCE_IP_ADDRESS]
-            publish_zeroconf('calibre smart device client',
-                             '_calibresmartdeviceapp._tcp', port, {},
-                             use_ip_address=ip_addr)
-        except:
-            self._debug('registration with bonjour failed')
-            traceback.print_exc()
-
-        self._debug('listening on port', port)
-        self.port = port
-
-        # Now try to open a UDP socket to receive broadcasts on
-
-        try:
-            self.broadcast_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        except:
-            message = 'creation of broadcast socket failed. This is not fatal.'
-            self._debug(message)
-            self.broadcast_socket = None
-        else:
-            for p in self.BROADCAST_PORTS:
-                port = self._attach_to_port(self.broadcast_socket, p)
-                if port != 0:
-                    self._debug('broadcast socket listening on port', port)
-                    break
-
-            if port == 0:
-                self.broadcast_socket.close()
                 self.broadcast_socket = None
-                message = 'attaching port to broadcast socket failed. This is not fatal.'
-                self._debug(message)
+            else:
+                for p in self.BROADCAST_PORTS:
+                    port = self._attach_to_port(self.broadcast_socket, p)
+                    if port != 0:
+                        self._debug('broadcast socket listening on port', port)
+                        break
 
-        self.connection_queue = Queue.Queue(1)
-        self.connection_listener = ConnectionListener(self)
-        self.connection_listener.start()
+                if port == 0:
+                    self._close_socket(self.broadcast_socket)
+                    self.broadcast_socket = None
+                    message = 'attaching port to broadcast socket failed. This is not fatal.'
+                    self._debug(message)
 
+            self.connection_queue = Queue.Queue(1)
+            self.connection_listener = ConnectionListener(self)
+            self.connection_listener.start()
         return message
 
-    @synchronous('sync_lock')
-    def shutdown(self):
+    def _shutdown(self):
+        # Force close any socket open by a device. This will cause any IO on the
+        # socket to fail, eventually releasing the transaction lock.
         self._close_device_socket()
-        if getattr(self, 'listen_socket', None) is not None:
-            self.connection_listener.stop()
-            try:
-                unpublish_zeroconf('calibre smart device client',
-                                   '_calibresmartdeviceapp._tcp', self.port, {})
-            except:
-                self._debug('deregistration with bonjour failed')
-                traceback.print_exc()
-            self._close_listen_socket()
 
-    # Methods for dynamic control
+        # Now lockup so we can shutdown the control socket and unpublish mDNS
+        with self.sync_lock:
+            if getattr(self, 'listen_socket', None) is not None:
+                self.connection_listener.stop()
+                try:
+                    unpublish_zeroconf('calibre smart device client',
+                                       '_calibresmartdeviceapp._tcp', self.port, {})
+                except:
+                    self._debug('deregistration with bonjour failed')
+                    traceback.print_exc()
+                self._close_listen_socket()
 
-    @synchronous('sync_lock')
+    # Methods for dynamic control. Do not call _debug in these methods, as it
+    # uses the sync lock.
+
     def is_dynamically_controllable(self):
         return 'smartdevice'
 
-    @synchronous('sync_lock')
     def start_plugin(self):
-        return self.startup_on_demand()
+        return self._startup_on_demand()
 
-    @synchronous('sync_lock')
     def stop_plugin(self):
-        self.shutdown()
+        self._shutdown()
 
-    @synchronous('sync_lock')
     def get_option(self, opt_string, default=None):
-        opt = self._get_smartdevice_option_number(opt_string)
+        opt = self.OPTNAME_TO_NUMBER_MAP.get(opt_string)
         if opt is not None:
             return self.settings().extra_customization[opt]
         return default
 
-    @synchronous('sync_lock')
     def set_option(self, opt_string, value):
-        opt = self._get_smartdevice_option_number(opt_string)
+        opt = self.OPTNAME_TO_NUMBER_MAP.get(opt_string)
         if opt is not None:
             config = self._configProxy()
             ec = config['extra_customization']
             ec[opt] = value
             config['extra_customization'] = ec
 
-    @synchronous('sync_lock')
     def is_running(self):
         return getattr(self, 'listen_socket', None) is not None
-
-

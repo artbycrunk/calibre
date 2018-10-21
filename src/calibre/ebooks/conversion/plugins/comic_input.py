@@ -13,20 +13,22 @@ from calibre.customize.conversion import InputFormatPlugin, OptionRecommendation
 from calibre import CurrentDir
 from calibre.ptempfile import PersistentTemporaryDirectory
 
+
 class ComicInput(InputFormatPlugin):
 
     name        = 'Comic Input'
     author      = 'Kovid Goyal'
     description = 'Optimize comic files (.cbz, .cbr, .cbc) for viewing on portable devices'
-    file_types  = set(['cbz', 'cbr', 'cbc'])
+    file_types  = {'cbz', 'cbr', 'cbc'}
     is_image_collection = True
+    commit_name = 'comic_input'
     core_usage = -1
 
-    options = set([
-        OptionRecommendation(name='colors', recommended_value=256,
-            help=_('Number of colors for grayscale image conversion. Default: '
-                '%default. Values of less than 256 may result in blurred text '
-                'on your device if you are creating your comics in EPUB format.')),
+    options = {
+        OptionRecommendation(name='colors', recommended_value=0,
+            help=_('Reduce the number of colors used in the image. This works only'
+                   ' if you choose the PNG output format. It is useful to reduce file sizes.'
+                   ' Set to zero to turn off. Maximum value is 256. It is off by default.')),
         OptionRecommendation(name='dont_normalize', recommended_value=False,
             help=_('Disable normalize (improve contrast) color range '
             'for pictures. Default: False')),
@@ -54,7 +56,7 @@ class ComicInput(InputFormatPlugin):
               "alphabetically by name. Instead use the order they were "
               "added to the comic.")),
         OptionRecommendation(name='output_format', choices=['png', 'jpg'],
-            recommended_value='png', help=_('The format that images in the created ebook '
+            recommended_value='png', help=_('The format that images in the created e-book '
                 'are converted to. You can experiment to see which format gives '
                 'you optimal size and look on your device.')),
         OptionRecommendation(name='no_process', recommended_value=False,
@@ -69,9 +71,9 @@ class ComicInput(InputFormatPlugin):
             help=_('When converting a CBC do not add links to each page to'
                 ' the TOC. Note this only applies if the TOC has more than one'
                 ' section')),
-        ])
+        }
 
-    recommendations = set([
+    recommendations = {
         ('margin_left', 0, OptionRecommendation.HIGH),
         ('margin_top',  0, OptionRecommendation.HIGH),
         ('margin_right', 0, OptionRecommendation.HIGH),
@@ -86,7 +88,7 @@ class ComicInput(InputFormatPlugin):
         ('page_breaks_before', None, OptionRecommendation.HIGH),
         ('disable_font_rescaling', True, OptionRecommendation.HIGH),
         ('linearize_tables', False, OptionRecommendation.HIGH),
-        ])
+        }
 
     def get_comics_from_collection(self, stream):
         from calibre.libunzip import extract as zipextract
@@ -178,7 +180,8 @@ class ComicInput(InputFormatPlugin):
             if not os.path.exists(cdir):
                 os.makedirs(cdir)
             pages = self.get_pages(fname, cdir)
-            if not pages: continue
+            if not pages:
+                continue
             wrappers = self.create_wrappers(pages)
             comics.append((title, pages, wrappers))
 
@@ -191,7 +194,8 @@ class ComicInput(InputFormatPlugin):
         entries = []
 
         def href(x):
-            if len(comics) == 1: return os.path.basename(x)
+            if len(comics) == 1:
+                return os.path.basename(x)
             return '/'.join(x.split(os.sep)[-2:])
 
         for comic in comics:
@@ -232,9 +236,10 @@ class ComicInput(InputFormatPlugin):
     def create_wrappers(self, pages):
         from calibre.ebooks.oeb.base import XHTML_NS
         wrappers = []
-        WRAPPER = textwrap.dedent('''\
+        WRAPPER = textwrap.dedent(u'''\
         <html xmlns="%s">
             <head>
+                <meta charset="utf-8"/>
                 <title>Page #%d</title>
                 <style type="text/css">
                     @page { margin:0pt; padding: 0pt}
@@ -253,7 +258,7 @@ class ComicInput(InputFormatPlugin):
         for i, page in enumerate(pages):
             wrapper = WRAPPER%(XHTML_NS, i+1, os.path.basename(page), i+1)
             page = os.path.join(dir, u'page_%d.xhtml'%(i+1))
-            open(page, 'wb').write(wrapper)
+            with open(page, 'wb') as f:
+                f.write(wrapper.encode('utf-8'))
             wrappers.append(page)
         return wrappers
-

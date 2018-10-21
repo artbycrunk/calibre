@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python2
 # vim:fileencoding=UTF-8
 from __future__ import (unicode_literals, division, absolute_import,
                         print_function)
@@ -9,18 +9,32 @@ __docformat__ = 'restructuredtext en'
 
 from collections import OrderedDict
 
-from calibre import as_unicode
+from calibre import random_user_agent
 from calibre.ebooks.metadata.sources.base import Source, Option
+
+
+def parse_html(raw):
+    try:
+        from html5_parser import parse
+    except ImportError:
+        # Old versions of calibre
+        import html5lib
+        return html5lib.parse(raw, treebuilder='lxml', namespaceHTMLElements=False)
+    else:
+        return parse(raw)
+
 
 class GoogleImages(Source):
 
     name = 'Google Images'
+    version = (1, 0, 0)
+    minimum_calibre_version = (2, 80, 0)
     description = _('Downloads covers from a Google Image search. Useful to find larger/alternate covers.')
     capabilities = frozenset(['cover'])
-    config_help_message = _('Configure the Google Image Search plugin')
     can_get_multiple_covers = True
+    supports_gzip_transfer_encoding = True
     options = (Option('max_covers', 'number', 5, _('Maximum number of covers to get'),
-                      _('The maximum number of covers to process from the google search result')),
+                      _('The maximum number of covers to process from the Google search result')),
                Option('size', 'choices', 'svga', _('Cover size'),
                       _('Search for covers larger than the specified size'),
                       choices=OrderedDict((
@@ -45,78 +59,52 @@ class GoogleImages(Source):
         urls = self.get_image_urls(title, author, log, abort, timeout)
         self.download_multiple_covers(title, authors, urls, get_best_cover, timeout, result_queue, abort, log)
 
+    @property
+    def user_agent(self):
+        return random_user_agent(allow_ie=False)
+
     def get_image_urls(self, title, author, log, abort, timeout):
-        from calibre.utils.ipc.simple_worker import fork_job, WorkerError
-        try:
-            return fork_job('calibre.ebooks.metadata.sources.google_images',
-                    'search', args=(title, author, self.prefs['size'], timeout), no_output=True, abort=abort, timeout=timeout)['result']
-        except WorkerError as e:
-            if e.orig_tb:
-                log.error(e.orig_tb)
-            log.exception('Searching google failed:' + as_unicode(e))
-        except Exception as e:
-            log.exception('Searching google failed:' + as_unicode(e))
+        from calibre.utils.cleantext import clean_ascii_chars
+        from urllib import urlencode
+        import json
+        from collections import OrderedDict
+        ans = OrderedDict()
+        br = self.browser
+        q = urlencode({'as_q': ('%s %s'%(title, author)).encode('utf-8')}).decode('utf-8')
+        sz = self.prefs['size']
+        if sz == 'any':
+            sz = ''
+        elif sz == 'l':
+            sz = 'isz:l,'
+        else:
+            sz = 'isz:lt,islt:%s,' % sz
+        # See https://www.google.com/advanced_image_search to understand this
+        # URL scheme
+        url = 'https://www.google.com/search?as_st=y&tbm=isch&{}&as_epq=&as_oq=&as_eq=&cr=&as_sitesearch=&safe=images&tbs={}iar:t,ift:jpg'.format(q, sz)
+        log('Search URL: ' + url)
+        raw = clean_ascii_chars(br.open(url).read().decode('utf-8'))
+        root = parse_html(raw)
+        for div in root.xpath('//div[@class="rg_meta notranslate"]'):
+            try:
+                data = json.loads(div.text)
+            except Exception:
+                continue
+            if 'ou' in data:
+                ans[data['ou']] = True
+        return list(ans.iterkeys())
 
-        return []
-
-USER_AGENT = 'Mozilla/5.0 (X11; Linux x86_64; rv:25.0) Gecko/20100101 Firefox/25.0'
-
-def find_image_urls(br, ans):
-    import urlparse
-    for w in br.page.mainFrame().documentElement().findAll('div#ires a.rg_l[href]'):
-        try:
-            imgurl = urlparse.parse_qs(urlparse.urlparse(unicode(w.attribute('href'))).query)['imgurl'][0]
-        except:
-            # import traceback
-            # traceback.print_exc()
-            continue
-        if imgurl not in ans:
-            ans.append(imgurl)
-
-def search(title, author, size, timeout, debug=False):
-    import time
-    from calibre.web.jsbrowser.browser import Browser, LoadWatcher, Timeout
-    ans = []
-    start_time = time.time()
-    br = Browser(user_agent=USER_AGENT, enable_developer_tools=debug)
-    br.visit('https://www.google.com/advanced_image_search')
-    f = br.select_form('form[action="/search"]')
-    f['as_q'] = '%s %s'%(title, author)
-    if size != 'any':
-        f['imgsz'] = size
-    f['imgar'] = 't|xt'
-    f['as_filetype'] = 'jpg'
-    br.submit(wait_for_load=False)
-
-    # Loop until the page finishes loading or at least five image urls are
-    # found
-    lw = LoadWatcher(br.page, br)
-    while lw.is_loading and len(ans) < 5:
-        br.run_for_a_time(0.2)
-        find_image_urls(br, ans)
-        if time.time() - start_time > timeout:
-            raise Timeout('Timed out trying to load google image search page')
-    find_image_urls(br, ans)
-    if debug:
-        br.show_browser()
-    br.close()
-    del br  # Needed to prevent PyQt from segfaulting
-    return ans
-
-def test_google():
-    import pprint
-    pprint.pprint(search('heroes', 'abercrombie', 'svga', 60, debug=True))
 
 def test():
     from Queue import Queue
     from threading import Event
     from calibre.utils.logging import default_log
     p = GoogleImages(None)
+    p.log = default_log
     rq = Queue()
     p.download_cover(default_log, rq, Event(), title='The Heroes',
                      authors=('Joe Abercrombie',))
-    print ('Downloaded', rq.qsize(), 'covers')
+    print('Downloaded', rq.qsize(), 'covers')
+
 
 if __name__ == '__main__':
     test()
-

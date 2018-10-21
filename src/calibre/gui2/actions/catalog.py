@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python2
 # vim:fileencoding=UTF-8:ts=4:sw=4:sta:et:sts=4:ai
 
 __license__   = 'GPL v3'
@@ -15,6 +15,7 @@ from calibre.utils.config import dynamic
 from calibre.gui2.actions import InterfaceAction
 from calibre import sanitize_file_name_unicode
 
+
 class GenerateCatalogAction(InterfaceAction):
 
     name = 'Generate Catalog'
@@ -28,6 +29,7 @@ class GenerateCatalogAction(InterfaceAction):
     def location_selected(self, loc):
         enabled = loc == 'library'
         self.qaction.setEnabled(enabled)
+        self.menuless_qaction.setEnabled(enabled)
 
     def generate_catalog(self):
         rows = self.gui.library_view.selectionModel().selectedRows()
@@ -56,7 +58,7 @@ class GenerateCatalogAction(InterfaceAction):
         fmt = os.path.splitext(out)[1][1:].upper()
         job = self.gui.job_manager.run_job(
                 self.Dispatcher(self.catalog_generated), func, args=args,
-                    description=desc)
+                description=desc)
         job.catalog_file_path = out
         job.fmt = fmt
         job.catalog_sync, job.catalog_title = sync, title
@@ -78,15 +80,16 @@ class GenerateCatalogAction(InterfaceAction):
 
         if job.failed:
             return self.gui.job_exception(job)
-        id = self.gui.library_view.model().add_catalog(job.catalog_file_path, job.catalog_title)
-        self.gui.library_view.model().beginResetModel(), self.gui.library_view.model().endResetModel()
-        if job.catalog_sync:
-            sync = dynamic.get('catalogs_to_be_synced', set([]))
-            sync.add(id)
-            dynamic.set('catalogs_to_be_synced', sync)
+        if dynamic.get('catalog_add_to_library', True):
+            id = self.gui.library_view.model().add_catalog(job.catalog_file_path, job.catalog_title)
+            self.gui.library_view.model().beginResetModel(), self.gui.library_view.model().endResetModel()
+            if job.catalog_sync:
+                sync = dynamic.get('catalogs_to_be_synced', set([]))
+                sync.add(id)
+                dynamic.set('catalogs_to_be_synced', sync)
         self.gui.status_bar.show_message(_('Catalog generated.'), 3000)
         self.gui.sync_catalogs()
-        if job.fmt not in {'EPUB','MOBI', 'AZW3'}:
+        if not dynamic.get('catalog_add_to_library', True) or job.fmt not in {'EPUB','MOBI', 'AZW3'}:
             export_dir = choose_dir(self.gui, _('Export Catalog Directory'),
                     _('Select destination for %(title)s.%(fmt)s') % dict(
                         title=job.catalog_title, fmt=job.fmt.lower()))
@@ -96,12 +99,11 @@ class GenerateCatalogAction(InterfaceAction):
                 try:
                     shutil.copyfile(job.catalog_file_path, destination)
                 except EnvironmentError as err:
-                    if getattr(err, 'errno', None) == errno.EACCES: # Permission denied
+                    if getattr(err, 'errno', None) == errno.EACCES:  # Permission denied
                         import traceback
-                        error_dialog(self, _('Permission denied'),
+                        error_dialog(self.gui, _('Permission denied'),
                                 _('Could not open %s. Is it being used by another'
                                 ' program?')%destination, det_msg=traceback.format_exc(),
                                 show=True)
                         return
                     raise
-

@@ -3,6 +3,7 @@ Retrieve and modify in-place Mobipocket book metadata.
 '''
 
 from __future__ import with_statement
+from __future__ import print_function
 
 __license__   = 'GPL v3'
 __copyright__ = '2009, Kovid Goyal kovid@kovidgoyal.net and ' \
@@ -21,10 +22,12 @@ from calibre.utils.date import now as nowf
 from calibre.utils.imghdr import what
 from calibre.utils.localization import canonicalize_lang, lang_as_iso639_1
 
+
 def is_image(ss):
     if ss is None:
         return False
     return what(None, ss[:200]) is not None
+
 
 class StreamSlicer(object):
 
@@ -92,6 +95,7 @@ class StreamSlicer(object):
 
     def truncate(self, value):
         self._stream.truncate(value)
+
 
 class MetadataUpdater(object):
     DRM_KEY_SIZE = 48
@@ -286,7 +290,7 @@ class MetadataUpdater(object):
             s = s.translate(FILTER)
             result += "%04X   %-*s   %s\n" % (N, length*3, hexa, s)
             N+=length
-        print result
+        print(result)
 
     def get_pdbrecords(self):
         pdbrecords = []
@@ -305,11 +309,11 @@ class MetadataUpdater(object):
 
     def dump_pdbrecords(self):
         # Diagnostic
-        print "MetadataUpdater.dump_pdbrecords()"
-        print "%10s %10s %10s" % ("offset","flags","val")
+        print("MetadataUpdater.dump_pdbrecords()")
+        print("%10s %10s %10s" % ("offset","flags","val"))
         for i in xrange(len(self.pdbrecords)):
             pdbrecord = self.pdbrecords[i]
-            print "%10X %10X %10X" % (pdbrecord[0], pdbrecord[1], pdbrecord[2])
+            print("%10X %10X %10X" % (pdbrecord[0], pdbrecord[1], pdbrecord[2]))
 
     def record(self, n):
         if n >= self.nrecs:
@@ -323,6 +327,7 @@ class MetadataUpdater(object):
 
     def update(self, mi):
         mi.title = normalize(mi.title)
+
         def update_exth_record(rec):
             recs.append(rec)
             if rec[0] in self.original_exth_records:
@@ -457,17 +462,19 @@ class MetadataUpdater(object):
                         self.thumbnail_record[:] = thumbnail
                 return
 
+
 def set_metadata(stream, mi):
     mu = MetadataUpdater(stream)
     mu.update(mi)
     return
+
 
 def get_metadata(stream):
     from calibre.ebooks.metadata import MetaInformation
     from calibre.ptempfile import TemporaryDirectory
     from calibre.ebooks.mobi.reader.headers import MetadataHeader
     from calibre.ebooks.mobi.reader.mobi6 import MobiReader
-    from calibre.utils.magick.draw import save_cover_data_to
+    from calibre.utils.img import save_cover_data_to
     from calibre import CurrentDir
 
     stream.seek(0)
@@ -517,7 +524,7 @@ def get_metadata(stream):
             data = ''
     if data and what(None, data) in {'jpg', 'jpeg', 'gif', 'png', 'bmp', 'webp'}:
         try:
-            mi.cover_data = ('jpg', save_cover_data_to(data, 'cover.jpg', return_data=True))
+            mi.cover_data = ('jpg', save_cover_data_to(data))
         except Exception:
             log.exception('Failed to read MOBI cover')
     return mi

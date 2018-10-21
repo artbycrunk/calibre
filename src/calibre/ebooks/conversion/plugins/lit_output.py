@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python2
 # vim:fileencoding=UTF-8:ts=4:sw=4:sta:et:sts=4:ai
 from __future__ import with_statement
 
@@ -9,11 +9,13 @@ __docformat__ = 'restructuredtext en'
 
 from calibre.customize.conversion import OutputFormatPlugin
 
+
 class LITOutput(OutputFormatPlugin):
 
     name = 'LIT Output'
     author = 'Marshall T. Vandegrift'
     file_type = 'lit'
+    commit_name = 'lit_output'
 
     def convert(self, oeb, output_path, input_plugin, opts, log):
         self.log, self.opts, self.oeb = log, opts, oeb
@@ -26,7 +28,6 @@ class LITOutput(OutputFormatPlugin):
                 remove_css_pagebreaks=False)
         split(self.oeb, self.opts)
 
-
         tocadder = HTMLTOCAdder()
         tocadder(oeb, opts)
         mangler = CaseMangler()
@@ -35,5 +36,3 @@ class LITOutput(OutputFormatPlugin):
         rasterizer(oeb, opts)
         lit = LitWriter(self.opts)
         lit(oeb, output_path)
-
-

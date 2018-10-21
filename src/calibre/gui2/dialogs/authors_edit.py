@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python2
 # vim:fileencoding=utf-8
 from __future__ import (unicode_literals, division, absolute_import,
                         print_function)
@@ -16,6 +16,7 @@ from calibre.utils.config_base import tweaks
 from calibre.gui2 import gprefs
 from calibre.gui2.complete2 import EditWithComplete
 from calibre.ebooks.metadata import string_to_authors
+
 
 class ItemDelegate(QStyledItemDelegate):
 
@@ -43,6 +44,7 @@ class ItemDelegate(QStyledItemDelegate):
         self.ed.setFocusPolicy(Qt.StrongFocus)
         init_line_edit(self.ed, self.all_authors)
         return self.ed
+
 
 class List(QListWidget):
 
@@ -95,6 +97,7 @@ class List(QListWidget):
         for x in sorted(remove, reverse=True):
             self.takeItem(x)
 
+
 class Edit(EditWithComplete):
 
     returnPressed = pyqtSignal()
@@ -106,11 +109,13 @@ class Edit(EditWithComplete):
             return
         return EditWithComplete.keyPressEvent(self, ev)
 
+
 def init_line_edit(a, all_authors):
     a.set_separator('&')
     a.set_space_before_sep(True)
     a.set_add_separator(tweaks['authors_completer_append_separator'])
     a.update_items_cache(all_authors)
+
 
 class AuthorsEdit(QDialog):
 

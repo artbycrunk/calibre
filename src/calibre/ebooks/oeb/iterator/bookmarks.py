@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python2
 # vim:fileencoding=UTF-8:ts=4:sw=4:sta:et:sts=4:ai
 from __future__ import (unicode_literals, division, absolute_import,
                         print_function)
@@ -15,7 +15,11 @@ from calibre.utils.zipfile import safe_replace
 BM_FIELD_SEP = u'*|!|?|*'
 BM_LEGACY_ESC = u'esc-text-%&*#%(){}ads19-end-esc'
 
+
 class BookmarksMixin(object):
+
+    def __init__(self, copy_bookmarks_to_file=True):
+        self.copy_bookmarks_to_file = copy_bookmarks_to_file
 
     def parse_bookmarks(self, raw):
         for line in raw.splitlines():
@@ -64,25 +68,24 @@ class BookmarksMixin(object):
 
     def read_bookmarks(self):
         self.bookmarks = []
-        bmfile = os.path.join(self.base, 'META-INF', 'calibre_bookmarks.txt')
-        raw = ''
-        if os.path.exists(bmfile):
-            with open(bmfile, 'rb') as f:
-                raw = f.read()
-        else:
-            saved = self.config['bookmarks_'+self.pathtoebook]
-            if saved:
-                raw = saved
-        if not isinstance(raw, unicode):
+        raw = self.config['bookmarks_'+self.pathtoebook] or ''
+        if not raw:
+            # Look for bookmarks saved inside the ebook
+            bmfile = os.path.join(self.base, 'META-INF', 'calibre_bookmarks.txt')
+            if os.path.exists(bmfile):
+                with open(bmfile, 'rb') as f:
+                    raw = f.read()
+        if isinstance(raw, bytes):
             raw = raw.decode('utf-8')
         self.parse_bookmarks(raw)
 
-    def save_bookmarks(self, bookmarks=None):
+    def save_bookmarks(self, bookmarks=None, no_copy_to_file=False):
         if bookmarks is None:
             bookmarks = self.bookmarks
         dat = self.serialize_bookmarks(bookmarks)
-        if os.path.splitext(self.pathtoebook)[1].lower() == '.epub' and \
-            os.access(self.pathtoebook, os.R_OK):
+        self.config['bookmarks_'+self.pathtoebook] = dat
+        if not no_copy_to_file and self.copy_bookmarks_to_file and os.path.splitext(
+                self.pathtoebook)[1].lower() == '.epub' and os.access(self.pathtoebook, os.W_OK):
             try:
                 zf = open(self.pathtoebook, 'r+b')
             except IOError:
@@ -90,14 +93,12 @@ class BookmarksMixin(object):
             safe_replace(zf, 'META-INF/calibre_bookmarks.txt',
                     BytesIO(dat.encode('utf-8')),
                     add_missing=True)
-        else:
-            self.config['bookmarks_'+self.pathtoebook] = dat
 
-    def add_bookmark(self, bm):
+    def add_bookmark(self, bm, no_copy_to_file=False):
         self.bookmarks = [x for x in self.bookmarks if x['title'] !=
                 bm['title']]
         self.bookmarks.append(bm)
-        self.save_bookmarks()
+        self.save_bookmarks(no_copy_to_file=no_copy_to_file)
 
     def set_bookmarks(self, bookmarks):
         self.bookmarks = bookmarks

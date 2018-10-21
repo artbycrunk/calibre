@@ -15,15 +15,17 @@ import sys, os, re
 from calibre.ebooks.rtf2xml import copy
 from calibre.ptempfile import better_mktemp
 
+
 class Colors:
     """
     Change lines with color info from color numbers to the actual color names.
     """
+
     def __init__(self,
             in_file,
             bug_handler,
-            copy = None,
-            run_level = 1
+            copy=None,
+            run_level=1
             ):
         """
         Required:
@@ -125,8 +127,8 @@ class Colors:
             Othewise, get a function by passing the self.__token_info to the
             state dictionary.
             """
-        #mi<mk<clrtbl-beg
-        #cw<ci<red_______<nu<00
+        # mi<mk<clrtbl-beg
+        # cw<ci<red_______<nu<00
         if self.__token_info == 'mi<mk<clrtbl-end':
             self.__state = 'after_color_table'
         else:
@@ -147,7 +149,7 @@ class Colors:
         Added Oct 10, 2003
         If the number is 0, that indicates no color
         """
-        #cw<ci<font-color<nu<2
+        # cw<ci<font-color<nu<2
         if self.__token_info == 'cw<ci<font-color':
             hex_num = int(line[20:-1])
             hex_num = self.__figure_num(hex_num)
@@ -193,7 +195,7 @@ class Colors:
         except ValueError:
             if self.__run_level > 3:
                 msg = 'can\'t make integer from string\n'
-                raise self.__bug_handler, msg
+                raise self.__bug_handler(msg)
             else:
                 return 'bdr-color_:no-value'
         hex_num = self.__figure_num(num)
@@ -209,7 +211,7 @@ class Colors:
             if self.__run_level > 3:
                 msg = 'no value in self.__color_dict' \
                 'for key %s at line %d\n' % (num, self.__line)
-                raise self.__bug_handler, msg
+                raise self.__bug_handler(msg)
         return hex_num
 
     def __do_nothing_func(self, line):
@@ -247,7 +249,7 @@ class Colors:
                         except:
                             pass
                     action(line)
-        copy_obj = copy.Copy(bug_handler = self.__bug_handler)
+        copy_obj = copy.Copy(bug_handler=self.__bug_handler)
         if self.__copy:
             copy_obj.copy_file(self.__write_to, "color.data")
         copy_obj.rename(self.__write_to, self.__file)

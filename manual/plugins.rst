@@ -1,6 +1,6 @@
 .. _plugins:
 
-API Documentation for plugins
+API documentation for plugins
 ===============================
 
 .. module:: calibre.customize
@@ -87,7 +87,7 @@ Conversion plugins
    :members:
    :member-order: bysource
 
-Device Drivers
+Device drivers
 -----------------
 
 .. module:: calibre.devices.interface
@@ -126,8 +126,6 @@ The base class for such devices is :class:`calibre.devices.usbms.driver.USBMS`. 
         PRODUCT_ID  = [0xb004]
         BCD         = [0x224]
 
-        VENDOR_NAME = 'ANDROID'
-        WINDOWS_MAIN_MEM = WINDOWS_CARD_A_MEM = '__UMS_COMPOSITE'
         THUMBNAIL_HEIGHT = 144
 
         EBOOK_DIR_MAIN = 'eBooks'
@@ -156,7 +154,7 @@ The base class for such devices is :class:`calibre.devices.usbms.driver.USBMS`. 
 User Interface Actions
 --------------------------
 
-If you are adding your own plugin in a zip file, you should subclass both InterfaceActionBase and InterfaceAction. The :meth:`load_actual_plugin` method of you InterfaceActionBase subclass must return an instantiated object of your InterfaceBase subclass.
+If you are adding your own plugin in a ZIP file, you should subclass both InterfaceActionBase and InterfaceAction. The :meth:`load_actual_plugin` method of your InterfaceActionBase subclass must return an instantiated object of your InterfaceBase subclass.
 
 
 .. autoclass:: calibre.gui2.actions.InterfaceAction
@@ -170,7 +168,7 @@ If you are adding your own plugin in a zip file, you should subclass both Interf
    :member-order: bysource
 
 
-Preferences Plugins
+Preferences plugins
 --------------------------
 
 .. autoclass:: calibre.customize.PreferencesPlugin

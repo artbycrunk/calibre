@@ -1,24 +1,35 @@
+from __future__ import print_function
 __license__   = 'GPL v3'
 __copyright__ = '2008, Kovid Goyal <kovid at kovidgoyal.net>'
 
-from functools import partial
-
-from PyQt5.Qt import Qt, QDialog
+from PyQt5.Qt import Qt, QDialog, QAbstractItemView
 
 from calibre.gui2.dialogs.tag_editor_ui import Ui_TagEditor
 from calibre.gui2 import question_dialog, error_dialog, gprefs
 from calibre.constants import islinux
 from calibre.utils.icu import sort_key, primary_contains
 
+
 class TagEditor(QDialog, Ui_TagEditor):
 
-    def __init__(self, window, db, id_=None, key=None):
+    def __init__(self, window, db, id_=None, key=None, current_tags=None):
         QDialog.__init__(self, window)
         Ui_TagEditor.__init__(self)
         self.setupUi(self)
 
         self.db = db
+        self.sep = ','
+        self.is_names = False
         if key:
+            # Assume that if given a key then it is a custom column
+            try:
+                fm = db.field_metadata[key]
+                self.is_names = fm['display'].get('is_names', False)
+                if self.is_names:
+                    self.sep = '&'
+                self.setWindowTitle(_('Edit %s') % fm['name'])
+            except Exception:
+                pass
             key = db.field_metadata.key_to_label(key)
         self.key = key
         self.index = db.row(id_) if id_ is not None else None
@@ -31,36 +42,45 @@ class TagEditor(QDialog, Ui_TagEditor):
                 tags = self.db.get_custom(self.index, label=key)
         else:
             tags = []
+        if current_tags is not None:
+            tags = sorted(set(current_tags), key=sort_key)
         if tags:
-            tags.sort(key=sort_key)
+            if not self.is_names:
+                tags.sort(key=sort_key)
             for tag in tags:
                 self.applied_tags.addItem(tag)
         else:
             tags = []
 
-        self.tags = tags
+        if self.is_names:
+            self.applied_tags.setDragDropMode(QAbstractItemView.InternalMove)
+            self.applied_tags.setSelectionMode(QAbstractItemView.ExtendedSelection)
 
         if key:
             all_tags = [tag for tag in self.db.all_custom(label=key)]
         else:
             all_tags = [tag for tag in self.db.all_tags()]
-        all_tags = list(set(all_tags))
-        all_tags.sort(key=sort_key)
+        all_tags = sorted(set(all_tags), key=sort_key)
+        q = set(tags)
         for tag in all_tags:
-            if tag not in tags:
+            if tag not in q:
                 self.available_tags.addItem(tag)
 
-        self.apply_button.clicked.connect(lambda: self.apply_tags())
-        self.unapply_button.clicked.connect(lambda: self.unapply_tags())
+        connect_lambda(self.apply_button.clicked, self, lambda self: self.apply_tags())
+        connect_lambda(self.unapply_button.clicked, self, lambda self: self.unapply_tags())
         self.add_tag_button.clicked.connect(self.add_tag)
-        self.delete_button.clicked.connect(lambda: self.delete_tags())
+        connect_lambda(self.delete_button.clicked, self, lambda self: self.delete_tags())
         self.add_tag_input.returnPressed[()].connect(self.add_tag)
-        # add the handlers for the filter input clear buttons
-        for x in ('available', 'applied'):
-            getattr(self, '%s_filter_input_clear_btn' % x).clicked.connect(getattr(self, '%s_filter_input' % x).clear)
         # add the handlers for the filter input fields
-        self.available_filter_input.textChanged.connect(self.filter_tags)
-        self.applied_filter_input.textChanged.connect(partial(self.filter_tags, which='applied_tags'))
+        connect_lambda(self.available_filter_input.textChanged, self, lambda self, text: self.filter_tags(text))
+        connect_lambda(self.applied_filter_input.textChanged, self, lambda self, text: self.filter_tags(text, which='applied_tags'))
+
+        # Restore the focus to the last input box used (typed into)
+        for x in ('add_tag_input', 'available_filter_input', 'applied_filter_input'):
+            ibox = getattr(self, x)
+            ibox.setObjectName(x)
+            connect_lambda(ibox.textChanged, self, lambda self: self.edit_box_changed(self.sender().objectName()))
+        getattr(self, gprefs.get('tag_editor_last_filter', 'add_tag_input')).setFocus()
 
         if islinux:
             self.available_tags.itemDoubleClicked.connect(self.apply_tags)
@@ -71,6 +91,9 @@ class TagEditor(QDialog, Ui_TagEditor):
         geom = gprefs.get('tag_editor_geometry', None)
         if geom is not None:
             self.restoreGeometry(geom)
+
+    def edit_box_changed(self, which):
+        gprefs['tag_editor_last_filter'] = which
 
     def delete_tags(self, item=None):
         confirms, deletes = [], []
@@ -107,15 +130,19 @@ class TagEditor(QDialog, Ui_TagEditor):
     def apply_tags(self, item=None):
         items = self.available_tags.selectedItems() if item is None else [item]
         rows = [self.available_tags.row(i) for i in items]
+        if not rows:
+            return
         row = max(rows)
+        tags = self._get_applied_tags_box_contents()
         for item in items:
             tag = unicode(item.text())
-            self.tags.append(tag)
+            tags.append(tag)
             self.available_tags.takeItem(self.available_tags.row(item))
 
-        self.tags.sort(key=sort_key)
+        if not self.is_names:
+            tags.sort(key=sort_key)
         self.applied_tags.clear()
-        for tag in self.tags:
+        for tag in tags:
             self.applied_tags.addItem(tag)
 
         if row >= self.available_tags.count():
@@ -128,16 +155,24 @@ class TagEditor(QDialog, Ui_TagEditor):
         # use the filter again when the applied tags were changed
         self.filter_tags(self.applied_filter_input.text(), which='applied_tags')
 
+    def _get_applied_tags_box_contents(self):
+        tags = []
+        for i in range(0, self.applied_tags.count()):
+            tags.append(unicode(self.applied_tags.item(i).text()))
+        return tags
+
     def unapply_tags(self, item=None):
+        tags = self._get_applied_tags_box_contents()
         items = self.applied_tags.selectedItems() if item is None else [item]
         for item in items:
             tag = unicode(item.text())
-            self.tags.remove(tag)
+            tags.remove(tag)
             self.available_tags.addItem(tag)
 
-        self.tags.sort(key=sort_key)
+        if not self.is_names:
+            tags.sort(key=sort_key)
         self.applied_tags.clear()
-        for tag in self.tags:
+        for tag in tags:
             self.applied_tags.addItem(tag)
 
         items = [unicode(self.available_tags.item(x).text()) for x in
@@ -152,19 +187,21 @@ class TagEditor(QDialog, Ui_TagEditor):
         self.filter_tags(self.available_filter_input.text())
 
     def add_tag(self):
-        tags = unicode(self.add_tag_input.text()).split(',')
+        tags = unicode(self.add_tag_input.text()).split(self.sep)
+        tags_in_box = self._get_applied_tags_box_contents()
         for tag in tags:
             tag = tag.strip()
             if not tag:
                 continue
             for item in self.available_tags.findItems(tag, Qt.MatchFixedString):
                 self.available_tags.takeItem(self.available_tags.row(item))
-            if tag not in self.tags:
-                self.tags.append(tag)
+            if tag not in tags_in_box:
+                tags_in_box.append(tag)
 
-        self.tags.sort(key=sort_key)
+        if not self.is_names:
+            tags_in_box.sort(key=sort_key)
         self.applied_tags.clear()
-        for tag in self.tags:
+        for tag in tags_in_box:
             self.applied_tags.addItem(tag)
 
         self.add_tag_input.setText('')
@@ -180,6 +217,7 @@ class TagEditor(QDialog, Ui_TagEditor):
             item.setHidden(bool(q and not primary_contains(q, unicode(item.text()))))
 
     def accept(self):
+        self.tags = self._get_applied_tags_box_contents()
         self.save_state()
         return QDialog.accept(self)
 
@@ -189,3 +227,13 @@ class TagEditor(QDialog, Ui_TagEditor):
 
     def save_state(self):
         gprefs['tag_editor_geometry'] = bytearray(self.saveGeometry())
+
+
+if __name__ == '__main__':
+    from calibre.gui2 import Application
+    from calibre.library import db
+    db = db()
+    app = Application([])
+    d = TagEditor(None, db, current_tags='a b c'.split())
+    if d.exec_() == d.Accepted:
+        print(d.tags)

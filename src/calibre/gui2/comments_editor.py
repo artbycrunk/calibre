@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python2
 # vim:fileencoding=UTF-8:ts=4:sw=4:sta:et:sts=4:ai
 
 __license__   = 'GPL v3'
@@ -8,21 +8,26 @@ __docformat__ = 'restructuredtext en'
 import re, os, json, weakref
 
 from lxml import html
-import sip
 
 from PyQt5.Qt import (QApplication, QFontInfo, QSize, QWidget, QPlainTextEdit,
     QToolBar, QVBoxLayout, QAction, QIcon, Qt, QTabWidget, QUrl, QFormLayout,
     QSyntaxHighlighter, QColor, QColorDialog, QMenu, QDialog, QLabel,
     QHBoxLayout, QKeySequence, QLineEdit, QDialogButtonBox, QPushButton,
-    QCheckBox)
+    pyqtSignal, QCheckBox)
 from PyQt5.QtWebKitWidgets import QWebView, QWebPage
+try:
+    from PyQt5 import sip
+except ImportError:
+    import sip
 
 from calibre.ebooks.chardet import xml_to_unicode
 from calibre import xml_replace_entities, prepare_string_for_xml
-from calibre.gui2 import open_url, error_dialog, choose_files
+from calibre.gui2 import open_url, error_dialog, choose_files, gprefs, NO_URL_FORMATTING, secure_web_page
+from calibre.gui2.widgets import LineEditECM
 from calibre.utils.soupparser import fromstring
 from calibre.utils.config import tweaks
 from calibre.utils.imghdr import what
+
 
 class PageAction(QAction):  # {{{
 
@@ -53,6 +58,7 @@ class PageAction(QAction):  # {{{
 
 # }}}
 
+
 class BlockStyleAction(QAction):  # {{{
 
     def __init__(self, text, name, view):
@@ -65,10 +71,14 @@ class BlockStyleAction(QAction):  # {{{
 
 # }}}
 
-class EditorWidget(QWebView):  # {{{
+
+class EditorWidget(QWebView, LineEditECM):  # {{{
+
+    data_changed = pyqtSignal()
 
     def __init__(self, parent=None):
         QWebView.__init__(self, parent)
+        self.base_url = None
         self._parent = weakref.ref(parent)
         self.readonly = False
 
@@ -107,14 +117,14 @@ class EditorWidget(QWebView):  # {{{
                     _('Align justified'), False),
                 ('Undo', 'undo', 'edit-undo', _('Undo'), False),
                 ('Redo', 'redo', 'edit-redo', _('Redo'), False),
-                ('RemoveFormat', 'remove_format', 'trash', _('Remove formatting'), False),
+                ('RemoveFormat', 'remove_format', 'edit-clear', _('Remove formatting'), False),
                 ('Copy', 'copy', 'edit-copy', _('Copy'), False),
                 ('Paste', 'paste', 'edit-paste', _('Paste'), False),
                 ('Cut', 'cut', 'edit-cut', _('Cut'), False),
                 ('Indent', 'indent', 'format-indent-more',
-                    _('Increase Indentation'), False),
+                    _('Increase indentation'), False),
                 ('Outdent', 'outdent', 'format-indent-less',
-                    _('Decrease Indentation'), False),
+                    _('Decrease indentation'), False),
                 ('SelectAll', 'select_all', 'edit-select-all',
                     _('Select all'), False),
             ]:
@@ -127,15 +137,15 @@ class EditorWidget(QWebView):  # {{{
                 ac.triggered.connect(self.remove_format_cleanup,
                         type=Qt.QueuedConnection)
 
-        self.action_color = QAction(QIcon(I('format-text-color')), _('Foreground color'),
+        self.action_color = QAction(QIcon(I('format-text-color.png')), _('Foreground color'),
                 self)
         self.action_color.triggered.connect(self.foreground_color)
 
-        self.action_background = QAction(QIcon(I('format-fill-color')),
+        self.action_background = QAction(QIcon(I('format-fill-color.png')),
                 _('Background color'), self)
         self.action_background.triggered.connect(self.background_color)
 
-        self.action_block_style = QAction(QIcon(I('format-text-heading')),
+        self.action_block_style = QAction(QIcon(I('format-text-heading.png')),
                 _('Style text block'), self)
         self.action_block_style.setToolTip(
                 _('Style the selected text block'))
@@ -160,21 +170,28 @@ class EditorWidget(QWebView):  # {{{
 
         self.action_insert_link = QAction(QIcon(I('insert-link.png')),
                 _('Insert link or image'), self)
+        self.action_insert_hr = QAction(QIcon(I('format-text-hr.png')),
+                _('Insert separator'), self)
         self.action_insert_link.triggered.connect(self.insert_link)
+        self.action_insert_hr.triggered.connect(self.insert_hr)
         self.pageAction(QWebPage.ToggleBold).changed.connect(self.update_link_action)
         self.action_insert_link.setEnabled(False)
-        self.action_clear = QAction(QIcon(I('edit-clear')), _('Clear'), self)
+        self.action_insert_hr.setEnabled(False)
+        self.action_clear = QAction(QIcon(I('trash.png')), _('Clear'), self)
         self.action_clear.triggered.connect(self.clear_text)
 
         self.page().setLinkDelegationPolicy(QWebPage.DelegateAllLinks)
         self.page().linkClicked.connect(self.link_clicked)
+        secure_web_page(self.page().settings())
 
         self.setHtml('')
         self.set_readonly(False)
+        self.page().contentsChanged.connect(self.data_changed)
 
     def update_link_action(self):
-        wac = self.pageAction(QWebPage.ToggleBold)
-        self.action_insert_link.setEnabled(wac.isEnabled())
+        wac = self.pageAction(QWebPage.ToggleBold).isEnabled()
+        self.action_insert_link.setEnabled(wac)
+        self.action_insert_hr.setEnabled(wac)
 
     def set_readonly(self, what):
         self.readonly = what
@@ -205,13 +222,16 @@ class EditorWidget(QWebView):  # {{{
         if col.isValid():
             self.exec_command('hiliteColor', unicode(col.name()))
 
+    def insert_hr(self, *args):
+        self.exec_command('insertHTML', '<hr>')
+
     def insert_link(self, *args):
         link, name, is_image = self.ask_link()
         if not link:
             return
         url = self.parse_link(link)
         if url.isValid():
-            url = unicode(url.toString(QUrl.None))
+            url = unicode(url.toString(NO_URL_FORMATTING))
             self.setFocus(Qt.OtherFocusReason)
             if is_image:
                 self.exec_command('insertHTML',
@@ -231,6 +251,7 @@ class EditorWidget(QWebView):  # {{{
         d = QDialog(self)
         d.setWindowTitle(_('Create link'))
         l = QFormLayout()
+        l.setFieldGrowthPolicy(QFormLayout.ExpandingFieldsGrow)
         d.setLayout(l)
         d.url = QLineEdit(d)
         d.name = QLineEdit(d)
@@ -239,6 +260,7 @@ class EditorWidget(QWebView):  # {{{
         d.bb = QDialogButtonBox(QDialogButtonBox.Ok|QDialogButtonBox.Cancel)
         d.br = b = QPushButton(_('&Browse'))
         b.setIcon(QIcon(I('document_open.png')))
+
         def cf():
             files = choose_files(d, 'select link file', _('Choose file'), select_only_single_file=True)
             if files:
@@ -356,9 +378,16 @@ class EditorWidget(QWebView):  # {{{
             return ans
 
         def fset(self, val):
-            self.setHtml(val)
+            if self.base_url is None:
+                self.setHtml(val)
+            else:
+                self.setHtml(val, self.base_url)
             self.set_font_style()
         return property(fget=fget, fset=fset)
+
+    def set_base_url(self, qurl):
+        self.base_url = qurl
+        self.setHtml('', self.base_url)
 
     def set_html(self, val, allow_undo=True):
         if not allow_undo or self.readonly:
@@ -383,7 +412,7 @@ class EditorWidget(QWebView):  # {{{
         self.page().setContentEditable(not self.readonly)
 
     def event(self, ev):
-        if ev.type() in (ev.KeyPress, ev.KeyRelease, ev.ShortcutOverride) and ev.key() in (
+        if ev.type() in (ev.KeyPress, ev.KeyRelease, ev.ShortcutOverride) and hasattr(ev, 'key') and ev.key() in (
                 Qt.Key_Tab, Qt.Key_Escape, Qt.Key_Backtab):
             if (ev.key() == Qt.Key_Tab and ev.modifiers() & Qt.ControlModifier and ev.type() == ev.KeyPress):
                 self.exec_command('insertHTML', '<span style="white-space:pre">\t</span>')
@@ -393,22 +422,32 @@ class EditorWidget(QWebView):  # {{{
             return False
         return QWebView.event(self, ev)
 
+    def text(self):
+        return self.page().selectedText()
+
+    def setText(self, text):
+        self.exec_command('insertText', text)
+
     def contextMenuEvent(self, ev):
         menu = self.page().createStandardContextMenu()
         paste = self.pageAction(QWebPage.Paste)
         for action in menu.actions():
             if action == paste:
                 menu.insertAction(action, self.pageAction(QWebPage.PasteAndMatchStyle))
+        st = self.text()
+        if st and st.strip():
+            self.create_change_case_menu(menu)
         parent = self._parent()
         if hasattr(parent, 'toolbars_visible'):
             vis = parent.toolbars_visible
-            menu.addAction(_('%s toolbars') % (_('Hide') if vis else _('Show')),
-                           (parent.hide_toolbars if vis else parent.show_toolbars))
+            menu.addAction(_('%s toolbars') % (_('Hide') if vis else _('Show')), parent.toggle_toolbars)
         menu.exec_(ev.globalPos())
 
 # }}}
 
 # Highlighter {{{
+
+
 State_Text = -1
 State_DocType = 0
 State_Comment = 1
@@ -419,6 +458,7 @@ State_AttributeName = 5
 State_SingleQuote = 6
 State_DoubleQuote = 7
 State_AttributeValue = 8
+
 
 class Highlighter(QSyntaxHighlighter):
 
@@ -619,10 +659,15 @@ class Highlighter(QSyntaxHighlighter):
 
 # }}}
 
+
 class Editor(QWidget):  # {{{
 
-    def __init__(self, parent=None, one_line_toolbar=False):
+    toolbar_prefs_name = None
+    data_changed = pyqtSignal()
+
+    def __init__(self, parent=None, one_line_toolbar=False, toolbar_prefs_name=None):
         QWidget.__init__(self, parent)
+        self.toolbar_prefs_name = toolbar_prefs_name or self.toolbar_prefs_name
         self.toolbar1 = QToolBar(self)
         self.toolbar2 = QToolBar(self)
         self.toolbar3 = QToolBar(self)
@@ -630,6 +675,8 @@ class Editor(QWidget):  # {{{
             t = getattr(self, 'toolbar%d'%i)
             t.setIconSize(QSize(18, 18))
         self.editor = EditorWidget(self)
+        self.editor.data_changed.connect(self.data_changed)
+        self.set_base_url = self.editor.set_base_url
         self.set_html = self.editor.set_html
         self.tabs = QTabWidget(self)
         self.tabs.setTabPosition(self.tabs.South)
@@ -653,10 +700,14 @@ class Editor(QWidget):  # {{{
         l.addWidget(self.editor)
         self._layout.addWidget(self.tabs)
         self.tabs.addTab(self.wyswyg, _('N&ormal view'))
-        self.tabs.addTab(self.code_edit, _('&HTML Source'))
+        self.tabs.addTab(self.code_edit, _('&HTML source'))
         self.tabs.currentChanged[int].connect(self.change_tab)
         self.highlighter = Highlighter(self.code_edit.document())
         self.layout().setContentsMargins(0, 0, 0, 0)
+        if self.toolbar_prefs_name is not None:
+            hidden = gprefs.get(self.toolbar_prefs_name)
+            if hidden:
+                self.hide_toolbars()
 
         # toolbar1 {{{
         self.toolbar1.addAction(self.editor.action_undo)
@@ -686,8 +737,10 @@ class Editor(QWidget):  # {{{
 
         self.toolbar2.addAction(self.editor.action_block_style)
         w = self.toolbar2.widgetForAction(self.editor.action_block_style)
-        w.setPopupMode(w.InstantPopup)
+        if hasattr(w, 'setPopupMode'):
+            w.setPopupMode(w.InstantPopup)
         self.toolbar2.addAction(self.editor.action_insert_link)
+        self.toolbar2.addAction(self.editor.action_insert_hr)
         # }}}
 
         # toolbar3 {{{
@@ -713,6 +766,7 @@ class Editor(QWidget):  # {{{
     def html(self):
         def fset(self, v):
             self.editor.html = v
+
         def fget(self):
             self.tabs.setCurrentIndex(0)
             return self.editor.html
@@ -730,6 +784,15 @@ class Editor(QWidget):  # {{{
                 self.editor.html = unicode(self.code_edit.toPlainText())
                 self.source_dirty = False
 
+    @dynamic_property
+    def tab(self):
+        def fget(self):
+            return 'code' if self.tabs.currentWidget() is self.code_edit else 'wyswyg'
+
+        def fset(self, val):
+            self.tabs.setCurrentWidget(self.code_edit if val == 'code' else self.wyswyg)
+        return property(fget=fget, fset=fset)
+
     def wyswyg_dirtied(self, *args):
         self.wyswyg_dirty = True
 
@@ -746,10 +809,17 @@ class Editor(QWidget):  # {{{
         self.toolbar2.setVisible(True)
         self.toolbar3.setVisible(True)
 
+    def toggle_toolbars(self):
+        visible = self.toolbars_visible
+        getattr(self, ('hide' if visible else 'show') + '_toolbars')()
+        if self.toolbar_prefs_name is not None:
+            gprefs.set(self.toolbar_prefs_name, visible)
+
     @dynamic_property
     def toolbars_visible(self):
         def fget(self):
             return self.toolbar1.isVisible() or self.toolbar2.isVisible() or self.toolbar3.isVisible()
+
         def fset(self, val):
             getattr(self, ('show' if val else 'hide') + '_toolbars')()
         return property(fget=fget, fset=fset)
@@ -762,6 +832,7 @@ class Editor(QWidget):  # {{{
 
 # }}}
 
+
 if __name__ == '__main__':
     app = QApplication([])
     w = Editor()
@@ -771,5 +842,3 @@ if __name__ == '__main__':
     set out to have an <em>affair</em>, <span style="font-style:italic; background-color:red">much</span> less a long-term, devoted one.</span>'''
     app.exec_()
     # print w.html
-
-

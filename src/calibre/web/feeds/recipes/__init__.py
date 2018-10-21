@@ -1,4 +1,4 @@
-#!/usr/bin/env  python
+#!/usr/bin/env  python2
 __license__   = 'GPL v3'
 __copyright__ = '2008, Kovid Goyal <kovid at kovidgoyal.net>'
 '''
@@ -7,19 +7,20 @@ Builtin recipes.
 import re, time, io
 from calibre.web.feeds.news import (BasicNewsRecipe, CustomIndexRecipe,
     AutomaticNewsRecipe, CalibrePeriodical)
-from calibre.web.feeds.jsnews import JavascriptRecipe
 from calibre.ebooks.BeautifulSoup import BeautifulSoup
 from calibre.utils.config import JSONConfig
 
 basic_recipes = (BasicNewsRecipe, AutomaticNewsRecipe, CustomIndexRecipe,
-        CalibrePeriodical, JavascriptRecipe)
+        CalibrePeriodical)
 
 custom_recipes = JSONConfig('custom_recipes/index.json')
+
 
 def custom_recipe_filename(id_, title):
     from calibre.utils.filenames import ascii_filename
     return ascii_filename(title[:50]) + \
                         ('_%s.recipe'%id_)
+
 
 def compile_recipe(src):
     '''
@@ -34,7 +35,7 @@ def compile_recipe(src):
         enc = match.group(1) if match else 'utf-8'
         src = src.decode(enc)
     # Python complains if there is a coding declaration in a unicode string
-    src = re.sub(r'^#.*coding\s*[:=]\s*([-\w.]+)', '#', src, flags=re.MULTILINE)
+    src = re.sub(r'^#.*coding\s*[:=]\s*([-\w.]+)', '#', src.lstrip(u'\ufeff'), flags=re.MULTILINE)
     # Translate newlines to \n
     src = io.StringIO(src, newline=None).getvalue()
 
@@ -44,7 +45,7 @@ def compile_recipe(src):
             'time':time, 're':re,
             'BeautifulSoup':BeautifulSoup
     }
-    exec src in namespace
+    exec(src, namespace)
 
     for x in namespace.itervalues():
         if (isinstance(x, type) and issubclass(x, BasicNewsRecipe) and x not

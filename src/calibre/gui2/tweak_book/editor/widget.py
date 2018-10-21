@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python2
 # vim:fileencoding=utf-8
 from __future__ import (unicode_literals, division, absolute_import,
                         print_function)
@@ -6,12 +6,12 @@ from __future__ import (unicode_literals, division, absolute_import,
 __license__ = 'GPL v3'
 __copyright__ = '2013, Kovid Goyal <kovid at kovidgoyal.net>'
 
-import unicodedata
+import unicodedata, math
 from functools import partial
 
 from PyQt5.Qt import (
     QMainWindow, Qt, QApplication, pyqtSignal, QMenu, qDrawShadeRect, QPainter,
-    QImage, QColor, QIcon, QPixmap, QToolButton, QAction, QTextCursor)
+    QImage, QColor, QIcon, QPixmap, QToolButton, QAction, QTextCursor, QSize)
 
 from calibre import prints
 from calibre.constants import DEBUG
@@ -19,26 +19,32 @@ from calibre.ebooks.chardet import replace_encoding_declarations
 from calibre.gui2.tweak_book import (
     actions, current_container, tprefs, dictionaries, editor_toolbar_actions,
     editor_name, editors, update_mark_text_action)
-from calibre.gui2 import error_dialog, open_url, workaround_broken_under_mouse
+from calibre.gui2 import error_dialog, open_url
 from calibre.gui2.tweak_book.editor import SPELL_PROPERTY, LINK_PROPERTY, TAG_NAME_PROPERTY, CSS_PROPERTY
 from calibre.gui2.tweak_book.editor.help import help_url
 from calibre.gui2.tweak_book.editor.text import TextEdit
 from calibre.utils.icu import utf16_length
 
-def create_icon(text, palette=None, sz=32, divider=2):
+
+def create_icon(text, palette=None, sz=None, divider=2, fill='white'):
+    if isinstance(fill, basestring):
+        fill = QColor(fill)
+    sz = sz or int(math.ceil(tprefs['toolbar_icon_size'] * QApplication.instance().devicePixelRatio()))
     if palette is None:
         palette = QApplication.palette()
     img = QImage(sz, sz, QImage.Format_ARGB32)
     img.fill(Qt.transparent)
     p = QPainter(img)
     p.setRenderHints(p.TextAntialiasing | p.Antialiasing)
-    qDrawShadeRect(p, img.rect(), palette, fill=QColor('#ffffff'), lineWidth=1, midLineWidth=1)
+    if fill is not None:
+        qDrawShadeRect(p, img.rect(), palette, fill=fill, lineWidth=1, midLineWidth=1)
     f = p.font()
-    f.setFamily('Liberation Sans'), f.setPixelSize(sz // divider), f.setBold(True)
+    f.setFamily('Liberation Sans'), f.setPixelSize(int(sz // divider)), f.setBold(True)
     p.setFont(f), p.setPen(Qt.black)
     p.drawText(img.rect().adjusted(2, 2, -2, -2), Qt.AlignCenter, text)
     p.end()
     return QIcon(QPixmap.fromImage(img))
+
 
 def register_text_editor_actions(_reg, palette):
     def reg(*args, **kw):
@@ -47,40 +53,48 @@ def register_text_editor_actions(_reg, palette):
             editor_toolbar_actions[s][args[3]] = ac
         return ac
 
-    ac = reg('format-text-bold', _('&Bold'), ('format_text', 'bold'), 'format-text-bold', 'Ctrl+B', _('Make the selected text bold'))
+    ac = reg('format-text-bold.png', _('&Bold'), ('format_text', 'bold'), 'format-text-bold', 'Ctrl+B', _('Make the selected text bold'))
     ac.setToolTip(_('<h3>Bold</h3>Make the selected text bold'))
-    ac = reg('format-text-italic', _('&Italic'), ('format_text', 'italic'), 'format-text-italic', 'Ctrl+I', _('Make the selected text italic'))
+    ac = reg('format-text-italic.png', _('&Italic'), ('format_text', 'italic'), 'format-text-italic', 'Ctrl+I', _('Make the selected text italic'))
     ac.setToolTip(_('<h3>Italic</h3>Make the selected text italic'))
-    ac = reg('format-text-underline', _('&Underline'), ('format_text', 'underline'), 'format-text-underline', (), _('Underline the selected text'))
+    ac = reg('format-text-underline.png', _('&Underline'), ('format_text', 'underline'), 'format-text-underline', (), _('Underline the selected text'))
     ac.setToolTip(_('<h3>Underline</h3>Underline the selected text'))
-    ac = reg('format-text-strikethrough', _('&Strikethrough'), ('format_text', 'strikethrough'),
+    ac = reg('format-text-strikethrough.png', _('&Strikethrough'), ('format_text', 'strikethrough'),
              'format-text-strikethrough', (), _('Draw a line through the selected text'))
     ac.setToolTip(_('<h3>Strikethrough</h3>Draw a line through the selected text'))
-    ac = reg('format-text-superscript', _('&Superscript'), ('format_text', 'superscript'),
+    ac = reg('format-text-superscript.png', _('&Superscript'), ('format_text', 'superscript'),
              'format-text-superscript', (), _('Make the selected text a superscript'))
     ac.setToolTip(_('<h3>Superscript</h3>Set the selected text slightly smaller and above the normal line'))
-    ac = reg('format-text-subscript', _('&Subscript'), ('format_text', 'subscript'),
+    ac = reg('format-text-subscript.png', _('&Subscript'), ('format_text', 'subscript'),
              'format-text-subscript', (), _('Make the selected text a subscript'))
     ac.setToolTip(_('<h3>Subscript</h3>Set the selected text slightly smaller and below the normal line'))
-    ac = reg('format-text-color', _('&Color'), ('format_text', 'color'), 'format-text-color', (), _('Change text color'))
+    ac = reg('format-text-color.png', _('&Color'), ('format_text', 'color'), 'format-text-color', (), _('Change text color'))
     ac.setToolTip(_('<h3>Color</h3>Change the color of the selected text'))
-    ac = reg('format-fill-color', _('&Background Color'), ('format_text', 'background-color'),
+    ac = reg('format-fill-color.png', _('&Background color'), ('format_text', 'background-color'),
              'format-text-background-color', (), _('Change background color of text'))
-    ac.setToolTip(_('<h3>Background Color</h3>Change the background color of the selected text'))
-    ac = reg('format-justify-left', _('Align &left'), ('format_text', 'justify_left'), 'format-text-justify-left', (), _('Align left'))
+    ac.setToolTip(_('<h3>Background color</h3>Change the background color of the selected text'))
+    ac = reg('format-justify-left.png', _('Align &left'), ('format_text', 'justify_left'), 'format-text-justify-left', (), _('Align left'))
     ac.setToolTip(_('<h3>Align left</h3>Align the paragraph to the left'))
-    ac = reg('format-justify-center', _('&Center'), ('format_text', 'justify_center'), 'format-text-justify-center', (), _('Center'))
+    ac = reg('format-justify-center.png', _('&Center'), ('format_text', 'justify_center'), 'format-text-justify-center', (), _('Center'))
     ac.setToolTip(_('<h3>Center</h3>Center the paragraph'))
-    ac = reg('format-justify-right', _('Align &right'), ('format_text', 'justify_right'), 'format-text-justify-right', (), _('Align right'))
+    ac = reg('format-justify-right.png', _('Align &right'), ('format_text', 'justify_right'), 'format-text-justify-right', (), _('Align right'))
     ac.setToolTip(_('<h3>Align right</h3>Align the paragraph to the right'))
-    ac = reg('format-justify-fill', _('&Justify'), ('format_text', 'justify_justify'), 'format-text-justify-fill', (), _('Justify'))
+    ac = reg('format-justify-fill.png', _('&Justify'), ('format_text', 'justify_justify'), 'format-text-justify-fill', (), _('Justify'))
     ac.setToolTip(_('<h3>Justify</h3>Align the paragraph to both the left and right margins'))
 
-    ac = reg('view-image', _('&Insert image'), ('insert_resource', 'image'), 'insert-image', (), _('Insert an image into the text'), syntaxes=('html', 'css'))
+    ac = reg('sort.png', _('&Sort style rules'), ('sort_css',), 'editor-sort-css', (),
+             _('Sort the style rules'), syntaxes=('css',))
+    ac = reg('view-image.png', _('&Insert image'), ('insert_resource', 'image'), 'insert-image', (),
+             _('Insert an image into the text'), syntaxes=('html', 'css'))
     ac.setToolTip(_('<h3>Insert image</h3>Insert an image into the text'))
 
-    ac = reg('insert-link', _('Insert &hyperlink'), ('insert_hyperlink',), 'insert-hyperlink', (), _('Insert hyperlink'), syntaxes=('html',))
+    ac = reg('insert-link.png', _('Insert &hyperlink'), ('insert_hyperlink',), 'insert-hyperlink', (), _('Insert hyperlink'), syntaxes=('html',))
     ac.setToolTip(_('<h3>Insert hyperlink</h3>Insert a hyperlink into the text'))
+
+    ac = reg(create_icon('/*', divider=1, fill=None), _('Smart &comment'), ('smart_comment',), 'editor-smart-comment', ('Ctrl+`',), _(
+        'Smart comment (toggle block comments)'), syntaxes=())
+    ac.setToolTip(_('<h3>Smart comment</h3>Comment or uncomment text<br><br>'
+                    'If the cursor is inside an existing block comment, uncomment it, otherwise comment out the selected text.'))
 
     for i, name in enumerate(('h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'p')):
         text = ('&' + name) if name == 'p' else (name[0] + '&' + name[1])
@@ -95,8 +109,11 @@ def register_text_editor_actions(_reg, palette):
         ac = reg(None, text, ('change_case', transform), 'transform-case-' + transform, (), desc, syntaxes=())
         ac.setToolTip(desc)
 
-    ac = reg('code', _('Insert &tag'), ('insert_tag',), 'insert-tag', ('Ctrl+<'), _('Insert tag'), syntaxes=('html', 'xml'))
+    ac = reg('code.png', _('Insert &tag'), ('insert_tag',), 'insert-tag', ('Ctrl+<'), _('Insert tag'), syntaxes=('html', 'xml'))
     ac.setToolTip(_('<h3>Insert tag</h3>Insert a tag, if some text is selected the tag will be inserted around the selected text'))
+
+    ac = reg('trash.png', _('Remove &tag'), ('remove_tag',), 'remove-tag', ('Ctrl+>'), _('Remove tag'), syntaxes=('html', 'xml'))
+    ac.setToolTip(_('<h3>Remove tag</h3>Remove the currently highlighted tag'))
 
     editor_toolbar_actions['html']['fix-html-current'] = actions['fix-html-current']
     for s in ('xml', 'html', 'css'):
@@ -145,8 +162,23 @@ class Editor(QMainWindow):
     def current_line(self):
         def fget(self):
             return self.editor.textCursor().blockNumber()
+
         def fset(self, val):
             self.editor.go_to_line(val)
+        return property(fget=fget, fset=fset)
+
+    @dynamic_property
+    def current_editing_state(self):
+        def fget(self):
+            c = self.editor.textCursor()
+            return {'cursor':(c.anchor(), c.position())}
+
+        def fset(self, val):
+            anchor, position = val.get('cursor', (None, None))
+            if anchor is not None and position is not None:
+                c = self.editor.textCursor()
+                c.setPosition(anchor), c.setPosition(position, c.KeepAnchor)
+                self.editor.setTextCursor(c)
         return property(fget=fget, fset=fset)
 
     def current_tag(self, for_position_sync=True):
@@ -164,6 +196,7 @@ class Editor(QMainWindow):
             if changed:
                 self.data = ans
             return ans.encode('utf-8')
+
         def fset(self, val):
             self.editor.load_text(val, syntax=self.syntax, doc_name=editor_name(self))
         return property(fget=fget, fset=fset)
@@ -198,8 +231,8 @@ class Editor(QMainWindow):
         func = getattr(self.editor, action)
         func(*args)
 
-    def insert_image(self, href):
-        self.editor.insert_image(href)
+    def insert_image(self, href, fullpage=False, preserve_aspect_ratio=False, width=-1, height=-1):
+        self.editor.insert_image(href, fullpage=fullpage, preserve_aspect_ratio=preserve_aspect_ratio, width=width, height=height)
 
     def insert_hyperlink(self, href, text):
         self.editor.insert_hyperlink(href, text)
@@ -207,8 +240,14 @@ class Editor(QMainWindow):
     def _build_insert_tag_button_menu(self):
         m = self.insert_tag_menu
         m.clear()
-        for name in tprefs['insert_tag_mru']:
+        names = tprefs['insert_tag_mru']
+        for name in names:
             m.addAction(name, partial(self.insert_tag, name))
+        if names:
+            m.addSeparator()
+            m = m.addMenu(_('Remove from this menu'))
+            for name in names:
+                m.addAction(name, partial(self.remove_insert_tag, name))
 
     def insert_tag(self, name):
         self.editor.insert_tag(name)
@@ -218,6 +257,15 @@ class Editor(QMainWindow):
         except ValueError:
             pass
         mru.insert(0, name)
+        tprefs['insert_tag_mru'] = mru
+        self._build_insert_tag_button_menu()
+
+    def remove_insert_tag(self, name):
+        mru = tprefs['insert_tag_mru']
+        try:
+            mru.remove(name)
+        except ValueError:
+            pass
         tprefs['insert_tag_mru'] = mru
         self._build_insert_tag_button_menu()
 
@@ -248,6 +296,9 @@ class Editor(QMainWindow):
     def find(self, *args, **kwargs):
         return self.editor.find(*args, **kwargs)
 
+    def find_text(self, *args, **kwargs):
+        return self.editor.find_text(*args, **kwargs)
+
     def find_spell_word(self, *args, **kwargs):
         return self.editor.find_spell_word(*args, **kwargs)
 
@@ -269,6 +320,7 @@ class Editor(QMainWindow):
     def is_modified(self):
         def fget(self):
             return self.editor.is_modified
+
         def fset(self, val):
             self.editor.is_modified = val
         return property(fget=fget, fset=fset)
@@ -288,6 +340,7 @@ class Editor(QMainWindow):
         for x in self.bars:
             x.setFloatable(False)
             x.topLevelChanged.connect(self.toolbar_floated)
+            x.setIconSize(QSize(tprefs['toolbar_icon_size'], tprefs['toolbar_icon_size']))
 
     def toolbar_floated(self, floating):
         if not floating:
@@ -306,9 +359,12 @@ class Editor(QMainWindow):
         state = tprefs.get('%s-editor-state' % self.syntax, None)
         if state is not None:
             self.restoreState(state)
+        for bar in self.bars:
+            bar.setVisible(len(bar.actions()) > 0)
 
     def populate_toolbars(self):
         self.action_bar.clear(), self.tools_bar.clear()
+
         def add_action(name, bar):
             if name is None:
                 bar.addSeparator()
@@ -322,24 +378,22 @@ class Editor(QMainWindow):
             bar.addAction(ac)
             if name == 'insert-tag':
                 w = bar.widgetForAction(ac)
-                w.setPopupMode(QToolButton.MenuButtonPopup)
+                if hasattr(w, 'setPopupMode'):
+                    # For some unknown reason this button is occassionally a
+                    # QPushButton instead of a QToolButton
+                    w.setPopupMode(QToolButton.MenuButtonPopup)
                 w.setMenu(self.insert_tag_menu)
                 w.setContextMenuPolicy(Qt.CustomContextMenu)
                 w.customContextMenuRequested.connect(w.showMenu)
                 self._build_insert_tag_button_menu()
-                if workaround_broken_under_mouse is not None:
-                    try:
-                        self.insert_tag_menu.aboutToHide.disconnect()
-                    except TypeError:
-                        pass
-                    self.insert_tag_menu.aboutToHide.connect(partial(workaround_broken_under_mouse, w))
             elif name == 'change-paragraph':
                 m = ac.m = QMenu()
                 ac.setMenu(m)
                 ch = bar.widgetForAction(ac)
-                ch.setPopupMode(QToolButton.InstantPopup)
-                if workaround_broken_under_mouse is not None:
-                    m.aboutToHide.connect(partial(workaround_broken_under_mouse, ch))
+                if hasattr(ch, 'setPopupMode'):
+                    # For some unknown reason this button is occassionally a
+                    # QPushButton instead of a QToolButton
+                    ch.setPopupMode(QToolButton.InstantPopup)
                 for name in tuple('h%d' % d for d in range(1, 7)) + ('p',):
                     m.addAction(actions['rename-block-tag-%s' % name])
 
@@ -530,7 +584,7 @@ class Editor(QMainWindow):
             m.addMenu(cm)
         if self.syntax == 'html':
             m.addAction(actions['multisplit'])
-        m.exec_(self.editor.mapToGlobal(pos))
+        m.exec_(self.editor.viewport().mapToGlobal(pos))
 
     def goto_sourceline(self, *args, **kwargs):
         return self.editor.goto_sourceline(*args, **kwargs)
@@ -547,6 +601,7 @@ class Editor(QMainWindow):
         else:
             dictionaries.add_to_user_dictionary(dic, word, locale)
         self.word_ignored.emit(word, locale)
+
 
 def launch_editor(path_to_edit, path_is_raw=False, syntax='html', callback=None):
     from calibre.gui2.tweak_book import dictionaries
@@ -575,4 +630,3 @@ def launch_editor(path_to_edit, path_is_raw=False, syntax='html', callback=None)
         callback(t)
     t.show()
     app.exec_()
-

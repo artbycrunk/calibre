@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python2
 # vim:fileencoding=UTF-8:ts=4:sw=4:sta:et:sts=4:ai
 
 from __future__ import (unicode_literals, division, absolute_import,
@@ -11,6 +11,7 @@ __license__   = 'GPL v3'
 
 from PyQt5.Qt import (QDialog, QVBoxLayout, QLabel, QDialogButtonBox,
             QListWidget, QAbstractItemView, QSizePolicy)
+
 
 class ChoosePluginToolbarsDialog(QDialog):
 
@@ -44,7 +45,7 @@ class ChoosePluginToolbarsDialog(QDialog):
 
         self._footer_label = QLabel(
             _('You can also customise the plugin locations '
-              'using <b>Preferences -> Customise the toolbar</b>'))
+              'using <b>Preferences -> Interface -> Toolbars</b>'))
         self._layout.addWidget(self._footer_label)
 
         button_box = QDialogButtonBox(QDialogButtonBox.Ok |
@@ -59,4 +60,3 @@ class ChoosePluginToolbarsDialog(QDialog):
         for row in self._locations_list.selectionModel().selectedRows():
             selected.append(self.locations[row.row()])
         return selected
-

@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python2
 # vim:fileencoding=utf-8
 from __future__ import (unicode_literals, division, absolute_import,
                         print_function)
@@ -17,8 +17,10 @@ from calibre.gui2.dbus_export.widgets import factory
 
 setup_for_cli_run()
 
+
 def make_checkable(ac, checked=True):
     ac.setCheckable(True), ac.setChecked(checked)
+
 
 class MainWindow(QMainWindow):
 
@@ -88,7 +90,7 @@ class MainWindow(QMainWindow):
         b.clicked.connect(self.remove_menu), l.addWidget(b)
         self.sd = b = QPushButton('Show modal dialog')
         b.clicked.connect(self.show_dialog), l.addWidget(b)
-        print ('DBUS connection unique name:', f.bus.get_unique_name())
+        print('DBUS connection unique name:', f.bus.get_unique_name())
 
     def update_tooltip(self):
         self.systray.setToolTip(time.strftime('A dynamically updated tooltip [%H:%M:%S]'))
@@ -157,6 +159,7 @@ class MainWindow(QMainWindow):
             else:
                 self.window_unblocked.emit()
         return QMainWindow.event(self, ev)
+
 
 app=QApplication([])
 app.setAttribute(Qt.AA_DontUseNativeMenuBar, False)

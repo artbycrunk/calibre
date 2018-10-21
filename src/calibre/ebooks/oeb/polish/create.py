@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python2
 # vim:fileencoding=utf-8
 from __future__ import (unicode_literals, division, absolute_import,
                         print_function)
@@ -24,6 +24,9 @@ from calibre.utils.localization import lang_as_iso639_1
 from calibre.utils.logging import DevNull
 from calibre.utils.zipfile import ZipFile, ZIP_STORED
 
+valid_empty_formats = {'epub', 'txt', 'docx', 'azw3'}
+
+
 def create_toc(mi, opf, html_name, lang):
     uuid = ''
     for u in opf.xpath('//*[@id="uuid_id"]'):
@@ -32,8 +35,27 @@ def create_toc(mi, opf, html_name, lang):
     toc.add(_('Start'), html_name)
     return create_ncx(toc, lambda x:x, mi.title, lang, uuid)
 
+
 def create_book(mi, path, fmt='epub', opf_name='metadata.opf', html_name='start.xhtml', toc_name='toc.ncx'):
     ''' Create an empty book in the specified format at the specified location. '''
+    if fmt not in valid_empty_formats:
+        raise ValueError('Cannot create empty book in the %s format' % fmt)
+    if fmt == 'txt':
+        with open(path, 'wb') as f:
+            if not mi.is_null('title'):
+                f.write(mi.title)
+        return
+    if fmt == 'docx':
+        from calibre.ebooks.conversion.plumber import Plumber
+        from calibre.ebooks.docx.writer.container import DOCX
+        from calibre.utils.logging import default_log
+        p = Plumber('a.docx', 'b.docx', default_log)
+        p.setup_options()
+        # Use the word default of one inch page margins
+        for x in 'left right top bottom'.split():
+            setattr(p.opts, 'margin_' + x, 72)
+        DOCX(p.opts, default_log).write(path, mi, create_empty_document=True)
+        return
     path = os.path.abspath(path)
     lang = 'und'
     opf = metadata_to_opf(mi, as_string=False)
@@ -87,18 +109,19 @@ def create_book(mi, path, fmt='epub', opf_name='metadata.opf', html_name='start.
     else:
         with ZipFile(path, 'w', compression=ZIP_STORED) as zf:
             zf.writestr('mimetype', b'application/epub+zip', compression=ZIP_STORED)
-            zf.writestr('META-INF/', b'', 0755)
+            zf.writestr('META-INF/', b'', 0o755)
             zf.writestr('META-INF/container.xml', CONTAINER)
             zf.writestr(opf_name, opf)
             zf.writestr(html_name, HTML)
             zf.writestr(toc_name, ncx)
+
 
 if __name__ == '__main__':
     from calibre.ebooks.metadata.book.base import Metadata
     mi = Metadata('Test book', authors=('Kovid Goyal',))
     path = sys.argv[-1]
     ext = path.rpartition('.')[-1].lower()
-    if ext not in ('epub', 'azw3'):
-        print ('Unsupported format:', ext)
+    if ext not in valid_empty_formats:
+        print('Unsupported format:', ext)
         raise SystemExit(1)
     create_book(mi, path, fmt=ext)

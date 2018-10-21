@@ -43,7 +43,8 @@ class RTFInput(InputFormatPlugin):
     name        = 'RTF Input'
     author      = 'Kovid Goyal'
     description = 'Convert RTF files to HTML'
-    file_types  = set(['rtf'])
+    file_types  = {'rtf'}
+    commit_name = 'rtf_input'
 
     options = {
         OptionRecommendation(name='ignore_wmf', recommended_value=False,
@@ -139,7 +140,7 @@ class RTFInput(InputFormatPlugin):
                 f.write(data)
             imap[count] = name
             # with open(name+'.hex', 'wb') as f:
-                # f.write(enc)
+            #     f.write(enc)
         return self.convert_images(imap)
 
     def convert_images(self, imap):
@@ -164,14 +165,13 @@ class RTFInput(InputFormatPlugin):
         if self.opts.ignore_wmf:
             os.remove(name)
             return '__REMOVE_ME__'
-        from calibre.ebooks import calibre_cover
+        from calibre.ebooks.covers import message_image
         if self.default_img is None:
-            self.default_img = calibre_cover('Conversion of WMF images is not supported',
-            'Use Microsoft Word or OpenOffice to save this RTF file'
-            ' as HTML and convert that in calibre.', title_size=36,
-            author_size=20)
+            self.default_img = message_image('Conversion of WMF images is not supported.',
+            ' Use Microsoft Word or OpenOffice to save this RTF file'
+            ' as HTML and convert that in calibre.')
         name = name.replace('.wmf', '.jpg')
-        with open(name, 'wb') as f:
+        with lopen(name, 'wb') as f:
             f.write(self.default_img)
         return name
 
@@ -292,7 +292,7 @@ class RTFInput(InputFormatPlugin):
             # Replace newlines inserted by the 'empty_paragraphs' option in rtf2xml with html blank lines
             # res = re.sub('\s*<body>', '<body>', res)
             # res = re.sub('(?<=\n)\n{2}',
-                    # u'<p>\u00a0</p>\n'.encode('utf-8'), res)
+            # u'<p>\u00a0</p>\n'.encode('utf-8'), res)
             f.write(res)
         self.write_inline_css(inline_class, border_styles)
         stream.seek(0)
@@ -318,4 +318,3 @@ class RTFInput(InputFormatPlugin):
                         p.text = (p.text or '') + img.tail
                     else:
                         p[idx-1].tail = (p[idx-1].tail or '') + img.tail
-

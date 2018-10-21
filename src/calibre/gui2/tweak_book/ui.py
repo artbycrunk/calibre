@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python2
 # vim:fileencoding=utf-8
 from __future__ import (unicode_literals, division, absolute_import,
                         print_function)
@@ -9,12 +9,12 @@ __copyright__ = '2013, Kovid Goyal <kovid at kovidgoyal.net>'
 import os
 from functools import partial
 from itertools import product
-from future_builtins import map
+from polyglot.builtins import map
 
 from PyQt5.Qt import (
     QDockWidget, Qt, QLabel, QIcon, QAction, QApplication, QWidget, QEvent,
     QVBoxLayout, QStackedWidget, QTabWidget, QImage, QPixmap, pyqtSignal,
-    QMenu, QHBoxLayout, QTimer, QUrl)
+    QMenu, QHBoxLayout, QTimer, QUrl, QSize)
 
 from calibre import prints
 from calibre.constants import __appname__, get_version, isosx, DEBUG
@@ -22,7 +22,7 @@ from calibre.gui2 import elided_text, open_url
 from calibre.gui2.dbus_export.widgets import factory
 from calibre.gui2.keyboard import Manager as KeyboardManager
 from calibre.gui2.main_window import MainWindow
-from calibre.gui2.throbber import ThrobbingButton, create_donate_widget
+from calibre.gui2.throbber import ThrobbingButton
 from calibre.gui2.tweak_book import (
     current_container, tprefs, actions, capitalize, toolbar_actions, editors, update_mark_text_action)
 from calibre.gui2.tweak_book.file_list import FileListWidget
@@ -33,20 +33,26 @@ from calibre.gui2.tweak_book.preview import Preview
 from calibre.gui2.tweak_book.plugin import create_plugin_actions
 from calibre.gui2.tweak_book.search import SearchPanel
 from calibre.gui2.tweak_book.check import Check
+from calibre.gui2.tweak_book.check_links import CheckExternalLinks
 from calibre.gui2.tweak_book.spell import SpellCheck
 from calibre.gui2.tweak_book.search import SavedSearches
+from calibre.gui2.tweak_book.text_search import TextSearch
 from calibre.gui2.tweak_book.toc import TOCViewer
 from calibre.gui2.tweak_book.char_select import CharSelect
 from calibre.gui2.tweak_book.live_css import LiveCSS
+from calibre.gui2.tweak_book.reports import Reports
 from calibre.gui2.tweak_book.manage_fonts import ManageFonts
 from calibre.gui2.tweak_book.function_replace import DebugOutput
 from calibre.gui2.tweak_book.editor.widget import register_text_editor_actions
 from calibre.gui2.tweak_book.editor.insert_resource import InsertImage
-from calibre.utils.icu import character_name, sort_key
+from calibre.utils.icu import sort_key, ord_string
+from calibre.utils.unicode_names import character_name_from_code
 from calibre.utils.localization import localize_user_manual_link
 
+
 def open_donate():
-    open_url(QUrl('http://calibre-ebook.com/donate'))
+    open_url(QUrl('https://calibre-ebook.com/donate'))
+
 
 class Central(QStackedWidget):  # {{{
 
@@ -97,6 +103,16 @@ class Central(QStackedWidget):  # {{{
         index = self.editor_tabs.addTab(editor, fname)
         self.editor_tabs.setTabToolTip(index, _('Full path:') + ' ' + name)
         editor.modification_state_changed.connect(self.editor_modified)
+
+    @property
+    def tab_order(self):
+        ans = []
+        rmap = {v:k for k, v in editors.iteritems()}
+        for i in xrange(self.editor_tabs.count()):
+            name = rmap.get(self.editor_tabs.widget(i))
+            if name is not None:
+                ans.append(name)
+        return ans
 
     def rename_editor(self, editor, name):
         for i in xrange(self.editor_tabs.count()):
@@ -185,6 +201,7 @@ class Central(QStackedWidget):  # {{{
         return True
 # }}}
 
+
 class CursorPositionWidget(QWidget):  # {{{
 
     def __init__(self, parent):
@@ -203,7 +220,7 @@ class CursorPositionWidget(QWidget):  # {{{
             self.la.setText('')
         else:
             try:
-                name = character_name(character) if character and tprefs['editor_show_char_under_cursor'] else None
+                name = character_name_from_code(ord_string(character)[0]) if character and tprefs['editor_show_char_under_cursor'] else None
             except Exception:
                 name = None
             text = _('Line: {0} : {1}').format(line, col)
@@ -214,15 +231,16 @@ class CursorPositionWidget(QWidget):  # {{{
             self.la.setText(text)
 # }}}
 
+
 class Main(MainWindow):
 
-    APP_NAME = _('Edit Book')
+    APP_NAME = _('Edit book')
     STATE_VERSION = 0
 
     def __init__(self, opts, notify=None):
         MainWindow.__init__(self, opts, disable_automatic_gc=True)
-        self.boss = Boss(self, notify=notify)
         self.setWindowTitle(self.APP_NAME)
+        self.boss = Boss(self, notify=notify)
         self.setWindowIcon(QIcon(I('tweak.png')))
         self.opts = opts
         self.path_to_ebook = None
@@ -236,8 +254,11 @@ class Main(MainWindow):
         self.check_book = Check(self)
         self.spell_check = SpellCheck(parent=self)
         self.toc_view = TOCViewer(self)
+        self.text_search = TextSearch(self)
         self.saved_searches = SavedSearches(self)
         self.image_browser = InsertImage(self, for_browsing=True)
+        self.reports = Reports(self)
+        self.check_external_links = CheckExternalLinks(self)
         self.insert_char = CharSelect(self)
         self.manage_fonts = ManageFonts(self)
         self.sr_debug_output = DebugOutput(self)
@@ -251,7 +272,7 @@ class Main(MainWindow):
         self.status_bar.addPermanentWidget(self.boss.save_manager.status_widget)
         self.cursor_position_widget = CursorPositionWidget(self)
         self.status_bar.addPermanentWidget(self.cursor_position_widget)
-        self.status_bar_default_msg = la = QLabel(_('{0} {1} created by {2}').format(__appname__, get_version(), 'Kovid Goyal'))
+        self.status_bar_default_msg = la = QLabel(' ' + _('{0} {1} created by {2}').format(__appname__, get_version(), 'Kovid Goyal'))
         la.base_template = unicode(la.text())
         self.status_bar.addWidget(la)
         f = self.status_bar.font()
@@ -275,6 +296,8 @@ class Main(MainWindow):
             self.setCorner(getattr(Qt, '%s%sCorner' % tuple(map(capitalize, (v, h)))), area)
         self.preview.apply_settings()
         self.live_css.apply_theme()
+        for bar in (self.global_bar, self.tools_bar, self.plugins_bar):
+            bar.setIconSize(QSize(tprefs['toolbar_icon_size'], tprefs['toolbar_icon_size']))
 
     def show_status_message(self, msg, timeout=5):
         self.status_bar.showMessage(msg, int(timeout*1000))
@@ -287,7 +310,7 @@ class Main(MainWindow):
         return self.central.editor_tabs
 
     def create_actions(self):
-        group = _('Global Actions')
+        group = _('Global actions')
 
         def reg(icon, text, target, sid, keys, description, toolbar_allowed=False):
             if not isinstance(icon, QIcon):
@@ -304,13 +327,21 @@ class Main(MainWindow):
                 sid, unicode(ac.text()).replace('&', ''), default_keys=keys, description=description, action=ac, group=group)
             self.addAction(ac)
             return ac
+
         def treg(icon, text, target, sid, keys, description):
             return reg(icon, text, target, sid, keys, description, toolbar_allowed=icon is not None)
 
         self.action_new_file = treg('document-new.png', _('&New file (images/fonts/HTML/etc.)'), self.boss.add_file,
                                    'new-file', (), _('Create a new file in the current book'))
         self.action_import_files = treg('document-import.png', _('&Import files into book'), self.boss.add_files, 'new-files', (), _('Import files into book'))
-        self.action_open_book = treg('document_open.png', _('Open &book'), self.boss.open_book, 'open-book', 'Ctrl+O', _('Open a new book'))
+        self.action_open_book = treg('document_open.png', _('&Open book'), self.boss.open_book, 'open-book', 'Ctrl+O', _('Open a new book'))
+        self.action_open_book_folder = treg('mimetypes/dir.png', _('Open &folder (unzipped EPUB) as book'), partial(self.boss.open_book, open_folder=True),
+                                            'open-folder-as-book', (), _('Open a folder (unzipped EPUB) as a book'))
+        self.action_edit_next_file = treg('arrow-down.png', _('Edit &next file'), partial(self.boss.edit_next_file, backwards=False),
+                'edit-next-file', 'Ctrl+Alt+Down', _('Edit the next file in the spine'))
+        self.action_edit_previous_file = treg('arrow-up.png', _('Edit &previous file'), partial(self.boss.edit_next_file, backwards=True),
+                'edit-previous-file', 'Ctrl+Alt+Up', _('Edit the previous file in the spine'))
+        # Qt does not generate shortcut overrides for cmd+arrow on os x which
         # Qt does not generate shortcut overrides for cmd+arrow on os x which
         # means these shortcuts interfere with editing
         self.action_global_undo = treg('back.png', _('&Revert to before'), self.boss.do_global_undo, 'global-undo', () if isosx else 'Ctrl+Left',
@@ -332,13 +363,13 @@ class Main(MainWindow):
         group = _('Editor actions')
         self.action_editor_undo = reg('edit-undo.png', _('&Undo'), self.boss.do_editor_undo, 'editor-undo', 'Ctrl+Z',
                                       _('Undo typing'))
-        self.action_editor_redo = reg('edit-redo.png', _('&Redo'), self.boss.do_editor_redo, 'editor-redo', 'Ctrl+Y',
+        self.action_editor_redo = reg('edit-redo.png', _('R&edo'), self.boss.do_editor_redo, 'editor-redo', 'Ctrl+Y',
                                       _('Redo typing'))
-        self.action_editor_cut = reg('edit-cut.png', _('C&ut text'), self.boss.do_editor_cut, 'editor-cut', ('Ctrl+X', 'Shift+Delete', ),
+        self.action_editor_cut = reg('edit-cut.png', _('Cut &text'), self.boss.do_editor_cut, 'editor-cut', ('Ctrl+X', 'Shift+Delete', ),
                                       _('Cut text'))
         self.action_editor_copy = reg('edit-copy.png', _('&Copy to clipboard'), self.boss.do_editor_copy, 'editor-copy', ('Ctrl+C', 'Ctrl+Insert'),
                                       _('Copy to clipboard'))
-        self.action_editor_paste = reg('edit-paste.png', _('&Paste from clipboard'), self.boss.do_editor_paste, 'editor-paste', ('Ctrl+V', 'Shift+Insert', ),
+        self.action_editor_paste = reg('edit-paste.png', _('P&aste from clipboard'), self.boss.do_editor_paste, 'editor-paste', ('Ctrl+V', 'Shift+Insert', ),
                                       _('Paste from clipboard'))
         self.action_editor_cut.setEnabled(False)
         self.action_editor_copy.setEnabled(False)
@@ -362,19 +393,30 @@ class Main(MainWindow):
                                       _('Insert special character'))
         self.action_rationalize_folders = treg('mimetypes/dir.png', _('&Arrange into folders'), self.boss.rationalize_folders, 'rationalize-folders', (),
                                       _('Arrange into folders'))
-        self.action_set_semantics = treg('tags.png', _('Set &Semantics'), self.boss.set_semantics, 'set-semantics', (),
-                                        _('Set Semantics'))
+        self.action_set_semantics = treg('tags.png', _('Set &semantics'), self.boss.set_semantics, 'set-semantics', (),
+                                        _('Set semantics'))
         self.action_filter_css = treg('filter.png', _('&Filter style information'), self.boss.filter_css, 'filter-css', (),
                                      _('Filter style information'))
-        self.action_manage_fonts = treg('font.png', _('Manage &fonts'), self.boss.manage_fonts, 'manage-fonts', (), _('Manage fonts in the book'))
+        self.action_manage_fonts = treg('font.png', _('&Manage fonts'), self.boss.manage_fonts, 'manage-fonts', (), _('Manage fonts in the book'))
         self.action_add_cover = treg('default_cover.png', _('Add &cover'), self.boss.add_cover, 'add-cover', (), _('Add a cover to the book'))
+        self.action_reports = treg(
+            'reports.png', _('&Reports'), self.boss.show_reports, 'show-reports', ('Ctrl+Shift+R',), _('Show a report on various aspects of the book'))
+        self.action_check_external_links = treg('insert-link.png', _('Check &external links'), self.boss.check_external_links, 'check-external-links', (), _(
+            'Check external links in the book'))
+        self.action_compress_images = treg('compress-image.png', _('C&ompress images losslessly'), self.boss.compress_images, 'compress-images', (), _(
+            'Compress images losslessly'))
+        self.action_transform_styles = treg('wizard.png', _('Transform &styles'), self.boss.transform_styles, 'transform-styles', (), _(
+            'Transform styles used in the book'))
+        self.action_get_ext_resources = treg('download-metadata.png', _('Download external &resources'),
+                                             self.boss.get_external_resources, 'get-external-resources', (), _(
+            'Download external resources in the book (images/stylesheets/etc/ that are not included in the book)'))
 
         def ereg(icon, text, target, sid, keys, description):
             return reg(icon, text, partial(self.boss.editor_action, target), sid, keys, description)
         register_text_editor_actions(ereg, self.palette())
 
         # Polish actions
-        group = _('Polish Book')
+        group = _('Polish book')
         self.action_subset_fonts = treg(
             'subset-fonts.png', _('&Subset embedded fonts'), partial(
                 self.boss.polish, 'subset', _('Subset fonts')), 'subset-fonts', (), _('Subset embedded fonts'))
@@ -382,11 +424,15 @@ class Main(MainWindow):
             'embed-fonts.png', _('&Embed referenced fonts'), partial(
                 self.boss.polish, 'embed', _('Embed fonts')), 'embed-fonts', (), _('Embed referenced fonts'))
         self.action_smarten_punctuation = treg(
-            'smarten-punctuation.png', _('&Smarten punctuation'), partial(
-                self.boss.polish, 'smarten_punctuation', _('Smarten punctuation')), 'smarten-punctuation', (), _('Smarten punctuation'))
+            'smarten-punctuation.png', _('&Smarten punctuation (works best for English)'), partial(
+                self.boss.polish, 'smarten_punctuation', _('Smarten punctuation')),
+            'smarten-punctuation', (), _('Smarten punctuation'))
         self.action_remove_unused_css = treg(
             'edit-clear.png', _('Remove &unused CSS rules'), partial(
                 self.boss.polish, 'remove_unused_css', _('Remove unused CSS rules')), 'remove-unused-css', (), _('Remove unused CSS rules'))
+        self.action_upgrade_book_internals = treg(
+            'arrow-up.png', _('&Upgrade book internals'), partial(
+                self.boss.polish, 'upgrade_book', _('Upgrade book internals')), 'upgrade-book', (), _('Upgrade book internals'))
 
         # Preview actions
         group = _('Preview')
@@ -394,21 +440,22 @@ class Main(MainWindow):
         self.action_auto_sync_preview = reg('sync-right.png', _('Sync preview position to editor position'), None, 'sync-preview-to-editor', (), _(
             'Sync preview position to editor position'))
         self.action_reload_preview = reg('view-refresh.png', _('Refresh preview'), None, 'reload-preview', ('F5',), _('Refresh preview'))
-        self.action_split_in_preview = reg('auto_author_sort.png', _('Split this file'), None, 'split-in-preview', (), _(
+        self.action_split_in_preview = reg('document-split.png', _('Split this file'), None, 'split-in-preview', (), _(
             'Split file in the preview panel'))
-        self.action_find_next_preview = reg('arrow-down.png', _('Find Next'), None, 'find-next-preview', (), _('Find next in preview'))
-        self.action_find_prev_preview = reg('arrow-up.png', _('Find Previous'), None, 'find-prev-preview', (), _('Find previous in preview'))
+        self.action_find_next_preview = reg('arrow-down.png', _('Find next'), None, 'find-next-preview', (), _('Find next in preview'))
+        self.action_find_prev_preview = reg('arrow-up.png', _('Find previous'), None, 'find-prev-preview', (), _('Find previous in preview'))
 
         # Search actions
         group = _('Search')
-        self.action_find = treg('search.png', _('&Find/Replace'), self.boss.show_find, 'find-replace', ('Ctrl+F',), _('Show the Find/Replace panel'))
+        self.action_find = treg('search.png', _('&Find/replace'), self.boss.show_find, 'find-replace', ('Ctrl+F',), _('Show the Find/replace panel'))
+
         def sreg(name, text, action, overrides={}, keys=(), description=None, icon=None):
             return reg(icon, text, partial(self.boss.search_action_triggered, action, overrides), name, keys, description or text.replace('&', ''))
-        self.action_find_next = sreg('find-next', _('Find &Next'),
+        self.action_find_next = sreg('find-next', _('Find &next'),
                                      'find', {'direction':'down'}, ('F3', 'Ctrl+G'), _('Find next match'))
-        self.action_find_previous = sreg('find-previous', _('Find &Previous'),
+        self.action_find_previous = sreg('find-previous', _('Find &previous'),
                                          'find', {'direction':'up'}, ('Shift+F3', 'Shift+Ctrl+G'), _('Find previous match'))
-        self.action_replace = sreg('replace', _('Replace'),
+        self.action_replace = sreg('replace', _('&Replace'),
                                    'replace', keys=('Ctrl+R'), description=_('Replace current match'))
         self.action_replace_next = sreg('replace-next', _('&Replace and find next'),
                                         'replace-find', {'direction':'down'}, ('Ctrl+]'), _('Replace current match and find next'))
@@ -424,10 +471,12 @@ class Main(MainWindow):
         self.action_go_to_line = reg(None, _('Go to &line'), self.boss.go_to_line_number, 'go-to-line-number', ('Ctrl+.',), _('Go to line number'))
         self.action_saved_searches = treg('folder_saved_search.png', _('Sa&ved searches'),
                                           self.boss.saved_searches, 'saved-searches', (), _('Show the saved searches dialog'))
+        self.action_text_search = treg('view.png', _('&Search ignoring HTML markup'),
+                                          self.boss.show_text_search, 'text-search', (), _('Show the text search panel'))
 
         # Check Book actions
-        group = _('Check Book')
-        self.action_check_book = treg('debug.png', _('&Check Book'), self.boss.check_requested, 'check-book', ('F7'), _('Check book for errors'))
+        group = _('Check book')
+        self.action_check_book = treg('debug.png', _('&Check book'), self.boss.check_requested, 'check-book', ('F7'), _('Check book for errors'))
         self.action_spell_check_book = treg('spell-check.png', _('Check &spelling'), self.boss.spell_check_requested, 'spell-check-book', ('Alt+F7'), _(
             'Check book for spelling errors'))
         self.action_check_book_next = reg('forward.png', _('&Next error'), partial(
@@ -450,16 +499,19 @@ class Main(MainWindow):
                 'Close all tabs except the current tab'))
         self.action_help = treg(
             'help.png', _('User &Manual'), lambda : open_url(QUrl(localize_user_manual_link(
-                'http://manual.calibre-ebook.com/edit.html'))), 'user-manual', 'F1', _(
+                'https://manual.calibre-ebook.com/edit.html'))), 'user-manual', 'F1', _(
                 'Show User Manual'))
         self.action_browse_images = treg(
             'view-image.png', _('&Browse images in book'), self.boss.browse_images, 'browse-images', (), _(
                 'Browse images in the books visually'))
         self.action_multiple_split = treg(
-            'auto_author_sort.png', _('&Split at multiple locations'), self.boss.multisplit, 'multisplit', (), _(
+            'document-split.png', _('&Split at multiple locations'), self.boss.multisplit, 'multisplit', (), _(
                 'Split HTML file at multiple locations'))
-        self.action_compare_book = treg('diff.png', _('&Compare to another book'), self.boss.compare_book, 'compare-book', (), _(
+        self.action_compare_book = treg('diff.png', _('Compare to &another book'), self.boss.compare_book, 'compare-book', (), _(
             'Compare to another book'))
+        self.action_manage_snippets = treg(
+            'snippets.png', _('Manage &Snippets'), self.boss.manage_snippets, 'manage-snippets', (), _(
+                'Manage user created snippets'))
 
         self.plugin_menu_actions = []
 
@@ -480,6 +532,7 @@ class Main(MainWindow):
         f.addAction(self.action_open_book)
         f.addAction(self.action_new_book)
         f.addAction(self.action_import_book)
+        f.addAction(self.action_open_book_folder)
         self.recent_books_menu = f.addMenu(_('&Recently opened books'))
         self.update_recent_books()
         f.addSeparator()
@@ -512,8 +565,10 @@ class Main(MainWindow):
         e.addAction(self.action_manage_fonts)
         e.addAction(self.action_embed_fonts)
         e.addAction(self.action_subset_fonts)
+        e.addAction(self.action_compress_images)
         e.addAction(self.action_smarten_punctuation)
         e.addAction(self.action_remove_unused_css)
+        e.addAction(self.action_transform_styles)
         e.addAction(self.action_fix_html_all)
         e.addAction(self.action_pretty_all)
         e.addAction(self.action_rationalize_folders)
@@ -521,7 +576,12 @@ class Main(MainWindow):
         e.addAction(self.action_set_semantics)
         e.addAction(self.action_filter_css)
         e.addAction(self.action_spell_check_book)
+        er = e.addMenu(_('External &links'))
+        er.addAction(self.action_check_external_links)
+        er.addAction(self.action_get_ext_resources)
         e.addAction(self.action_check_book)
+        e.addAction(self.action_reports)
+        e.addAction(self.action_upgrade_book_internals)
 
         e = b.addMenu(_('&View'))
         t = e.addMenu(_('Tool&bars'))
@@ -557,6 +617,8 @@ class Main(MainWindow):
         e.addSeparator()
         a(self.action_saved_searches)
         e.aboutToShow.connect(self.search_menu_about_to_show)
+        e.addSeparator()
+        a(self.action_text_search)
 
         if self.plugin_menu_actions:
             e = b.addMenu(_('&Plugins'))
@@ -566,7 +628,7 @@ class Main(MainWindow):
         e = b.addMenu(_('&Help'))
         a = e.addAction
         a(self.action_help)
-        a(QIcon(I('donate.png')), _('Donate to support calibre development'), open_donate)
+        a(QIcon(I('donate.png')), _('&Donate to support calibre development'), open_donate)
         a(self.action_preferences)
 
     def search_menu_about_to_show(self):
@@ -586,6 +648,7 @@ class Main(MainWindow):
             b = self.addToolBar(text)
             b.setObjectName(name)  # Needed for saveState
             actions[name] = b.toggleViewAction()
+            b.setIconSize(QSize(tprefs['toolbar_icon_size'], tprefs['toolbar_icon_size']))
             return b
         self.global_bar = create(_('Book tool bar'), 'global')
         self.tools_bar = create(_('Tools tool bar'), 'tools')
@@ -594,6 +657,7 @@ class Main(MainWindow):
 
     def populate_toolbars(self, animate=False):
         self.global_bar.clear(), self.tools_bar.clear(), self.plugins_bar.clear()
+
         def add(bar, ac):
             if ac is None:
                 bar.addSeparator()
@@ -601,15 +665,10 @@ class Main(MainWindow):
                 self.donate_button = b = ThrobbingButton(self)
                 b.clicked.connect(open_donate)
                 b.setAutoRaise(True)
-                self.donate_widget = w = create_donate_widget(b)
-                if hasattr(w, 'filler'):
-                    w.filler.setVisible(False)
-                b.set_normal_icon_size(self.global_bar.iconSize().width(), self.global_bar.iconSize().height())
-                b.setIcon(QIcon(I('donate.png')))
                 b.setToolTip(_('Donate to support calibre development'))
                 if animate:
                     QTimer.singleShot(10, b.start_animation)
-                bar.addWidget(w)
+                bar.addWidget(b)
             else:
                 try:
                     bar.addAction(actions[ac])
@@ -641,13 +700,13 @@ class Main(MainWindow):
             setattr(self, oname.replace('-', '_'), d)
             return d
 
-        d = create(_('Files Browser'), 'files-browser')
+        d = create(_('File browser'), 'files-browser')
         d.setAllowedAreas(Qt.LeftDockWidgetArea | Qt.RightDockWidgetArea)
         self.file_list = FileListWidget(d)
         d.setWidget(self.file_list)
         self.addDockWidget(Qt.LeftDockWidgetArea, d)
 
-        d = create(_('File Preview'), 'preview')
+        d = create(_('File preview'), 'preview')
         d.setAllowedAreas(Qt.LeftDockWidgetArea | Qt.RightDockWidgetArea)
         self.preview = Preview(d)
         d.setWidget(self.preview)
@@ -660,7 +719,7 @@ class Main(MainWindow):
         self.addDockWidget(Qt.RightDockWidgetArea, d)
         d.close()  # Hidden by default
 
-        d = create(_('Check Book'), 'check-book')
+        d = create(_('Check book'), 'check-book')
         d.setAllowedAreas(Qt.LeftDockWidgetArea | Qt.RightDockWidgetArea | Qt.BottomDockWidgetArea | Qt.TopDockWidgetArea)
         d.setWidget(self.check_book)
         self.addDockWidget(Qt.TopDockWidgetArea, d)
@@ -680,6 +739,12 @@ class Main(MainWindow):
         self.addDockWidget(Qt.LeftDockWidgetArea, d)
         d.close()  # Hidden by default
 
+        d = create(_('Text search'), 'text-search')
+        d.setAllowedAreas(Qt.LeftDockWidgetArea | Qt.RightDockWidgetArea | Qt.BottomDockWidgetArea | Qt.TopDockWidgetArea)
+        d.setWidget(self.text_search)
+        self.addDockWidget(Qt.LeftDockWidgetArea, d)
+        d.close()  # Hidden by default
+
         d = create(_('Checkpoints'), 'checkpoints')
         d.setAllowedAreas(Qt.LeftDockWidgetArea | Qt.RightDockWidgetArea | Qt.BottomDockWidgetArea | Qt.TopDockWidgetArea)
         self.checkpoints = CheckpointView(self.boss.global_undo, parent=d)
@@ -687,7 +752,7 @@ class Main(MainWindow):
         self.addDockWidget(Qt.LeftDockWidgetArea, d)
         d.close()  # Hidden by default
 
-        d = create(_('Saved Searches'), 'saved-searches')
+        d = create(_('Saved searches'), 'saved-searches')
         d.setAllowedAreas(Qt.LeftDockWidgetArea | Qt.RightDockWidgetArea | Qt.BottomDockWidgetArea | Qt.TopDockWidgetArea)
         d.setWidget(self.saved_searches)
         self.addDockWidget(Qt.LeftDockWidgetArea, d)
@@ -713,6 +778,7 @@ class Main(MainWindow):
         self.central.save_state()
         self.saved_searches.save_state()
         self.check_book.save_state()
+        self.text_search.save_state()
 
     def restore_state(self):
         geom = tprefs.get('main_window_geometry', None)

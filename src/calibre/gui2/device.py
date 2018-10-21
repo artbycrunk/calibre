@@ -14,8 +14,9 @@ from PyQt5.Qt import (
 from calibre.customize.ui import (available_input_formats, available_output_formats,
     device_plugins, disabled_device_plugins)
 from calibre.devices.interface import DevicePlugin, currently_connected_device
-from calibre.devices.errors import (UserFeedback, OpenFeedback, OpenFailed,
+from calibre.devices.errors import (UserFeedback, OpenFeedback, OpenFailed, OpenActionNeeded,
                                     InitialConnectionError)
+from calibre.ebooks.covers import cprefs, override_prefs, scale_cover, generate_cover
 from calibre.gui2.dialogs.choose_format_device import ChooseFormatDeviceDialog
 from calibre.utils.ipc.job import BaseJob
 from calibre.devices.scanner import DeviceScanner
@@ -27,15 +28,14 @@ from calibre import preferred_encoding, prints, force_unicode, as_unicode, sanit
 from calibre.utils.filenames import ascii_filename
 from calibre.devices.errors import (FreeSpaceError, WrongDestinationError,
         BlacklistedDevice)
-from calibre.devices.apple.driver import ITUNES_ASYNC
 from calibre.devices.folder_device.driver import FOLDER_DEVICE
-from calibre.devices.bambook.driver import BAMBOOK, BAMBOOKWifi
 from calibre.constants import DEBUG
 from calibre.utils.config import tweaks, device_prefs
-from calibre.utils.magick.draw import thumbnail
+from calibre.utils.img import scale_image
 from calibre.library.save_to_disk import find_plugboard
 from calibre.ptempfile import PersistentTemporaryFile, force_unicode as filename_to_unicode
 # }}}
+
 
 class DeviceJob(BaseJob):  # {{{
 
@@ -116,10 +116,12 @@ class DeviceJob(BaseJob):  # {{{
 
     # }}}
 
+
 def device_name_for_plugboards(device_class):
     if hasattr(device_class, 'DEVICE_PLUGBOARD_NAME'):
         return device_class.DEVICE_PLUGBOARD_NAME
     return device_class.__class__.__name__
+
 
 class BusyCursor(object):
 
@@ -162,6 +164,7 @@ class DeviceManager(Thread):  # {{{
         self.ejected_devices  = set([])
         self.mount_connection_requests = Queue.Queue(0)
         self.open_feedback_slot = open_feedback_slot
+        self.open_feedback_only_once_seen = set()
         self.after_callback_feedback_slot = after_callback_feedback_slot
         self.open_feedback_msg = open_feedback_msg
         self._device_information = None
@@ -293,6 +296,10 @@ class DeviceManager(Thread):  # {{{
                         except BlacklistedDevice as e:
                             prints('Ignoring blacklisted device: %s'%
                                     as_unicode(e))
+                        except OpenActionNeeded as e:
+                            if e.only_once_id not in self.open_feedback_only_once_seen:
+                                self.open_feedback_only_once_seen.add(e.only_once_id)
+                                self.open_feedback_msg(e.device_name, e)
                         except:
                             prints('Error while trying to open %s (Driver: %s)'%
                                     (cd, dev))
@@ -327,7 +334,7 @@ class DeviceManager(Thread):  # {{{
                 if e.show_me:
                     traceback.print_exc()
 
-    # Mount devices that don't use USB, such as the folder device and iTunes
+    # Mount devices that don't use USB, such as the folder device
     # This will be called on the GUI thread. Because of this, we must store
     # information that the scanner thread will use to do the real work.
     def mount_device(self, kls, kind, path):
@@ -564,7 +571,7 @@ class DeviceManager(Thread):  # {{{
                             if DEBUG:
                                 prints('Setting metadata in:', mi.title, 'at:',
                                         f, file=sys.__stdout__)
-                            with open(f, 'r+b') as stream:
+                            with lopen(f, 'r+b') as stream:
                                 if cpb:
                                     newmi = mi.deepcopy_metadata()
                                     newmi.template_to_attribute(mi, cpb)
@@ -593,9 +600,9 @@ class DeviceManager(Thread):  # {{{
 
     def upload_books(self, done, files, names, on_card=None, titles=None,
                      metadata=None, plugboards=None, add_as_step_to_job=None):
-        desc = _('Upload %d books to device')%len(names)
+        desc = ngettext('Upload one book to the device', 'Upload {} books to the device', len(names)).format(len(names))
         if titles:
-            desc += u':' + u', '.join(titles)
+            desc += u': ' + u', '.join(titles)
         return self.create_job_step(self._upload_books, done, to_job=add_as_step_to_job,
                                args=[files, names],
                 kwargs={'on_card':on_card,'metadata':metadata,'plugboards':plugboards}, description=desc)
@@ -621,7 +628,7 @@ class DeviceManager(Thread):  # {{{
             name = sanitize_file_name2(os.path.basename(path))
             dest = os.path.join(target, name)
             if os.path.abspath(dest) != os.path.abspath(path):
-                with open(dest, 'wb') as f:
+                with lopen(dest, 'wb') as f:
                     self.device.get_file(path, f)
 
     def save_books(self, done, paths, target, add_as_step_to_job=None):
@@ -630,7 +637,7 @@ class DeviceManager(Thread):  # {{{
                         to_job=add_as_step_to_job)
 
     def _view_book(self, path, target):
-        with open(target, 'wb') as f:
+        with lopen(target, 'wb') as f:
             self.device.get_file(path, f)
         return target
 
@@ -685,6 +692,7 @@ class DeviceManager(Thread):  # {{{
 
     # }}}
 
+
 class DeviceAction(QAction):  # {{{
 
     a_s = pyqtSignal(object)
@@ -703,6 +711,7 @@ class DeviceAction(QAction):  # {{{
         return self.__class__.__name__ + ':%s:%s:%s'%(self.dest, self.delete,
                 self.specific)
     # }}}
+
 
 class DeviceMenu(QMenu):  # {{{
 
@@ -797,7 +806,7 @@ class DeviceMenu(QMenu):  # {{{
 
         mitem = self.addAction(QIcon(I('eject.png')), _('Eject device'))
         mitem.setEnabled(False)
-        mitem.triggered.connect(lambda x : self.disconnect_mounted_device.emit())
+        connect_lambda(mitem.triggered, self, lambda self, x: self.disconnect_mounted_device.emit())
         self.disconnect_mounted_device_action = mitem
         self.addSeparator()
 
@@ -809,8 +818,7 @@ class DeviceMenu(QMenu):  # {{{
 
         annot = self.addAction(_('Fetch annotations (experimental)'))
         annot.setEnabled(False)
-        annot.triggered.connect(lambda x :
-                self.fetch_annotations.emit())
+        connect_lambda(annot.triggered, self, lambda self, x: self.fetch_annotations.emit())
         self.annotation_action = annot
         self.enable_device_actions(False)
 
@@ -853,6 +861,7 @@ class DeviceMenu(QMenu):  # {{{
 
     # }}}
 
+
 class DeviceSignals(QObject):  # {{{
     #: This signal is emitted once, after metadata is downloaded from the
     #: connected device.
@@ -869,8 +878,10 @@ class DeviceSignals(QObject):  # {{{
     #: otherwise a disconnection.
     device_connection_changed = pyqtSignal(object)
 
+
 device_signals = DeviceSignals()
 # }}}
+
 
 class DeviceMixin(object):  # {{{
 
@@ -925,8 +936,9 @@ class DeviceMixin(object):  # {{{
         )
 
     def set_default_thumbnail(self, height):
-        img = I('book.png', data=True)
-        self.default_thumbnail = thumbnail(img, height, height)
+        ratio = height / float(cprefs['cover_height'])
+        self.default_thumbnail_prefs = prefs = override_prefs(cprefs)
+        scale_cover(prefs, ratio)
 
     def connect_to_folder_named(self, folder):
         if os.path.exists(folder) and os.path.isdir(folder):
@@ -939,14 +951,7 @@ class DeviceMixin(object):  # {{{
         if dir is not None:
             self.device_manager.mount_device(kls=FOLDER_DEVICE, kind='folder', path=dir)
 
-    def connect_to_bambook(self):
-        self.device_manager.mount_device(kls=BAMBOOKWifi, kind='bambook',
-                                         path=BAMBOOK.settings().extra_customization)
-
-    def connect_to_itunes(self):
-        self.device_manager.mount_device(kls=ITUNES_ASYNC, kind='itunes', path=None)
-
-    # disconnect from both folder and itunes devices
+    # disconnect from folder devices
     def disconnect_mounted_device(self):
         self.device_manager.umount_device()
 
@@ -958,23 +963,30 @@ class DeviceMixin(object):  # {{{
                     _('Cannot configure the device while there are running'
                         ' device jobs.'), show=True)
         dev = self.device_manager.connected_device
+
         cw = dev.config_widget()
-        d = QDialog(self)
-        d.setWindowTitle(_('Configure %s')%dev.get_gui_name())
-        d.setWindowIcon(QIcon(I('config.png')))
-        l = QVBoxLayout(d)
-        d.setLayout(l)
+        config_dialog = QDialog(self)
+
+        config_dialog.setWindowTitle(_('Configure %s')%dev.get_gui_name())
+        config_dialog.setWindowIcon(QIcon(I('config.png')))
+        l = QVBoxLayout(config_dialog)
+        config_dialog.setLayout(l)
         bb = QDialogButtonBox(QDialogButtonBox.Ok|QDialogButtonBox.Cancel)
-        bb.accepted.connect(d.accept)
-        bb.rejected.connect(d.reject)
+        bb.accepted.connect(config_dialog.accept)
+        bb.rejected.connect(config_dialog.reject)
         l.addWidget(cw)
         l.addWidget(bb)
+        # We do not save/restore the size of this dialog as different devices
+        # have very different size requirements
+        config_dialog.resize(config_dialog.sizeHint())
+
         def validate():
             if cw.validate():
-                QDialog.accept(d)
-        d.accept = validate
-        if d.exec_() == d.Accepted:
+                QDialog.accept(config_dialog)
+        config_dialog.accept = validate
+        if config_dialog.exec_() == config_dialog.Accepted:
             dev.save_settings(cw)
+
             do_restart = show_restart_warning(_('Restart calibre for the changes to %s'
                 ' to be applied.')%dev.get_gui_name(), parent=self)
             if do_restart:
@@ -1075,15 +1087,17 @@ class DeviceMixin(object):  # {{{
         else:
             self.device_connected = None
             self.status_bar.device_disconnected()
+            dviews = (self.memory_view, self.card_a_view, self.card_b_view)
+            for v in dviews:
+                v.save_state()
             if self.current_view() != self.library_view:
                 self.book_details.reset_info()
             self.location_manager.update_devices()
-            self.bars_manager.update_bars()
+            self.bars_manager.update_bars(reveal_bar=True)
             self.library_view.set_device_connected(self.device_connected)
             # Empty any device view information
-            self.memory_view.set_database([])
-            self.card_a_view.set_database([])
-            self.card_b_view.set_database([])
+            for v in dviews:
+                v.set_database([])
             self.refresh_ondevice()
         device_signals.device_connection_changed.emit(connected)
 
@@ -1096,7 +1110,7 @@ class DeviceMixin(object):  # {{{
         info, cp, fs = job.result
         self.location_manager.update_devices(cp, fs,
                 self.device_manager.device.icon)
-        self.bars_manager.update_bars()
+        self.bars_manager.update_bars(reveal_bar=True)
         self.status_bar.device_connected(info[0])
         db = self.current_db
         self.device_manager.set_library_information(None, os.path.basename(db.library_path),
@@ -1168,6 +1182,9 @@ class DeviceMixin(object):  # {{{
         '''
         Called once deletion is done on the device
         '''
+        cv, row = self.current_view(), -1
+        if cv is not self.library_view:
+            row = cv.currentIndex().row()
         for view in (self.memory_view, self.card_a_view, self.card_b_view):
             view.model().deletion_done(job, job.failed)
         if job.failed:
@@ -1186,11 +1203,14 @@ class DeviceMixin(object):  # {{{
         # if set_books_in_library did not.
         if not self.set_books_in_library(self.booklists(), reset=True,
                                  add_as_step_to_job=job, do_device_sync=False):
+
             self.upload_booklists(job)
         # We need to reset the ondevice flags in the library. Use a big hammer,
         # so we don't need to worry about whether some succeeded or not.
         self.refresh_ondevice()
 
+        if row > -1:
+            cv.set_current_row(row)
         try:
             if not self.current_view().currentIndex().isValid():
                 self.current_view().set_current_row()
@@ -1226,11 +1246,11 @@ class DeviceMixin(object):  # {{{
                             format_count[f] = 1
             for f in self.device_manager.device.settings().format_map:
                 if f in format_count.keys():
-                    formats.append((f, _('%(num)i of %(total)i Books') % dict(
+                    formats.append((f, _('%(num)i of %(total)i books') % dict(
                         num=format_count[f], total=len(rows)),
                         True if f in aval_out_formats else False))
                 elif f in aval_out_formats:
-                    formats.append((f, _('0 of %i Books') % len(rows), True))
+                    formats.append((f, _('0 of %i books') % len(rows), True))
             d = ChooseFormatDeviceDialog(self, _('Choose format to send to device'), formats)
             if d.exec_() != QDialog.Accepted:
                 return
@@ -1274,7 +1294,7 @@ class DeviceMixin(object):  # {{{
         if self.device_manager.device and \
                 hasattr(self.device_manager.device, 'THUMBNAIL_WIDTH'):
             try:
-                return thumbnail(data,
+                return scale_image(data,
                                  self.device_manager.device.THUMBNAIL_WIDTH,
                                  self.device_manager.device.THUMBNAIL_HEIGHT,
                                  preserve_aspect_ratio=False)
@@ -1284,7 +1304,7 @@ class DeviceMixin(object):  # {{{
         ht = self.device_manager.device.THUMBNAIL_HEIGHT \
                 if self.device_manager else DevicePlugin.THUMBNAIL_HEIGHT
         try:
-            return thumbnail(data, ht, ht,
+            return scale_image(data, ht, ht,
                     compression_quality=self.device_manager.device.THUMBNAIL_COMPRESSION_QUALITY)
         except:
             pass
@@ -1348,6 +1368,7 @@ class DeviceMixin(object):  # {{{
     @dynamic_property
     def news_to_be_synced(self):
         doc = 'Set of ids to be sent to device'
+
         def fget(self):
             ans = []
             try:
@@ -1360,7 +1381,7 @@ class DeviceMixin(object):  # {{{
 
         def fset(self, ids):
             try:
-                self.library_view.model().db.prefs.set('news_to_be_synced',
+                self.library_view.model().db.new_api.set_pref('news_to_be_synced',
                         list(ids))
             except:
                 import traceback
@@ -1568,9 +1589,14 @@ class DeviceMixin(object):  # {{{
                 self.device_manager.device.icon)
         # reset the views so that up-to-date info is shown. These need to be
         # here because some drivers update collections in sync_booklists
+        cv, row = self.current_view(), -1
+        if cv is not self.library_view:
+            row = cv.currentIndex().row()
         self.memory_view.reset()
         self.card_a_view.reset()
         self.card_b_view.reset()
+        if row > -1:
+            cv.set_current_row(row)
 
     def _upload_collections(self, job):
         if job.failed:
@@ -1717,9 +1743,11 @@ class DeviceMixin(object):  # {{{
 
     def update_thumbnail(self, book):
         if book.cover and os.access(book.cover, os.R_OK):
-            book.thumbnail = self.cover_to_thumbnail(open(book.cover, 'rb').read())
+            with lopen(book.cover, 'rb') as f:
+                book.thumbnail = self.cover_to_thumbnail(f.read())
         else:
-            book.thumbnail = self.default_thumbnail
+            cprefs = self.default_thumbnail_prefs
+            book.thumbnail = (cprefs['cover_width'], cprefs['cover_height'], generate_cover(book, prefs=cprefs))
 
     def set_books_in_library(self, booklists, reset=False, add_as_step_to_job=None,
                              force_send=False, do_device_sync=True):
@@ -1740,7 +1768,8 @@ class DeviceMixin(object):  # {{{
         except:
             return False
 
-        string_pat = re.compile('(?u)\W|[_]')
+        string_pat = re.compile(r'(?u)\W|[_]')
+
         def clean_string(x):
             x = x.lower() if x else ''
             return string_pat.sub('', x)
@@ -1814,8 +1843,8 @@ class DeviceMixin(object):  # {{{
 
                 return (db.metadata_last_modified(id_, index_is_id=True) !=
                         getattr(book, 'last_modified', None) or
-                        (isinstance(getattr(book, 'thumbnail', None), (list, tuple))
-                         and max(book.thumbnail[0], book.thumbnail[1]) != desired_thumbnail_height
+                        (isinstance(getattr(book, 'thumbnail', None), (list, tuple)) and
+                         max(book.thumbnail[0], book.thumbnail[1]) != desired_thumbnail_height
                         )
                        )
             except:
@@ -1946,7 +1975,9 @@ class DeviceMixin(object):  # {{{
                             pt.close()
                             files.append(filename_to_unicode(os.path.abspath(pt.name)))
                             names.append(fmt_name)
-                            metadata.append(db.new_api.get_metadata(id_, get_cover=True))
+                            mi = db.new_api.get_metadata(id_, get_cover=True)
+                            self.update_thumbnail(mi)
+                            metadata.append(mi)
                         except:
                             prints('Problem creating temporary file for', fmt_name)
                             traceback.print_exc()
@@ -1978,4 +2009,3 @@ class DeviceMixin(object):  # {{{
         # The status line is reset when the job finishes
         return update_metadata
     # }}}
-

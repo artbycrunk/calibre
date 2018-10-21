@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python2
 __copyright__ = '2008, Kovid Goyal kovid@kovidgoyal.net'
 __docformat__ = 'restructuredtext en'
 __license__   = 'GPL v3'
@@ -15,6 +15,7 @@ from calibre.gui2.dialogs.confirm_delete import confirm
 from calibre.library.check_library import CheckLibrary, CHECKS
 from calibre.utils.recycle_bin import delete_file, delete_tree
 from calibre import prints, as_unicode
+
 
 class DBCheck(QDialog):  # {{{
 
@@ -36,7 +37,6 @@ class DBCheck(QDialog):  # {{{
         self.resize(self.sizeHint() + QSize(100, 50))
         self.error = None
         self.db = db.new_api
-        self.closed_orig_conn = False
         self.rejected = False
 
     def start(self):
@@ -70,8 +70,10 @@ class DBCheck(QDialog):  # {{{
 
 # }}}
 
+
 class Item(QTreeWidgetItem):
     pass
+
 
 class CheckLibraryDialog(QDialog):
 
@@ -79,7 +81,7 @@ class CheckLibraryDialog(QDialog):
         QDialog.__init__(self, parent)
         self.db = db
 
-        self.setWindowTitle(_('Check Library -- Problems Found'))
+        self.setWindowTitle(_('Check library -- Problems found'))
         self.setWindowIcon(QIcon(I('debug.png')))
 
         self._tl = QHBoxLayout()
@@ -205,7 +207,7 @@ class CheckLibraryDialog(QDialog):
             _('Enter comma-separated standard file name wildcards, such as synctoy*.dat'))
         ln.setBuddy(self.name_ignores)
         h.addWidget(self.name_ignores)
-        le = QLabel(_('Extensions to ignore'))
+        le = QLabel(_('Extensions to ignore:'))
         h.addWidget(le)
         self.ext_ignores = QLineEdit()
         self.ext_ignores.setText(db.prefs.get('check_library_ignore_extensions', ''))
@@ -230,10 +232,8 @@ class CheckLibraryDialog(QDialog):
         return True
 
     def accept(self):
-        self.db.prefs['check_library_ignore_extensions'] = \
-                                            unicode(self.ext_ignores.text())
-        self.db.prefs['check_library_ignore_names'] = \
-                                            unicode(self.name_ignores.text())
+        self.db.new_api.set_pref('check_library_ignore_extensions', unicode(self.ext_ignores.text()))
+        self.db.new_api.set_pref('check_library_ignore_names', unicode(self.name_ignores.text()))
         QDialog.accept(self)
 
     def box_to_list(self, txt):
@@ -324,8 +324,7 @@ class CheckLibraryDialog(QDialog):
 
     def delete_marked(self):
         if not confirm('<p>'+_('The marked files and folders will be '
-               '<b>permanently deleted</b>. Are you sure?')
-               +'</p>', 'check_library_editor_delete', self):
+               '<b>permanently deleted</b>. Are you sure?') + '</p>', 'check_library_editor_delete', self):
             return
 
         # Sort the paths in reverse length order so that we can be sure that
@@ -354,9 +353,9 @@ class CheckLibraryDialog(QDialog):
             item = tl.child(i)
             id = int(item.data(0, Qt.UserRole))
             all = self.db.formats(id, index_is_id=True, verify_formats=False)
-            all = set([f.strip() for f in all.split(',')]) if all else set()
+            all = {f.strip() for f in all.split(',')} if all else set()
             valid = self.db.formats(id, index_is_id=True, verify_formats=True)
-            valid = set([f.strip() for f in valid.split(',')]) if valid else set()
+            valid = {f.strip() for f in valid.split(',')} if valid else set()
             for fmt in all-valid:
                 self.db.remove_format(id, fmt, index_is_id=True, db_only=True)
 
@@ -396,4 +395,3 @@ if __name__ == '__main__':
     from calibre.library import db
     d = CheckLibraryDialog(None, db())
     d.exec_()
-

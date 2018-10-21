@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python2
 # vim:fileencoding=UTF-8:ts=4:sw=4:sta:et:sts=4:ai
 from __future__ import (unicode_literals, division, absolute_import,
                         print_function)
@@ -13,8 +13,10 @@ try:
     from calibre.utils.serve_coffee import serve
 except ImportError:
     import init_calibre
-    if False: init_calibre, serve
+    if False:
+        init_calibre, serve
     from calibre.utils.serve_coffee import serve
+
 
 def run_devel_server():
     os.chdir(os.path.dirname(os.path.abspath(__file__)))

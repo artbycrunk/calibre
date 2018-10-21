@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python2
 # vim:fileencoding=utf-8
 from __future__ import (unicode_literals, division, absolute_import,
                         print_function)
@@ -10,6 +10,7 @@ __copyright__ = '2014, Kovid Goyal <kovid at kovidgoyal.net>'
 def control(func):
     func.function_type = 'control'
     return func
+
 
 def data(func):
     func.function_type = 'data'

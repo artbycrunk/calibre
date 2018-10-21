@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python2
 # vim:fileencoding=UTF-8:ts=4:sw=4:sta:et:sts=4:ai
 
 __license__   = 'GPL v3'
@@ -24,7 +24,9 @@ Periodical identifier sample from a PRS-650:
 
 <?xml version="1.0" encoding="UTF-8"?>
 <cacheExt xmlns="http://www.sony.com/xmlns/product/prs/device/1">
-    <text conformsTo="http://xmlns.sony.net/e-book/prs/periodicals/1.0/newspaper/1.0" periodicalName="The Atlantic" description="Current affairs and politics focussed on the US" publicationDate="Tue, 19 Oct 2010 00:00:00 GMT" path="database/media/books/calibre/Atlantic [Mon, 18 Oct 2010], The - calibre_1701.epub">
+    <text conformsTo="http://xmlns.sony.net/e-book/prs/periodicals/1.0/newspaper/1.0" periodicalName="The Atlantic"
+    description="Current affairs and politics focussed on the US" publicationDate="Tue, 19 Oct 2010 00:00:00 GMT"
+    path="database/media/books/calibre/Atlantic [Mon, 18 Oct 2010], The - calibre_1701.epub">
         <thumbnail width="167" height="217">main_thumbnail.jpg</thumbnail>
     </text>
 </cacheExt>
@@ -58,12 +60,14 @@ MONTH_MAP = dict(Jan=1, Feb=2, Mar=3, Apr=4, May=5, Jun=6, Jul=7, Aug=8, Sep=9, 
 INVERSE_DAY_MAP = dict(zip(DAY_MAP.values(), DAY_MAP.keys()))
 INVERSE_MONTH_MAP = dict(zip(MONTH_MAP.values(), MONTH_MAP.keys()))
 
+
 def strptime(src):
     src = src.strip()
     src = src.split()
     src[0] = str(DAY_MAP[src[0][:-1]])+','
     src[2] = str(MONTH_MAP[src[2]])
     return time.strptime(' '.join(src), '%w, %d %m %Y %H:%M:%S %Z')
+
 
 def strftime(epoch, zone=time.localtime):
     try:
@@ -75,11 +79,13 @@ def strftime(epoch, zone=time.localtime):
     src[2] = INVERSE_MONTH_MAP[int(src[2])]
     return ' '.join(src)
 
+
 def uuid():
     from uuid import uuid4
     return str(uuid4()).replace('-', '', 1).upper()
 
 # }}}
+
 
 class XMLCache(object):
 
@@ -100,12 +106,12 @@ class XMLCache(object):
                 if not os.path.exists(path):
                     raise DeviceError(('The SONY XML cache %r does not exist. Try'
                         ' disconnecting and reconnecting your reader.')%repr(path))
-                with open(path, 'rb') as f:
+                with lopen(path, 'rb') as f:
                     raw = f.read()
             else:
                 raw = EMPTY_CARD_CACHE
                 if os.access(path, os.R_OK):
-                    with open(path, 'rb') as f:
+                    with lopen(path, 'rb') as f:
                         raw = f.read()
 
             self.roots[source_id] = etree.fromstring(xml_to_unicode(
@@ -120,14 +126,14 @@ class XMLCache(object):
         for source_id, path in ext_paths.items():
             if not os.path.exists(path):
                 try:
-                    with open(path, 'wb') as f:
+                    with lopen(path, 'wb') as f:
                         f.write(EMPTY_EXT_CACHE)
                         fsync(f)
                 except:
                     pass
             if os.access(path, os.W_OK):
                 try:
-                    with open(path, 'rb') as f:
+                    with lopen(path, 'rb') as f:
                         self.ext_roots[source_id] = etree.fromstring(
                                 xml_to_unicode(f.read(),
                                     strip_encoding_pats=True, assume_utf8=True,
@@ -149,7 +155,6 @@ class XMLCache(object):
 
         self.detect_namespaces()
         debug_print('Done building XMLCache...')
-
 
     # Playlist management {{{
     def purge_broken_playlist_items(self, root):
@@ -275,7 +280,7 @@ class XMLCache(object):
         return ans
     # }}}
 
-    def fix_ids(self): # {{{
+    def fix_ids(self):  # {{{
         debug_print('Running fix_ids()')
 
         def ensure_numeric_ids(root):
@@ -485,7 +490,6 @@ class XMLCache(object):
         except:
             pass
 
-
     def rebuild_collections(self, booklist, bl_index):
         if bl_index not in self.record_roots:
             return
@@ -574,7 +578,7 @@ class XMLCache(object):
 
     def create_ext_text_record(self, root, bl_id, lpath, thumbnail):
         namespace = root.nsmap[None]
-        attrib = { 'path': lpath }
+        attrib = {'path': lpath}
         ans = root.makeelement('{%s}text'%namespace, attrib=attrib,
                 nsmap=root.nsmap)
         ans.tail = '\n'
@@ -592,7 +596,6 @@ class XMLCache(object):
             ans.append(t)
             t.tail = '\n\t'
         return ans
-
 
     def update_text_record(self, record, book, path, bl_index,
                            gtz_count, ltz_count, use_tz_var):
@@ -635,14 +638,14 @@ class XMLCache(object):
                 # v is not suitable for XML, ignore
                 pass
 
-        if not getattr(book, '_new_book', False): # book is not new
+        if not getattr(book, '_new_book', False):  # book is not new
             if record.get('tz', None) is not None:
                 use_tz_var = True
             if strftime(timestamp, zone=time.gmtime) == rec_date:
                 gtz_count += 1
             elif strftime(timestamp, zone=time.localtime) == rec_date:
                 ltz_count += 1
-        else: # book is new. Set the time using the current votes
+        else:  # book is new. Set the time using the current votes
             if use_tz_var:
                 tz = time.localtime
                 record.set('tz', '0')
@@ -714,7 +717,6 @@ class XMLCache(object):
             for pl in seen:
                 root.append(pl)
 
-
     def write(self):
         from lxml import etree
 
@@ -725,7 +727,7 @@ class XMLCache(object):
                     xml_declaration=True)
             raw = raw.replace("<?xml version='1.0' encoding='UTF-8'?>",
                     '<?xml version="1.0" encoding="UTF-8"?>')
-            with open(path, 'wb') as f:
+            with lopen(path, 'wb') as f:
                 f.write(raw)
                 fsync(f)
 
@@ -737,7 +739,7 @@ class XMLCache(object):
                 continue
             raw = raw.replace("<?xml version='1.0' encoding='UTF-8'?>",
                     '<?xml version="1.0" encoding="UTF-8"?>')
-            with open(path, 'wb') as f:
+            with lopen(path, 'wb') as f:
                 f.write(raw)
                 fsync(f)
 

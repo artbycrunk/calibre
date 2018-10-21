@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python2
 # vim:fileencoding=UTF-8:ts=4:sw=4:sta:et:sts=4:ai
 
 __license__   = 'GPL v3'
@@ -113,7 +113,7 @@ SC_FIELDS_NOT_COPIED =     frozenset(['title', 'title_sort', 'authors',
                                       'identifiers'])
 
 # Metadata fields that smart update should copy only if the source is not None
-SC_FIELDS_COPY_NOT_NULL =  frozenset(['lpath', 'size', 'comments', 'thumbnail'])
+SC_FIELDS_COPY_NOT_NULL =  frozenset(['device_collections', 'lpath', 'size', 'comments', 'thumbnail'])
 
 # Metadata fields that smart update should copy without special handling
 SC_COPYABLE_FIELDS =       SOCIAL_METADATA_FIELDS.union(
@@ -131,4 +131,4 @@ SERIALIZABLE_FIELDS =      SOCIAL_METADATA_FIELDS.union(
                            DEVICE_METADATA_FIELDS) - \
                            frozenset(['device_collections', 'formats',
                                'cover_data'])
-                           # these are rebuilt when needed
+# these are rebuilt when needed

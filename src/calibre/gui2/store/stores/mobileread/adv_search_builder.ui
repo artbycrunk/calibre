@@ -11,7 +11,7 @@
    </rect>
   </property>
   <property name="windowTitle">
-   <string>Advanced Search</string>
+   <string>Advanced search</string>
   </property>
   <property name="windowIcon">
    <iconset>
@@ -54,7 +54,7 @@
      </property>
      <widget class="QWidget" name="tab">
       <attribute name="title">
-       <string>A&amp;dvanced Search</string>
+       <string>A&amp;dvanced search</string>
       </attribute>
       <layout class="QGridLayout" name="gridLayout_3">
        <item row="0" column="0">
@@ -120,7 +120,7 @@
        <item row="1" column="0">
         <widget class="QGroupBox" name="groupBox_2">
          <property name="title">
-          <string>But dont show entries that have...</string>
+          <string>But don&apos;t show entries that have...</string>
          </property>
          <layout class="QVBoxLayout" name="verticalLayout_2">
           <item>
@@ -149,7 +149,7 @@
              </size>
             </property>
             <property name="text">
-             <string>See the &lt;a href=&quot;http://calibre-ebook.com/user_manual/gui.html#the-search-interface&quot;&gt;User Manual&lt;/a&gt; for more help</string>
+                <string>See the &lt;a href=&quot;https://manual.calibre-ebook.com/gui.html#the-search-interface&quot;&gt;User Manual&lt;/a&gt; for more help</string>
             </property>
             <property name="openExternalLinks">
              <bool>true</bool>
@@ -186,7 +186,7 @@
      </widget>
      <widget class="QWidget" name="tab_2">
       <attribute name="title">
-       <string>Titl&amp;e/Author/Price ...</string>
+       <string>Titl&amp;e/author/price ...</string>
       </attribute>
       <layout class="QGridLayout" name="gridLayout">
        <item row="1" column="0">

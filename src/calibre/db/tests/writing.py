@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python2
 # vim:fileencoding=UTF-8:ts=4:sw=4:sta:et:sts=4:fdm=marker:ai
 from __future__ import (unicode_literals, division, absolute_import,
                         print_function)
@@ -14,6 +14,7 @@ from io import BytesIO
 from calibre.ebooks.metadata import author_to_author_sort
 from calibre.utils.date import UNDEFINED_DATE
 from calibre.db.tests.base import BaseTest, IMG
+
 
 class WritingTest(BaseTest):
 
@@ -151,8 +152,8 @@ class WritingTest(BaseTest):
         del cache2
         self.assertEqual(cache.set_field('publisher', {1:'one', 2:'two',
                                                        3:'three'}), {1, 2, 3})
-        self.assertEqual(cache.set_field('publisher', {1:''}), set([1]))
-        self.assertEqual(cache.set_field('publisher', {1:'two'}), set([1]))
+        self.assertEqual(cache.set_field('publisher', {1:''}), {1})
+        self.assertEqual(cache.set_field('publisher', {1:'two'}), {1})
         self.assertEqual(tuple(map(f.for_book, (1,2,3))), ('two', 'two', 'three'))
         self.assertEqual(cache.set_field('publisher', {1:'Two'}), {1, 2})
         cache2 = self.init_cache(cl)
@@ -162,7 +163,7 @@ class WritingTest(BaseTest):
         # Enum
         self.assertFalse(cache.set_field('#enum', {1:'Not allowed'}))
         self.assertEqual(cache.set_field('#enum', {1:'One', 2:'One', 3:'Three'}), {1, 3})
-        self.assertEqual(cache.set_field('#enum', {1:None}), set([1]))
+        self.assertEqual(cache.set_field('#enum', {1:None}), {1})
         cache2 = self.init_cache(cl)
         for c in (cache, cache2):
             for i, val in {1:None, 2:'One', 3:'Three'}.iteritems():
@@ -184,19 +185,20 @@ class WritingTest(BaseTest):
         # Series
         self.assertFalse(cache.set_field('series',
                 {1:'a series one', 2:'a series one'}, allow_case_change=False))
-        self.assertEqual(cache.set_field('series', {3:'Series [3]'}), set([3]))
+        self.assertEqual(cache.set_field('series', {3:'Series [3]'}), {3})
         self.assertEqual(cache.set_field('#series', {1:'Series', 3:'Series'}),
                                          {1, 3})
-        self.assertEqual(cache.set_field('#series', {2:'Series [0]'}), set([2]))
+        self.assertEqual(cache.set_field('#series', {2:'Series [0]'}), {2})
         cache2 = self.init_cache(cl)
         for c in (cache, cache2):
             for i, val in {1:'A Series One', 2:'A Series One', 3:'Series'}.iteritems():
                 self.assertEqual(c.field_for('series', i), val)
+            cs_indices = {1:c.field_for('#series_index', 1), 3:c.field_for('#series_index', 3)}
             for i in (1, 2, 3):
                 self.assertEqual(c.field_for('#series', i), 'Series')
             for i, val in {1:2, 2:1, 3:3}.iteritems():
                 self.assertEqual(c.field_for('series_index', i), val)
-            for i, val in {1:1, 2:0, 3:1}.iteritems():
+            for i, val in {1:cs_indices[1], 2:0, 3:cs_indices[3]}.iteritems():
                 self.assertEqual(c.field_for('#series_index', i), val)
         del cache2
 
@@ -217,7 +219,7 @@ class WritingTest(BaseTest):
             ae(sf(name, {1:'tag one, News'}), {1, 2})
             ae(sf(name, {3:('tag two', 'sep,sep2')}), {2, 3})
             ae(len(f.table.id_map), 4)
-            ae(sf(name, {1:None}), set([1]))
+            ae(sf(name, {1:None}), {1})
             cache2 = self.init_cache(cl)
             for c in (cache, cache2):
                 ae(c.field_for(name, 3), ('tag two', 'sep;sep2'))
@@ -235,7 +237,7 @@ class WritingTest(BaseTest):
             f = cache.fields[name]
             ae(len(f.table.id_map), 3)
             af(cache.set_field(name, {3:None if name == 'authors' else 'Unknown'}))
-            ae(cache.set_field(name, {3:'Kovid Goyal & Divok Layog'}), set([3]))
+            ae(cache.set_field(name, {3:'Kovid Goyal & Divok Layog'}), {3})
             ae(cache.set_field(name, {1:'', 2:'An, Author'}), {1,2})
             cache2 = self.init_cache(cl)
             for c in (cache, cache2):
@@ -255,18 +257,18 @@ class WritingTest(BaseTest):
         # Languages
         f = cache.fields['languages']
         ae(f.table.id_map, {1: 'eng', 2: 'deu'})
-        ae(sf('languages', {1:''}), set([1]))
+        ae(sf('languages', {1:''}), {1})
         ae(cache.field_for('languages', 1), ())
-        ae(sf('languages', {2:('und',)}), set([2]))
+        ae(sf('languages', {2:('und',)}), {2})
         af(f.table.id_map)
         ae(sf('languages', {1:'eng,fra,deu', 2:'es,Dutch', 3:'English'}), {1, 2, 3})
         ae(cache.field_for('languages', 1), ('eng', 'fra', 'deu'))
         ae(cache.field_for('languages', 2), ('spa', 'nld'))
         ae(cache.field_for('languages', 3), ('eng',))
-        ae(sf('languages', {3:None}), set([3]))
+        ae(sf('languages', {3:None}), {3})
         ae(cache.field_for('languages', 3), ())
-        ae(sf('languages', {1:'deu,fra,eng'}), set([1]), 'Changing order failed')
-        ae(sf('languages', {2:'deu,eng,eng'}), set([2]))
+        ae(sf('languages', {1:'deu,fra,eng'}), {1}, 'Changing order failed')
+        ae(sf('languages', {2:'deu,eng,eng'}), {2})
         cache2 = self.init_cache(cl)
         for c in (cache, cache2):
             ae(cache.field_for('languages', 1), ('deu', 'fra', 'eng'))
@@ -275,9 +277,9 @@ class WritingTest(BaseTest):
 
         # Identifiers
         f = cache.fields['identifiers']
-        ae(sf('identifiers', {3: 'one:1,two:2'}), set([3]))
-        ae(sf('identifiers', {2:None}), set([2]))
-        ae(sf('identifiers', {1: {'test':'1', 'two':'2'}}), set([1]))
+        ae(sf('identifiers', {3: 'one:1,two:2'}), {3})
+        ae(sf('identifiers', {2:None}), {2})
+        ae(sf('identifiers', {1: {'test':'1', 'two':'2'}}), {1})
         cache2 = self.init_cache(cl)
         for c in (cache, cache2):
             ae(c.field_for('identifiers', 3), {'one':'1', 'two':'2'})
@@ -321,7 +323,7 @@ class WritingTest(BaseTest):
         onowf = c.nowf
         c.nowf = lambda: utime
         try:
-            ae(sf('title', {3:'xxx'}), set([3]))
+            ae(sf('title', {3:'xxx'}), {3})
             self.assertTrue(3 in cache.dirtied_cache)
             ae(cache.field_for('last_modified', 3), utime)
             cache.dump_metadata()
@@ -372,7 +374,7 @@ class WritingTest(BaseTest):
 
         # Test removing a cover
         ae(cache.field_for('cover', 1), 1)
-        ae(cache.set_cover({1:None}), set([1]))
+        ae(cache.set_cover({1:None}), {1})
         ae(cache.field_for('cover', 1), 0)
         img = IMG
 
@@ -442,7 +444,7 @@ class WritingTest(BaseTest):
         all_ids = cache.all_book_ids()
         self.assertFalse(cache.has_conversion_options(all_ids))
         self.assertIsNone(cache.conversion_options(1))
-        op1, op2 = {'xx':'yy'}, {'yy':'zz'}
+        op1, op2 = b"{'xx':'yy'}", b"{'yy':'zz'}"
         cache.set_conversion_options({1:op1, 2:op2})
         self.assertTrue(cache.has_conversion_options(all_ids))
         self.assertEqual(cache.conversion_options(1), op1)
@@ -490,6 +492,27 @@ class WritingTest(BaseTest):
             self.assertEqual(c.all_field_names('#series'), {'My Series One'})
             for bid in c.all_book_ids():
                 self.assertIn(c.field_for('#series', bid), (None, 'My Series One'))
+
+        # Now test with restriction
+        cache = self.init_cache()
+        cache.set_field('tags', {1:'a,b,c', 2:'b,a', 3:'x,y,z'})
+        cache.set_field('series', {1:'a', 2:'a', 3:'b'})
+        cache.set_field('series_index', {1:8, 2:9, 3:3})
+        tmap, smap = cache.get_id_map('tags'), cache.get_id_map('series')
+        self.assertEqual(cache.remove_items('tags', tmap, restrict_to_book_ids=()), set())
+        self.assertEqual(cache.remove_items('tags', tmap, restrict_to_book_ids={1}), {1})
+        self.assertEqual(cache.remove_items('series', smap, restrict_to_book_ids=()), set())
+        self.assertEqual(cache.remove_items('series', smap, restrict_to_book_ids=(1,)), {1})
+        c2 = self.init_cache()
+        for c in (cache, c2):
+            self.assertEqual(c.field_for('tags', 1), ())
+            self.assertEqual(c.field_for('tags', 2), ('b', 'a'))
+            self.assertNotIn('c', set(c.get_id_map('tags').itervalues()))
+            self.assertEqual(c.field_for('series', 1), None)
+            self.assertEqual(c.field_for('series', 2), 'a')
+            self.assertEqual(c.field_for('series_index', 1), 1.0)
+            self.assertEqual(c.field_for('series_index', 2), 9)
+
     # }}}
 
     def test_rename_items(self):  # {{{
@@ -573,6 +596,19 @@ class WritingTest(BaseTest):
             for t in 'Something,Else,Entirely'.split(','):
                 self.assertIn(t, f)
             self.assertNotIn('Tag One', f)
+
+        # Test with restriction
+        cache = self.init_cache()
+        cache.set_field('tags', {1:'a,b,c', 2:'x,y,z', 3:'a,x,z'})
+        tmap = {v:k for k, v in cache.get_id_map('tags').iteritems()}
+        self.assertEqual(cache.rename_items('tags', {tmap['a']:'r'}, restrict_to_book_ids=()), (set(), {}))
+        self.assertEqual(cache.rename_items('tags', {tmap['a']:'r', tmap['b']:'q'}, restrict_to_book_ids=(1,))[0], {1})
+        self.assertEqual(cache.rename_items('tags', {tmap['x']:'X'}, restrict_to_book_ids=(2,))[0], {2})
+        c2 = self.init_cache()
+        for c in (cache, c2):
+            self.assertEqual(c.field_for('tags', 1), ('r', 'q', 'c'))
+            self.assertEqual(c.field_for('tags', 2), ('X', 'y', 'z'))
+            self.assertEqual(c.field_for('tags', 3), ('a', 'X', 'z'))
     # }}}
 
     def test_composite_cache(self):  # {{{
@@ -609,7 +645,7 @@ class WritingTest(BaseTest):
         uv = int(cache.backend.user_version)
         all_ids = cache.all_book_ids()
         cache.dump_and_restore()
-        self.assertEqual(cache.set_field('title', {1:'nt'}), set([1]), 'database connection broken')
+        self.assertEqual(cache.set_field('title', {1:'nt'}), {1}, 'database connection broken')
         cache = self.init_cache()
         self.assertEqual(cache.all_book_ids(), all_ids, 'dump and restore broke database')
         self.assertEqual(int(cache.backend.user_version), uv)
@@ -692,3 +728,23 @@ class WritingTest(BaseTest):
             ae(c.field_for('tags', 3), (t.id_map[lid], t.id_map[norm]))
     # }}}
 
+    def test_preferences(self):  # {{{
+        ' Test getting and setting of preferences, especially with mutable objects '
+        cache = self.init_cache()
+        changes = []
+        cache.backend.conn.setupdatehook(lambda typ, dbname, tblname, rowid: changes.append(rowid))
+        prefs = cache.backend.prefs
+        prefs['test mutable'] =  [1, 2, 3]
+        self.assertEqual(len(changes), 1)
+        a = prefs['test mutable']
+        a.append(4)
+        self.assertIn(4, prefs['test mutable'])
+        prefs['test mutable'] = a
+        self.assertEqual(len(changes), 2)
+        prefs.load_from_db()
+        self.assertIn(4, prefs['test mutable'])
+        prefs['test mutable'] = {k:k for k in range(10)}
+        self.assertEqual(len(changes), 3)
+        prefs['test mutable'] = {k:k for k in reversed(range(10))}
+        self.assertEqual(len(changes), 3, 'The database was written to despite there being no change in value')
+    # }}}

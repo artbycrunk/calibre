@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python2
 # vim:fileencoding=UTF-8:ts=4:sw=4:sta:et:sts=4:fdm=marker:ai
 from __future__ import (unicode_literals, division, absolute_import,
                         print_function)
@@ -11,6 +11,7 @@ import traceback, re
 
 from calibre.constants import iswindows
 
+
 class DeviceDefaults(object):
 
     def __init__(self):
@@ -18,8 +19,15 @@ class DeviceDefaults(object):
                 # Amazon devices
                 ({'vendor':0x1949}, {
                     'format_map': ['azw3', 'mobi', 'azw',
-                                    'azw1', 'azw4', 'pdf'],
-                    'send_to': ['documents', 'books', 'kindle'],
+                                    'azw1', 'azw4', 'kfx', 'pdf'],
+                    'send_to': ['documents', 'kindle', 'books'],
+                    }
+                ),
+                # B&N devices
+                ({'vendor':0x2080}, {
+                    'format_map': ['epub', 'pdf'],
+                    'send_to': ['NOOK/My Books', 'NOOK/My Files', 'NOOK', 'Calibre_Companion', 'Books',
+                    'eBooks/import', 'eBooks', 'sdcard/ebooks'],
                     }
                 ),
         )
@@ -47,8 +55,9 @@ class DeviceDefaults(object):
                     matches = False
                     break
             if matches:
-                return rule[1]
+                ans = rule[1]
+                if vid == 0x2080 and pid == 0x000a:
+                    ans['calibre_file_paths'] = {'metadata':'NOOK/metadata.calibre', 'driveinfo':'NOOK/driveinfo.calibre'}
+                return ans
 
         return {}
-
-

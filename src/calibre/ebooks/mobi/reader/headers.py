@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python2
 # vim:fileencoding=UTF-8:ts=4:sw=4:sta:et:sts=4:ai
 from __future__ import (absolute_import, print_function)
 
@@ -19,6 +19,7 @@ from calibre.utils.config_base import tweaks
 
 NULL_INDEX = 0xffffffff
 
+
 class EXTHHeader(object):  # {{{
 
     def __init__(self, raw, codec, title):
@@ -33,6 +34,7 @@ class EXTHHeader(object):  # {{{
         self.kf8_header = None
         self.uuid = self.cdetype = None
         self.page_progression_direction = None
+        self.primary_writing_mode = None
 
         self.decode = lambda x : clean_ascii_chars(x.decode(codec, 'replace'))
 
@@ -81,6 +83,13 @@ class EXTHHeader(object):  # {{{
                     if lang:
                         self.mi.language = lang
                 except:
+                    pass
+            elif idx == 525:
+                try:
+                    pwm = content.decode(codec)
+                    if pwm:
+                        self.primary_writing_mode = pwm
+                except Exception:
                     pass
             elif idx == 527:
                 try:
@@ -166,6 +175,7 @@ class EXTHHeader(object):  # {{{
         # else:
         #    print 'unhandled metadata record', idx, repr(content)
 # }}}
+
 
 class BookHeader(object):
 
@@ -266,6 +276,7 @@ class BookHeader(object):
                 self.skelidx = self.dividx = self.othidx = self.fdstidx = \
                         NULL_INDEX
 
+
 class MetadataHeader(BookHeader):
 
     def __init__(self, stream, log):
@@ -333,4 +344,3 @@ class MetadataHeader(BookHeader):
         except OverflowError:
             self.stream.seek(start)
             return self.stream.read()
-

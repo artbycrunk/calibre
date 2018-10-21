@@ -1,107 +1,125 @@
-
-__license__   = 'GPL v3'
-__copyright__ = '2010-2013, Darko Miletic <darko.miletic at gmail.com>'
+__license__ = 'GPL v3'
+__copyright__ = '2014, Darko Miletic <darko.miletic at gmail.com>'
 '''
 www.wired.com
 '''
 
-import re
-from calibre import strftime
 from calibre.web.feeds.news import BasicNewsRecipe
+from datetime import date
+import urllib2
 
-class Wired(BasicNewsRecipe):
-    title                 = 'Wired Magazine'
-    __author__            = 'Darko Miletic'
-    description           = 'Gaming news'
-    publisher             = 'Conde Nast Digital'
-    category              = 'news, games, IT, gadgets'
-    oldest_article        = 32
-    max_articles_per_feed = 100
-    no_stylesheets        = True
-    encoding              = 'utf-8'
-    use_embedded_content  = False
-    masthead_url          = 'http://www.wired.com/images/home/wired_logo.gif'
-    language              = 'en'
-    publication_type      = 'magazine'
-    extra_css             = """ 
-                               h1, .entry-header{font-family: brandon-grotesque,anchor-web,Helvetica,Arial,sans-serif} 
-                               .entry-header{display: block;}
-                               .entry-header ul{ list-style-type:disc;}
-                               .author, .entryDate, .entryTime, .entryEdit, .entryCategories{display: inline}
-                               .entry-header li{text-transform: uppercase;}
-                               div#container{font-family: 'Exchange SSm 4r', Georgia, serif} 
+
+def classes(classes):
+    q = frozenset(classes.split(' '))
+    return dict(attrs={
+        'class': lambda x: x and frozenset(x.split()).intersection(q)})
+
+
+class WiredDailyNews(BasicNewsRecipe):
+    title = 'Wired Magazine, Monthly Edition'
+    __author__ = 'Darko Miletic, update by Zach Lapidus, Michael Marotta'
+    description = ('Wired is a full-color monthly American magazine, '
+                   'published in both print and online editions, that '
+                   'reports on how emerging technologies affect culture, '
+                   'the economy and politics. '
+                   'Monthly edition, best run at the start of every month.')
+    publisher = 'Conde Nast'
+    category = 'news, IT, computers, technology'
+    oldest_article = 45
+    max_articles_per_feed = 200
+    no_stylesheets = True
+    encoding = 'utf-8'
+    use_embedded_content = False
+    language = 'en'
+    ignore_duplicate_articles = {'url'}
+    remove_empty_feeds = True
+    publication_type = 'newsportal'
+    extra_css             = """
+                            .entry-header{
+                                          text-transform: uppercase;
+                                          vertical-align: baseline;
+                                          display: inline;
+                                         }
+                            ul li{display: inline}
                             """
-    index                 = 'http://www.wired.com/magazine/'
 
-    preprocess_regexps = [(re.compile(r'<meta name="Title".*<title>', re.DOTALL|re.IGNORECASE),lambda match: '<title>')]
-    conversion_options = {
-                          'comment'   : description
-                        , 'tags'      : category
-                        , 'publisher' : publisher
-                        , 'language'  : language
-                        }
-
-    keep_only_tags = [dict(name='div', attrs={'class':'post'})]
-    remove_tags_after = dict(name='div', attrs={'id':'container'})
     remove_tags = [
-                     dict(name=['object','embed','iframe','link','meta','base'])
-                    ,dict(name='div', attrs={'class':['social-top','podcast_storyboard','tweetmeme_button']})
-                    ,dict(attrs={'id':'ff_bottom_nav'})
-                    ,dict(name='a',attrs={'href':'http://www.wired.com/app'})
-                    ,dict(name='div', attrs={'id':'mag-bug'})
-                  ]
-    remove_attributes = ['height','width','lang','border','clear']
+        classes('related-cne-video-component tags-component podcast_storyboard inset-left-component'),
+        dict(name=['meta', 'link']),
+        dict(id=['sharing', 'social', 'article-tags', 'sidebar']),
+    ]
+    keep_only_tags = [
+        dict(name='main', attrs={'class': lambda x: x and 'article-main-component__content' in x}),
+    ]
+    remove_attributes = ['srcset']
+    handle_gzip = True
 
+    def get_magazine_year_month(self, seperator):
+        monthurl = str('{:02d}'.format(date.today().month))
+        yearurl = str(date.today().year - 1992)
+        return yearurl + seperator + monthurl
+
+    def get_date_url(self):
+        '''
+        get month and year, add year modifier, append to wired magazine url,
+        :return: url
+        '''
+        baseurl = 'https://www.wired.com/tag/magazine-'
+        magazine_year_month = self.get_magazine_year_month('.')
+        # monthurl = str('{:02d}'.format(date.today().month))
+        # yearurl = str(date.today().year - 1992)
+        dateurl = baseurl + magazine_year_month + '/page/'
+        return dateurl
+
+    def parse_wired_index_page(self, currenturl, seen):
+        soup = self.index_to_soup(currenturl)
+        baseurl = 'https://www.wired.com'
+        for a in soup.find("ul", {"class" : 'archive-list-component__items'}).findAll('a', href=True):
+            url = a['href']
+            if url.startswith('/story') and url.endswith('/'):
+                title = self.tag_to_string(a.parent.find('h2'))
+                dateloc = a.parent.find('time')
+                date = self.tag_to_string(dateloc)
+                if title.lower() != 'read more' and title and url not in seen:
+                    seen.add(url)
+                    self.log('Found article:', title)
+                    yield {
+                        'title': title,
+                        'date': date,
+                        'url': baseurl+url,
+                        'description': ''
+                    }
 
     def parse_index(self):
-        totalfeeds = []
-        soup   = self.index_to_soup(self.index)
-        majorf = soup.find('div',attrs={'class':'entry'})
-        if majorf:
-           articles = []
-           checker = []
-           for a in majorf.findAll('a', href=True):
-               if a['href'].startswith('http://www.wired.com/') and a['href'].endswith('/'):
-                  title = self.tag_to_string(a)
-                  url = a['href']
-                  if title.lower() != 'read more' and url not in checker:
-                      checker.append(url) 
-                      articles.append({
-                                          'title'      :title
-                                         ,'date'       :strftime(self.timefmt)
-                                         ,'url'        :a['href']
-                                         ,'description':''
-                                        })
-           totalfeeds.append(('Articles', articles))
-        return totalfeeds
+        '''
+        get the current month's url, index first page to soup,
+        find number of pages, just keep adding to page num until
+        soup is not none instead of scraping page for :return:
+        '''
+        baseurl = self.get_date_url()
+        pagenum = 1
+        articles = []
+        seen = set()
+        morepages = True
+        while morepages:
+            try:
+                urllib2.urlopen(baseurl + str(pagenum))
+                currenturl = baseurl + str(pagenum)
+                res=self.parse_wired_index_page(currenturl, seen)
+                articles.extend(res)
+                if len(list(res))==0:
+                    morepages = False
+                pagenum += 1
+            except urllib2.HTTPError:
+                morepages = False
+
+        magazine_year_month = self.get_magazine_year_month('.')
+        return [('Magazine-' + magazine_year_month, articles)]
 
     def get_cover_url(self):
-        cover_url = None
-        soup = self.index_to_soup(self.index)
-        cover_item = soup.find('div',attrs={'class':'spread-image'})
-        if cover_item:
-           cover_url = 'http://www.wired.com' + cover_item.a.img['src']
-        return cover_url
-
-    def print_version(self, url):
-        return url.rstrip('/') + '/all/1'
-
-    def preprocess_html(self, soup):
-        for item in soup.findAll(style=True):
-            del item['style']
-        for item in soup.findAll('a'):
-            if item.string is not None:
-               tstr = item.string
-               item.replaceWith(tstr)
-            else:
-               item.name='span'
-               for atrs in ['href','target','alt','title','name','id']:
-                   if item.has_key(atrs):
-                      del item[atrs]
-        for item in soup.findAll('img'):
-            if not item.has_key('alt'):
-               item['alt'] = 'image'            
-            if item.has_key('data-lazy-src'):
-                item['src'] = item['data-lazy-src']
-                del item['data-lazy-src']
-        return soup
+        '''
+        get the most recent magazine cover
+        :return: url
+        '''
+        soup = self.index_to_soup('https://www.wired.com/category/magazine/')
+        return soup.find(id='mag-card').find('img').get('src')

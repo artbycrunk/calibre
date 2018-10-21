@@ -1,6 +1,7 @@
-#!/usr/bin/env python
+#!/usr/bin/env python2
 # vim:fileencoding=UTF-8:ts=4:sw=4:sta:et:sts=4:ai
 from __future__ import with_statement
+from __future__ import print_function
 
 __license__   = 'GPL v3'
 __copyright__ = '2009, Kovid Goyal <kovid@kovidgoyal.net>'
@@ -34,6 +35,9 @@ PARALLEL_FUNCS = {
     'gui_convert'     :
     ('calibre.gui2.convert.gui_conversion', 'gui_convert', 'notification'),
 
+    'gui_convert_recipe'     :
+    ('calibre.gui2.convert.gui_conversion', 'gui_convert_recipe', 'notification'),
+
     'gui_polish'     :
     ('calibre.ebooks.oeb.polish.main', 'gui_polish', None),
 
@@ -43,15 +47,13 @@ PARALLEL_FUNCS = {
     'gui_catalog'     :
     ('calibre.gui2.convert.gui_conversion', 'gui_catalog', 'notification'),
 
-    'move_library'     :
-    ('calibre.library.move', 'move_library', 'notification'),
-
     'arbitrary' :
     ('calibre.utils.ipc.worker', 'arbitrary', None),
 
     'arbitrary_n' :
     ('calibre.utils.ipc.worker', 'arbitrary_n', 'notification'),
 }
+
 
 class Progress(Thread):
 
@@ -73,6 +75,7 @@ class Progress(Thread):
                 eintr_retry_call(self.conn.send, x)
             except:
                 break
+
 
 def arbitrary(module_name, func_name, args, kwargs={}):
     '''
@@ -113,6 +116,7 @@ def arbitrary(module_name, func_name, args, kwargs={}):
     func = getattr(module, func_name)
     return func(*args, **kwargs)
 
+
 def arbitrary_n(module_name, func_name, args, kwargs={},
         notification=lambda x, y: y):
     '''
@@ -132,6 +136,7 @@ def arbitrary_n(module_name, func_name, args, kwargs={},
     kwargs['notification'] = notification
     return func(*args, **kwargs)
 
+
 def get_func(name):
     module, func, notification = PARALLEL_FUNCS[name]
     try:
@@ -145,6 +150,7 @@ def get_func(name):
     func = getattr(module, func)
     return func, notification
 
+
 def main():
     if iswindows:
         if '--multiprocessing-fork' in sys.argv:
@@ -156,7 +162,7 @@ def main():
         # Close open file descriptors inherited from parent
         # On Unix this is done by the subprocess module
         os.closerange(3, 256)
-    if isosx and 'CALIBRE_WORKER_ADDRESS' not in os.environ and '--pipe-worker' not in sys.argv:
+    if isosx and 'CALIBRE_WORKER_ADDRESS' not in os.environ and 'CALIBRE_SIMPLE_WORKER' not in os.environ and '--pipe-worker' not in sys.argv:
         # On some OS X computers launchd apparently tries to
         # launch the last run process from the bundle
         # so launch the gui as usual
@@ -173,7 +179,7 @@ def main():
         try:
             exec (sys.argv[-1])
         except Exception:
-            print 'Failed to run pipe worker with command:', sys.argv[-1]
+            print('Failed to run pipe worker with command:', sys.argv[-1])
             raise
         return
     address = cPickle.loads(unhexlify(os.environ['CALIBRE_WORKER_ADDRESS']))
@@ -196,8 +202,14 @@ def main():
 
         notifier.queue.put(None)
 
-    sys.stdout.flush()
-    sys.stderr.flush()
+    try:
+        sys.stdout.flush()
+    except EnvironmentError:
+        pass  # Happens sometimes on OS X for GUI processes (EPIPE)
+    try:
+        sys.stderr.flush()
+    except EnvironmentError:
+        pass  # Happens sometimes on OS X for GUI processes (EPIPE)
     return 0
 
 

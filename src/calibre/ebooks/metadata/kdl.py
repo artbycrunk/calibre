@@ -1,6 +1,7 @@
-#!/usr/bin/env python
+#!/usr/bin/env python2
 # vim:fileencoding=UTF-8:ts=4:sw=4:sta:et:sts=4:ai
 
+from __future__ import print_function
 __license__   = 'GPL v3'
 __copyright__ = '2011, Kovid Goyal <kovid@kovidgoyal.net>'
 __docformat__ = 'restructuredtext en'
@@ -18,6 +19,7 @@ URL = \
 "http://ww2.kdl.org/libcat/WhatsNext.asp?AuthorLastName={0}&AuthorFirstName=&SeriesName=&BookTitle={1}&CategoryID=0&cmdSearch=Search&Search=1&grouping="
 
 _ignore_starts = u'\'"'+u''.join(unichr(x) for x in range(0x2018, 0x201e)+[0x2032, 0x2033])
+
 
 def get_series(title, authors, timeout=60):
     mi = Metadata(title, authors)
@@ -82,5 +84,5 @@ def get_series(title, authors, timeout=60):
 
 if __name__ == '__main__':
     import sys
-    print get_series(sys.argv[-2], [sys.argv[-1]])
+    print(get_series(sys.argv[-2], [sys.argv[-1]]))
 

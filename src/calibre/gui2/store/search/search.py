@@ -24,6 +24,7 @@ from calibre.gui2.store.search.download_thread import SearchThreadPool, \
 from calibre.gui2.store.search.search_ui import Ui_Dialog
 from calibre.utils.filenames import ascii_filename
 
+
 class SearchDialog(QDialog, Ui_Dialog):
 
     SEARCH_TEXT = _('&Search')
@@ -79,7 +80,8 @@ class SearchDialog(QDialog, Ui_Dialog):
         self.button_layout.setAlignment(Qt.AlignCenter)
         self.button_layout.insertWidget(0, self.pi, 0, Qt.AlignCenter)
 
-        self.adv_search_button.setIcon(QIcon(I('search.png')))
+        self.adv_search_button.setIcon(QIcon(I('gear.png')))
+        self.adv_search_button.setToolTip(_('Advanced search'))
         self.configure.setIcon(QIcon(I('config.png')))
 
         self.adv_search_button.clicked.connect(self.build_adv_search)
@@ -315,7 +317,7 @@ class SearchDialog(QDialog, Ui_Dialog):
         v = QVBoxLayout(d)
         button_box.accepted.connect(d.accept)
         button_box.rejected.connect(d.reject)
-        d.setWindowTitle(_('Customize get books search'))
+        d.setWindowTitle(_('Customize Get books search'))
 
         tab_widget = QTabWidget(d)
         v.addWidget(tab_widget)
@@ -324,8 +326,8 @@ class SearchDialog(QDialog, Ui_Dialog):
         chooser_config_widget = StoreChooserWidget()
         search_config_widget = StoreConfigWidget(self.config)
 
-        tab_widget.addTab(chooser_config_widget, _('Choose stores'))
-        tab_widget.addTab(search_config_widget, _('Configure search'))
+        tab_widget.addTab(chooser_config_widget, _('Choose s&tores'))
+        tab_widget.addTab(search_config_widget, _('Configure s&earch'))
 
         # Restore dialog state.
         geometry = self.config.get('config_dialog_geometry', None)
@@ -436,6 +438,7 @@ class SearchDialog(QDialog, Ui_Dialog):
             self.do_search()
         return QDialog.exec_(self)
 
+
 if __name__ == '__main__':
     from calibre.gui2 import Application
     from calibre.gui2.preferences.main import init_gui
@@ -446,5 +449,3 @@ if __name__ == '__main__':
 
     s = SearchDialog(gui, query=' '.join(sys.argv[1:]))
     s.exec_()
-
-

@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python2
 # vim:fileencoding=UTF-8:ts=4:sw=4:sta:et:sts=4:fdm=marker:ai
 from __future__ import (unicode_literals, division, absolute_import,
                         print_function)
@@ -12,6 +12,7 @@ from struct import unpack_from, calcsize, pack, error as struct_error
 from calibre.utils.fonts.sfnt import (UnknownTable, FixedProperty,
         max_power_of_two)
 from calibre.utils.fonts.sfnt.errors import UnsupportedFont
+
 
 class KernTable(UnknownTable):
 
@@ -61,7 +62,7 @@ class KernTable(UnknownTable):
                 left, right, value = unpack_from(b'>2Hh', raw, offset)
             except struct_error:
                 offset = len(raw)
-                break # Buggy kern table
+                break  # Buggy kern table
             if left in glyph_ids and right in glyph_ids:
                 entries.append(pack(b'>2Hh', left, right, value))
             offset += entrysz
@@ -74,9 +75,9 @@ class KernTable(UnknownTable):
         if npairs == 0:
             return b''
 
-		entry_selector = max_power_of_two(npairs)
-		search_range = (2 ** entry_selector) * 6
-		range_shift = (npairs - (2 ** entry_selector)) * 6
+        entry_selector = max_power_of_two(npairs)
+        search_range = (2 ** entry_selector) * 6
+        range_shift = (npairs - (2 ** entry_selector)) * 6
 
         entries = b''.join(entries)
         length = calcsize(headerfmt + b'4H') + len(entries)

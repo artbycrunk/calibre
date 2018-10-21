@@ -1,6 +1,7 @@
-#!/usr/bin/env python
+#!/usr/bin/env python2
 # vim:fileencoding=UTF-8:ts=4:sw=4:sta:et:sts=4:ai
 from __future__ import with_statement
+from __future__ import print_function
 
 __license__   = 'GPL v3'
 __copyright__ = '2010, Kovid Goyal <kovid@kovidgoyal.net>'
@@ -9,6 +10,7 @@ __docformat__ = 'restructuredtext en'
 import os
 
 from calibre.utils.date import isoformat, DEFAULT_DATE
+
 
 class SchemaUpgrade(object):
 
@@ -20,10 +22,9 @@ class SchemaUpgrade(object):
             if meth is None:
                 break
             else:
-                print 'Upgrading database to version %d...'%(uv+1)
+                print('Upgrading database to version %d...'%(uv+1))
                 meth()
                 self.user_version = uv+1
-
 
     def upgrade_version_1(self):
         '''
@@ -161,7 +162,6 @@ class SchemaUpgrade(object):
         END TRANSACTION;
         '''
         )
-
 
     def upgrade_version_6(self):
         'Show authors in order'
@@ -332,7 +332,7 @@ class SchemaUpgrade(object):
                 FROM {tn};
 
                 '''.format(tn=table_name, cn=column_name,
-                           vcn=view_column_name, scn= sort_column_name))
+                           vcn=view_column_name, scn=sort_column_name))
             self.conn.executescript(script)
 
         def create_cust_tag_browser_view(table_name, link_table_name):
@@ -380,7 +380,7 @@ class SchemaUpgrade(object):
 
         db_tables = self.conn.get('''SELECT name FROM sqlite_master
                                      WHERE type='table'
-                                     ORDER BY name''');
+                                     ORDER BY name''')
         tables = []
         for (table,) in db_tables:
             tables.append(table)
@@ -417,6 +417,7 @@ class SchemaUpgrade(object):
         'Cache has_cover'
         self.conn.execute('ALTER TABLE books ADD COLUMN has_cover BOOL DEFAULT 0')
         data = self.conn.get('SELECT id,path FROM books', all=True)
+
         def has_cover(path):
             if path:
                 path = os.path.join(self.library_path, path.replace('/', os.sep),

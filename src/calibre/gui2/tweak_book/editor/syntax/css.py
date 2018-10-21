@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python2
 # vim:fileencoding=utf-8
 from __future__ import (unicode_literals, division, absolute_import,
                         print_function)
@@ -120,7 +120,7 @@ content_tokens = [(re.compile(k), v, n) for k, v, n in [
 
     (r'\#[a-zA-Z0-9]{1,6}', 'number', 'hexnumber'),
 
-    (r'[\.-]?[0-9]*[\.]?[0-9]+(em|px|pt|pc|in|mm|cm|ex|s|rem)\b', 'number', 'dimension'),
+    (r'[\.-]?[0-9]*[\.]?[0-9]+(em|px|pt|pc|in|mm|cm|ex|q|rem)\b', 'number', 'dimension'),
 
     (r'[\.-]?[0-9]*[\.]?[0-9]+%(?=$|[ \n\t\f\r;}{()\[\]])', 'number', 'dimension'),
 
@@ -140,6 +140,7 @@ IN_SQS = 2
 IN_DQS = 3
 IN_CONTENT = 4
 IN_COMMENT_CONTENT = 5
+
 
 class CSSState(object):
 
@@ -165,6 +166,7 @@ class CSSState(object):
         return "CSSState(parse=%s, blocks=%s)" % (self.parse, self.blocks)
     __str__ = __repr__
 
+
 class CSSUserData(QTextBlockUserData):
 
     def __init__(self):
@@ -175,6 +177,7 @@ class CSSUserData(QTextBlockUserData):
     def clear(self, state=None, doc_name=None):
         self.state = CSSState() if state is None else state
         self.doc_name = doc_name
+
 
 def normal(state, text, i, formats, user_data):
     ' The normal state (outside content blocks {})'
@@ -201,6 +204,7 @@ def normal(state, text, i, formats, user_data):
             return [(len(m.group()), formats[fmt])]
 
     return [(len(text) - i, formats['unknown-normal'])]
+
 
 def content(state, text, i, formats, user_data):
     ' Inside content blocks '
@@ -241,6 +245,7 @@ def content(state, text, i, formats, user_data):
 
     return [(len(text) - i, formats['unknown-normal'])]
 
+
 def comment(state, text, i, formats, user_data):
     ' Inside a comment '
     pos = text.find('*/', i)
@@ -248,6 +253,7 @@ def comment(state, text, i, formats, user_data):
         return [(len(text), formats['comment'])]
     state.parse = NORMAL if state.parse == IN_COMMENT_NORMAL else IN_CONTENT
     return [(pos - i + 2, formats['comment'])]
+
 
 def in_string(state, text, i, formats, user_data):
     'Inside a string'
@@ -270,6 +276,7 @@ state_map = {
     IN_DQS: in_string,
     IN_CONTENT: content,
 }
+
 
 def create_formats(highlighter):
     theme = highlighter.theme

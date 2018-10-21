@@ -1,4 +1,5 @@
-#!/usr/bin/env  python
+#!/usr/bin/env  python2
+from __future__ import print_function
 __license__   = 'GPL v3'
 __copyright__ = '2010, Kovid Goyal <kovid at kovidgoyal.net>'
 
@@ -105,6 +106,7 @@ class TOC(list):
     @dynamic_property
     def abspath(self):
         doc='Return the file this toc entry points to as a absolute path to a file on the system.'
+
         def fget(self):
             if self.href is None:
                 return None
@@ -142,7 +144,7 @@ class TOC(list):
 
                     self.read_html_toc(toc)
                 except:
-                    print 'WARNING: Could not read Table of Contents. Continuing anyway.'
+                    print('WARNING: Could not read Table of Contents. Continuing anyway.')
             else:
                 path = opfreader.manifest.item(toc.lower())
                 path = getattr(path, 'path', path)
@@ -150,7 +152,7 @@ class TOC(list):
                     try:
                         self.read_ncx_toc(path)
                     except Exception as err:
-                        print 'WARNING: Invalid NCX file:', err
+                        print('WARNING: Invalid NCX file:', err)
                     return
                 cwd = os.path.abspath(self.base_path)
                 m = glob.glob(os.path.join(cwd, '*.ncx'))
@@ -217,7 +219,7 @@ class TOC(list):
         self.base_path = os.path.dirname(toc)
         soup = BeautifulSoup(open(toc, 'rb').read(), convertEntities=BeautifulSoup.HTML_ENTITIES)
         for a in soup.findAll('a'):
-            if not a.has_key('href'):
+            if not a.has_key('href'):  # noqa
                 continue
             purl = urlparse(unquote(a['href']))
             href, fragment = purl[2], purl[5]
@@ -274,7 +276,10 @@ class TOC(list):
             desc = getattr(np, 'description', None)
             if desc:
                 desc = re.sub(r'\s+', ' ', desc)
-                elem.append(C.meta(desc, name='description'))
+                try:
+                    elem.append(C.meta(desc, name='description'))
+                except ValueError:
+                    elem.append(C.meta(clean_xml_chars(desc), name='description'))
             idx = getattr(np, 'toc_thumbnail', None)
             if idx:
                 elem.append(C.meta(idx, name='toc_thumbnail'))

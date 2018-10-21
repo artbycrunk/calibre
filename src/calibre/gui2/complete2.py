@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python2
 # vim:fileencoding=UTF-8:ts=4:sw=4:sta:et:sts=4:ai
 from __future__ import (unicode_literals, division, absolute_import,
                         print_function)
@@ -9,19 +9,24 @@ __docformat__ = 'restructuredtext en'
 
 import weakref
 
-import sip
 from PyQt5.Qt import (
     QLineEdit, QAbstractListModel, Qt, pyqtSignal, QObject, QKeySequence,
     QApplication, QListView, QPoint, QModelIndex, QFont, QFontInfo,
     QStyleOptionComboBox, QStyle, QComboBox, QTimer)
+try:
+    from PyQt5 import sip
+except ImportError:
+    import sip
 
 from calibre.constants import isosx, get_osx_version
 from calibre.utils.icu import sort_key, primary_startswith, primary_contains
 from calibre.gui2.widgets import EnComboBox, LineEditECM
 from calibre.utils.config import tweaks
 
+
 def containsq(x, prefix):
     return primary_contains(prefix, x)
+
 
 class CompleteModel(QAbstractListModel):  # {{{
 
@@ -72,6 +77,7 @@ class CompleteModel(QAbstractListModel):  # {{{
             if primary_startswith(item, prefix):
                 return self.index(i)
 # }}}
+
 
 class Completer(QListView):  # {{{
 
@@ -152,8 +158,7 @@ class Completer(QListView):  # {{{
         if widget is None:
             return
         screen = QApplication.desktop().availableGeometry(widget)
-        h = (p.sizeHintForRow(0) * min(self.max_visible_items, m.rowCount()) +
-                3) + 3
+        h = (p.sizeHintForRow(0) * min(self.max_visible_items, m.rowCount()) + 3) + 3
         hsb = p.horizontalScrollBar()
         if hsb and hsb.isVisible():
             h += hsb.sizeHint().height()
@@ -195,9 +200,9 @@ class Completer(QListView):  # {{{
 
     def debug_event(self, ev):
         from calibre.gui2 import event_type_name
-        print ('Event:', event_type_name(ev))
+        print('Event:', event_type_name(ev))
         if ev.type() in (ev.KeyPress, ev.ShortcutOverride, ev.KeyRelease):
-            print ('\tkey:', QKeySequence(ev.key()).toString())
+            print('\tkey:', QKeySequence(ev.key()).toString())
 
     def eventFilter(self, obj, e):
         'Redirect key presses from the popup to the widget'
@@ -211,7 +216,10 @@ class Completer(QListView):  # {{{
         # self.debug_event(e)
 
         if etype == e.KeyPress:
-            key = e.key()
+            try:
+                key = e.key()
+            except AttributeError:
+                return QObject.eventFilter(self, obj, e)
             if key == Qt.Key_Escape:
                 self.hide()
                 e.accept()
@@ -260,7 +268,7 @@ class Completer(QListView):  # {{{
             # See https://bugreports.qt-project.org/browse/QTBUG-41806
             e.accept()
             return True
-        elif etype == e.MouseButtonPress and not self.rect().contains(self.mapFromGlobal(e.globalPos())):
+        elif etype == e.MouseButtonPress and hasattr(e, 'globalPos') and not self.rect().contains(self.mapFromGlobal(e.globalPos())):
             # A click outside the popup, close it
             if isinstance(widget, QComboBox):
                 # This workaround is needed to ensure clicking on the drop down
@@ -279,6 +287,7 @@ class Completer(QListView):  # {{{
             QApplication.sendEvent(widget, e)
         return False
 # }}}
+
 
 class LineEdit(QLineEdit, LineEditECM):
     '''
@@ -327,6 +336,7 @@ class LineEdit(QLineEdit, LineEditECM):
     def all_items(self):
         def fget(self):
             return self.mcompleter.model().all_items
+
         def fset(self, items):
             self.mcompleter.model().set_items(items)
         return property(fget=fget, fset=fset)
@@ -335,10 +345,18 @@ class LineEdit(QLineEdit, LineEditECM):
     def disable_popup(self):
         def fget(self):
             return self.mcompleter.disable_popup
+
         def fset(self, val):
             self.mcompleter.disable_popup = bool(val)
         return property(fget=fget, fset=fset)
     # }}}
+
+    def event(self, ev):
+        # See https://bugreports.qt.io/browse/QTBUG-46911
+        if ev.type() == ev.ShortcutOverride and (
+                ev.key() in (Qt.Key_Left, Qt.Key_Right) and (ev.modifiers() & ~Qt.KeypadModifier) == Qt.ControlModifier):
+            ev.accept()
+        return QLineEdit.event(self, ev)
 
     def complete(self, show_all=False, select_first=True):
         orig = None
@@ -410,6 +428,7 @@ class LineEdit(QLineEdit, LineEditECM):
         self.setCursorPosition(len(before_text))
         self.item_selected.emit(text)
 
+
 class EditWithComplete(EnComboBox):
 
     item_selected = pyqtSignal(object)
@@ -452,6 +471,7 @@ class EditWithComplete(EnComboBox):
     def all_items(self):
         def fget(self):
             return self.lineEdit().all_items
+
         def fset(self, val):
             self.lineEdit().all_items = val
         return property(fget=fget, fset=fset)
@@ -460,6 +480,7 @@ class EditWithComplete(EnComboBox):
     def disable_popup(self):
         def fget(self):
             return self.lineEdit().disable_popup
+
         def fset(self, val):
             self.lineEdit().disable_popup = bool(val)
         return property(fget=fget, fset=fset)
@@ -498,6 +519,7 @@ class EditWithComplete(EnComboBox):
             if c.isVisible():
                 return True
         return EnComboBox.eventFilter(self, obj, e)
+
 
 if __name__ == '__main__':
     from PyQt5.Qt import QDialog, QVBoxLayout

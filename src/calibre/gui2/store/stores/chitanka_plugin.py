@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 
 from __future__ import (unicode_literals, division, absolute_import, print_function)
-store_version = 1 # Needed for dynamic plugin loading
+store_version = 1  # Needed for dynamic plugin loading
 
 __license__ = 'GPL 3'
 __copyright__ = '2011, Alex Stanev <alex@stanev.org>'
@@ -21,6 +21,7 @@ from calibre.gui2.store import StorePlugin
 from calibre.gui2.store.basic_config import BasicStoreConfig
 from calibre.gui2.store.search_result import SearchResult
 from calibre.gui2.store.web_store_dialog import WebStoreDialog
+
 
 class ChitankaStore(BasicStoreConfig, StorePlugin):
 
@@ -79,7 +80,7 @@ class ChitankaStore(BasicStoreConfig, StorePlugin):
                     s.downloads['TXT'] = base_url + ''.join(data.xpath('.//a[@class="dl dl-txt"]/@href')).strip().replace('.zip', '')
                     s.formats = 'FB2, EPUB, TXT, SFB'
                     yield s
-        except urllib2.HTTPError, e:
+        except urllib2.HTTPError as e:
             if e.code == 404:
                 return
             else:

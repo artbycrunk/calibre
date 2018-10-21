@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python2
 # vim:fileencoding=UTF-8:ts=4:sw=4:sta:et:sts=4:fdm=marker:ai
 from __future__ import (unicode_literals, division, absolute_import,
                         print_function)
@@ -22,11 +22,13 @@ from calibre.utils.filenames import shorten_components_to
 BASE = importlib.import_module('calibre.devices.mtp.%s.driver'%(
     'windows' if iswindows else 'unix')).MTP_DEVICE
 
+
 class MTPInvalidSendPathError(PathError):
 
     def __init__(self, folder):
         PathError.__init__(self, 'Trying to send to ignored folder: %s'%folder)
         self.folder = folder
+
 
 class MTP_DEVICE(BASE):
 
@@ -51,6 +53,7 @@ class MTP_DEVICE(BASE):
         self._prefs = None
         self.device_defaults = DeviceDefaults()
         self.current_device_defaults = {}
+        self.calibre_file_paths = {'metadata':self.METADATA_CACHE, 'driveinfo':self.DRIVEINFO}
         self.highlight_ignored_folders = False
 
     @property
@@ -61,7 +64,7 @@ class MTP_DEVICE(BASE):
             p.defaults['format_map'] = self.FORMATS
             p.defaults['send_to'] = ['Calibre_Companion', 'Books',
                     'eBooks/import', 'eBooks', 'wordplayer/calibretransfer',
-                    'sdcard/ebooks', 'kindle']
+                    'sdcard/ebooks', 'kindle', 'NOOK']
             p.defaults['send_template'] = '{title} - {authors}'
             p.defaults['blacklist'] = []
             p.defaults['history'] = {}
@@ -128,6 +131,8 @@ class MTP_DEVICE(BASE):
             self.prefs['history'] = h
 
         self.current_device_defaults = self.device_defaults(device, self)
+        self.calibre_file_paths = self.current_device_defaults.get(
+            'calibre_file_paths', {'metadata':self.METADATA_CACHE, 'driveinfo':self.DRIVEINFO})
 
     def get_device_uid(self):
         return self.current_serial_num
@@ -140,12 +145,17 @@ class MTP_DEVICE(BASE):
         if self.is_mtp_device_connected:
             self.eject()
 
+    def put_calibre_file(self, storage, key, stream, size):
+        path = self.calibre_file_paths[key].split('/')
+        parent = self.ensure_parent(storage, path)
+        self.put_file(parent, path[-1], stream, size)
+
     # Device information {{{
     def _update_drive_info(self, storage, location_code, name=None):
         from calibre.utils.date import isoformat, now
         from calibre.utils.config import from_json, to_json
         import uuid
-        f = storage.find_path((self.DRIVEINFO,))
+        f = storage.find_path(self.calibre_file_paths['driveinfo'].split('/'))
         dinfo = {}
         if f is not None:
             try:
@@ -167,7 +177,7 @@ class MTP_DEVICE(BASE):
         dinfo['date_last_connected'] = isoformat(now())
         dinfo['mtp_prefix'] = storage.storage_prefix
         raw = json.dumps(dinfo, default=to_json)
-        self.put_file(storage, self.DRIVEINFO, BytesIO(raw), len(raw))
+        self.put_calibre_file(storage, 'driveinfo', BytesIO(raw), len(raw))
         self.driveinfo[location_code] = dinfo
 
     def get_driveinfo(self):
@@ -219,10 +229,10 @@ class MTP_DEVICE(BASE):
         steps = len(all_books) + 2
         count = 0
 
-        self.report_progress(0, _('Reading ebook metadata'))
+        self.report_progress(0, _('Reading e-book metadata'))
         # Read the cache if it exists
         storage = self.filesystem_cache.storage(sid)
-        cache = storage.find_path((self.METADATA_CACHE,))
+        cache = storage.find_path(self.calibre_file_paths['metadata'].split('/'))
         if cache is not None:
             json_codec = JSONCodec()
             try:
@@ -298,7 +308,7 @@ class MTP_DEVICE(BASE):
         json_codec.encode_to_file(stream, bl)
         size = stream.tell()
         stream.seek(0)
-        self.put_file(storage, self.METADATA_CACHE, stream, size)
+        self.put_calibre_file(storage, 'metadata', stream, size)
 
     def sync_booklists(self, booklists, end_session=True):
         debug('sync_booklists() called')
@@ -333,7 +343,7 @@ class MTP_DEVICE(BASE):
             if iswindows:
                 plen = len(base)
                 name = ''.join(shorten_components_to(245-plen, [name]))
-            with open(os.path.join(base, name), 'wb') as out:
+            with lopen(os.path.join(base, name), 'wb') as out:
                 try:
                     self.get_mtp_file(f, out)
                 except Exception as e:
@@ -485,6 +495,7 @@ class MTP_DEVICE(BASE):
 
     def remove_books_from_metadata(self, paths, booklists):
         self.report_progress(0, _('Removing books from metadata'))
+
         class NextPath(Exception):
             pass
 
@@ -523,6 +534,7 @@ class MTP_DEVICE(BASE):
 
     def settings(self):
         class Opts(object):
+
             def __init__(s):
                 s.format_map = self.get_pref('format_map')
         return Opts()
@@ -560,6 +572,6 @@ if __name__ == '__main__':
         dev.set_progress_reporter(prints)
         dev.open(cd, None)
         dev.filesystem_cache.dump()
-        print ('Prefix for main mem:', dev.prefix_for_location(None))
+        print('Prefix for main mem:', dev.prefix_for_location(None))
     finally:
         dev.shutdown()

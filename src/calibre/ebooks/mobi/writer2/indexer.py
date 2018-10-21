@@ -1,8 +1,8 @@
-#!/usr/bin/env python
+#!/usr/bin/env python2
 # vim:fileencoding=UTF-8:ts=4:sw=4:sta:et:sts=4:ai
 from __future__ import (unicode_literals, division, absolute_import,
                         print_function)
-from future_builtins import filter, map
+from polyglot.builtins import filter, map
 
 __license__   = 'GPL v3'
 __copyright__ = '2011, Kovid Goyal <kovid@kovidgoyal.net>'
@@ -14,6 +14,7 @@ from collections import OrderedDict, defaultdict
 
 from calibre.ebooks.mobi.utils import (encint, encode_number_as_hex,
         encode_tbs, align_block, RECORD_SIZE, CNCX as CNCX_)
+
 
 class CNCX(CNCX_):  # {{{
 
@@ -29,6 +30,7 @@ class CNCX(CNCX_):  # {{{
                     strings.append(item.description)
         CNCX_.__init__(self, strings)
 # }}}
+
 
 class TAGX(object):  # {{{
 
@@ -132,6 +134,7 @@ class IndexEntry(object):
     def size(self):
         def fget(self):
             return self.length
+
         def fset(self, val):
             self.length = val
         return property(fget=fget, fset=fset, doc='Alias for length')
@@ -198,6 +201,7 @@ class IndexEntry(object):
         ans = buf.getvalue()
         return ans
 
+
 class PeriodicalIndexEntry(IndexEntry):
 
     def __init__(self, offset, label_offset, class_offset, depth):
@@ -205,6 +209,7 @@ class PeriodicalIndexEntry(IndexEntry):
         self.depth = depth
         self.class_offset = class_offset
         self.control_byte_count = 2
+
 
 class SecondaryIndexEntry(IndexEntry):
 
@@ -237,6 +242,7 @@ class SecondaryIndexEntry(IndexEntry):
             yield cls(rmap[tag])
 
 # }}}
+
 
 class TBS(object):  # {{{
 
@@ -308,8 +314,7 @@ class TBS(object):  # {{{
 
             # parent_section_index is needed for the last record
             if first_node is not None and first_node.depth > 0:
-                parent_section_index = (first_node.index if first_node.depth
-                        == 1 else first_node.parent_index)
+                parent_section_index = (first_node.index if first_node.depth == 1 else first_node.parent_index)
             else:
                 parent_section_index = max(self.section_map.iterkeys())
 
@@ -340,8 +345,7 @@ class TBS(object):  # {{{
             extra = {}
             # Write starting section information
             if spanner is None:
-                num_articles = len([a for a in depth_map[1] if a.parent_index
-                    == parent_section_index])
+                num_articles = len([a for a in depth_map[1] if a.parent_index == parent_section_index])
                 if not depth_map[1]:
                     extra = {0b0001: 0}
                 if num_articles > 1:
@@ -350,8 +354,8 @@ class TBS(object):  # {{{
 
         if spanner is None:
             articles = depth_map[2]
-            sections = set([self.section_map[a.parent_index] for a in
-                articles])
+            sections = {self.section_map[a.parent_index] for a in
+                articles}
             sections = sorted(sections, key=lambda x:x.offset)
             section_map = {s:[a for a in articles if a.parent_index ==
                 s.index] for s in sections}
@@ -423,6 +427,7 @@ class TBS(object):  # {{{
                     0b100: len(nodes)}, flag_size=3)
 
 # }}}
+
 
 class Indexer(object):  # {{{
 

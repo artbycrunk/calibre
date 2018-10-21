@@ -11,12 +11,14 @@ import os
 from calibre import guess_type
 from calibre.customize.conversion import InputFormatPlugin
 
+
 class HTMLZInput(InputFormatPlugin):
 
     name        = 'HTLZ Input'
     author      = 'John Schember'
     description = 'Convert HTML files to HTML'
-    file_types  = set(['htmlz'])
+    file_types  = {'htmlz'}
+    commit_name = 'htmlz_input'
 
     def convert(self, stream, options, file_ext, log,
                 accelerators):

@@ -1,4 +1,4 @@
-#!/usr/bin/python
+#!/usr/bin/python2
 # -*- coding: utf-8 -*-
 # vim:fileencoding=UTF-8:ts=4:sw=4:sta:et:sts=4:fdm=marker:ai
 #
@@ -30,7 +30,7 @@ from odf.opendocument import load as odLoad
 from odf.draw import Image as odImage, Frame as odFrame
 
 from calibre.ebooks.metadata import MetaInformation, string_to_authors, check_isbn
-from calibre.utils.magick.draw import identify_data
+from calibre.utils.imghdr import identify
 from calibre.utils.date import parse_date
 from calibre.utils.localization import canonicalize_lang
 
@@ -52,8 +52,9 @@ fields = {
 'print-date':       (METANS,u'print-date'),
 'creation-date':    (METANS,u'creation-date'),
 'user-defined':     (METANS,u'user-defined'),
-#'template':         (METANS,u'template'),
+# 'template':         (METANS,u'template'),
 }
+
 
 def normalize(str):
     """
@@ -63,11 +64,13 @@ def normalize(str):
     """
     return whitespace.sub(' ', str).strip()
 
+
 class MetaCollector:
     """
     The MetaCollector is a pseudo file object, that can temporarily ignore write-calls
     It could probably be replaced with a StringIO object.
     """
+
     def __init__(self):
         self._content = []
         self.dowrite = True
@@ -155,6 +158,7 @@ class odfmetaparser(xml.sax.saxutils.XMLGenerator):
     def data(self):
         return normalize(''.join(self._data))
 
+
 def get_metadata(stream, extract_cover=True):
     zin = zipfile.ZipFile(stream, 'r')
     odfs = odfmetaparser()
@@ -217,6 +221,7 @@ def get_metadata(stream, extract_cover=True):
 
     return mi
 
+
 def read_cover(stream, zin, mi, opfmeta, extract_cover):
     # search for an draw:image in a draw:frame with the name 'opf.cover'
     # if opf.metadata prop is false, just use the first image that
@@ -236,8 +241,8 @@ def read_cover(stream, zin, mi, opfmeta, extract_cover):
         except KeyError:
             continue
         try:
-            width, height, fmt = identify_data(raw)
-        except:
+            fmt, width, height = identify(bytes(raw))
+        except Exception:
             continue
         imgnum += 1
         if opfmeta and frm.getAttribute('name').lower() == u'opf.cover':
@@ -259,8 +264,8 @@ def read_cover(stream, zin, mi, opfmeta, extract_cover):
             if not cover_data:
                 raw = zin.read(cover_href)
                 try:
-                    width, height, fmt = identify_data(raw)
-                except:
+                    fmt = identify(bytes(raw))[0]
+                except Exception:
                     pass
                 else:
                     cover_data = (fmt, raw)

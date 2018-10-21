@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python2
 # vim:fileencoding=utf-8
 from __future__ import (unicode_literals, division, absolute_import,
                         print_function)
@@ -7,9 +7,10 @@ __license__ = 'GPL v3'
 __copyright__ = '2014, Kovid Goyal <kovid at kovidgoyal.net>'
 
 import unittest
-from future_builtins import map
+from polyglot.builtins import map
 
 from calibre.ebooks.epub.cfi.parse import parser, cfi_sort_key
+
 
 class Tests(unittest.TestCase):
 
@@ -25,17 +26,21 @@ class Tests(unittest.TestCase):
 
     def test_parsing(self):
         p = parser()
+
         def step(x):
             if isinstance(x, int):
                 return {'num': x}
             return {'num':x[0], 'id':x[1]}
+
         def s(*args):
             return {'steps':list(map(step, args))}
+
         def r(*args):
             idx = args.index('!')
             ans = s(*args[:idx])
             ans['redirect'] = s(*args[idx+1:])
             return ans
+
         def o(*args):
             ans = s(1)
             step = ans['steps'][-1]
@@ -45,6 +50,7 @@ class Tests(unittest.TestCase):
                 typ, val = args[2:]
                 step[{'@':'spatial_offset', '~':'temporal_offset'}[typ]] = val
             return ans
+
         def a(before=None, after=None, **params):
             ans = o(':', 3)
             step = ans['steps'][-1]
@@ -90,6 +96,10 @@ class Tests(unittest.TestCase):
         ]:
             self.assertEqual(p.parse_path(raw), (path, leftover))
 
+
+def find_tests():
+    return unittest.TestLoader().loadTestsFromTestCase(Tests)
+
+
 if __name__ == '__main__':
-    suite = unittest.TestLoader().loadTestsFromTestCase(Tests)
-    unittest.TextTestRunner(verbosity=2).run(suite)
+    unittest.TextTestRunner(verbosity=2).run(find_tests())

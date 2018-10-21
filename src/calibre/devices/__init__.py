@@ -1,3 +1,4 @@
+from __future__ import print_function
 __license__   = 'GPL v3'
 __copyright__ = '2008, Kovid Goyal <kovid at kovidgoyal.net>'
 
@@ -5,7 +6,7 @@ __copyright__ = '2008, Kovid Goyal <kovid at kovidgoyal.net>'
 Device drivers.
 '''
 
-import sys, time, pprint, operator
+import sys, time, pprint
 from functools import partial
 from StringIO import StringIO
 
@@ -14,6 +15,7 @@ MONTH_MAP = dict(Jan=1, Feb=2, Mar=3, Apr=4, May=5, Jun=6, Jul=7, Aug=8, Sep=9, 
 INVERSE_DAY_MAP = dict(zip(DAY_MAP.values(), DAY_MAP.keys()))
 INVERSE_MONTH_MAP = dict(zip(MONTH_MAP.values(), MONTH_MAP.keys()))
 
+
 def strptime(src):
     src = src.strip()
     src = src.split()
@@ -21,11 +23,13 @@ def strptime(src):
     src[2] = str(MONTH_MAP[src[2]])
     return time.strptime(' '.join(src), '%w, %d %m %Y %H:%M:%S %Z')
 
+
 def strftime(epoch, zone=time.gmtime):
     src = time.strftime("%w, %d %m %Y %H:%M:%S GMT", zone(epoch)).split()
     src[0] = INVERSE_DAY_MAP[int(src[0][:-1])]+','
     src[2] = INVERSE_MONTH_MAP[int(src[2])]
     return ' '.join(src)
+
 
 def get_connected_device():
     from calibre.customize.ui import device_plugins
@@ -42,7 +46,7 @@ def get_connected_device():
             connected_devices.append((det, dev))
 
     if dev is None:
-        print >>sys.stderr, 'Unable to find a connected ebook reader.'
+        print('Unable to find a connected ebook reader.', file=sys.stderr)
         return
 
     for det, d in connected_devices:
@@ -55,6 +59,7 @@ def get_connected_device():
             break
     return dev
 
+
 def debug(ioreg_to_tmp=False, buf=None, plugins=None,
         disabled_plugins=None):
     '''
@@ -66,7 +71,7 @@ def debug(ioreg_to_tmp=False, buf=None, plugins=None,
     import textwrap
     from calibre.customize.ui import device_plugins, disabled_device_plugins
     from calibre.debug import print_basic_debug_info
-    from calibre.devices.scanner import DeviceScanner, win_pnp_drives
+    from calibre.devices.scanner import DeviceScanner
     from calibre.constants import iswindows, isosx
     from calibre import prints
     oldo, olde = sys.stdout, sys.stderr
@@ -101,17 +106,11 @@ def debug(ioreg_to_tmp=False, buf=None, plugins=None,
                     d[i] = hex(d[i])
         out('USB devices on system:')
         out(pprint.pformat(devices))
-        if iswindows:
-            drives = win_pnp_drives(debug=True)
-            out('Drives detected:')
-            for drive in sorted(drives.keys(),
-                    key=operator.attrgetter('order')):
-                prints(u'\t(%d)'%drive.order, drive, '~', drives[drive])
 
         ioreg = None
         if isosx:
             from calibre.devices.usbms.device import Device
-            mount = repr(Device.osx_run_mount())
+            mount = '\n'.join(repr(x) for x in Device.osx_run_mount().splitlines())
             drives = pprint.pformat(Device.osx_get_usb_drives())
             ioreg = 'Output from mount:\n'+mount+'\n\n'
             ioreg += 'Output from osx_get_usb_drives:\n'+drives+'\n\n'
@@ -125,7 +124,8 @@ def debug(ioreg_to_tmp=False, buf=None, plugins=None,
             out('\nNo disabled plugins')
         found_dev = False
         for dev in devplugins:
-            if not dev.MANAGES_DEVICE_PRESENCE: continue
+            if not dev.MANAGES_DEVICE_PRESENCE:
+                continue
             out('Looking for devices of type:', dev.__class__.__name__)
             if dev.debug_managed_device_detection(s.devices, buf):
                 found_dev = True
@@ -135,7 +135,8 @@ def debug(ioreg_to_tmp=False, buf=None, plugins=None,
         if not found_dev:
             out('Looking for devices...')
             for dev in devplugins:
-                if dev.MANAGES_DEVICE_PRESENCE: continue
+                if dev.MANAGES_DEVICE_PRESENCE:
+                    continue
                 connected, det = s.is_device_connected(dev, debug=True)
                 if connected:
                     out('\t\tDetected possible device', dev.__class__.__name__)
@@ -152,6 +153,7 @@ def debug(ioreg_to_tmp=False, buf=None, plugins=None,
             out(' ')
             for dev, det in connected_devices:
                 out('Trying to open', dev.name, '...', end=' ')
+                dev.do_device_debug = True
                 try:
                     dev.reset(detected_device=det)
                     dev.open(det, None)
@@ -161,6 +163,7 @@ def debug(ioreg_to_tmp=False, buf=None, plugins=None,
                     errors[dev] = traceback.format_exc()
                     out('failed')
                     continue
+                dev.do_device_debug = False
                 success = True
                 if hasattr(dev, '_main_prefix'):
                     out('Main memory:', repr(dev._main_prefix))
@@ -177,7 +180,7 @@ def debug(ioreg_to_tmp=False, buf=None, plugins=None,
                 ioreg = 'IOREG Output\n'+ioreg
                 out(' ')
                 if ioreg_to_tmp:
-                    open('/tmp/ioreg.txt', 'wb').write(ioreg)
+                    lopen('/tmp/ioreg.txt', 'wb').write(ioreg)
                     out('Dont forget to send the contents of /tmp/ioreg.txt')
                     out('You can open it with the command: open /tmp/ioreg.txt')
                 else:
@@ -195,60 +198,19 @@ def debug(ioreg_to_tmp=False, buf=None, plugins=None,
                 except:
                     pass
 
+
 def device_info(ioreg_to_tmp=False, buf=None):
-    from calibre.devices.scanner import DeviceScanner, win_pnp_drives
-    from calibre.constants import iswindows
-    import re
+    from calibre.devices.scanner import DeviceScanner
 
     res = {}
-    device_details = {}
-    device_set = set()
-    drive_details = {}
-    drive_set = set()
-    res['device_set'] = device_set
-    res['device_details'] = device_details
-    res['drive_details'] = drive_details
-    res['drive_set'] = drive_set
+    res['device_set'] = device_set = set()
+    res['device_details'] = device_details = {}
 
-    try:
-        s = DeviceScanner()
-        s.scan()
-        devices = (s.devices)
-        if not iswindows:
-            devices = [list(x) for x in devices]
-            for dev in devices:
-                for i in range(3):
-                    dev[i] = hex(dev[i])
-                d = dev[0] + dev[1] + dev[2]
-                device_set.add(d)
-                device_details[d] = dev[0:3]
-        else:
-            for dev in devices:
-                vid = re.search('vid_([0-9a-f]*)&', dev)
-                if vid:
-                    vid = vid.group(1)
-                    pid = re.search('pid_([0-9a-f]*)&', dev)
-                    if pid:
-                        pid = pid.group(1)
-                        rev = re.search('rev_([0-9a-f]*)$', dev)
-                        if rev:
-                            rev = rev.group(1)
-                            d = vid+pid+rev
-                            device_set.add(d)
-                            device_details[d] = (vid, pid, rev)
-
-            drives = win_pnp_drives(debug=False)
-            for drive,details in drives.iteritems():
-                order = 'ORD_' + str(drive.order)
-                ven = re.search('VEN_([^&]*)&', details)
-                if ven:
-                    ven = ven.group(1)
-                    prod = re.search('PROD_([^&]*)&', details)
-                    if prod:
-                        prod = prod.group(1)
-                        d = (order, ven, prod)
-                        drive_details[drive] = d
-                        drive_set.add(drive)
-    finally:
-        pass
+    s = DeviceScanner()
+    s.scan()
+    devices = s.devices
+    devices = [tuple(x) for x in devices]
+    for dev in devices:
+        device_set.add(dev)
+        device_details[dev] = dev[0:3]
     return res

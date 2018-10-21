@@ -1,6 +1,7 @@
-#!/usr/bin/env python
+#!/usr/bin/env python2
 # vim:fileencoding=UTF-8:ts=4:sw=4:sta:et:sts=4:ai
 from __future__ import with_statement
+from __future__ import print_function
 
 __license__   = 'GPL v3'
 __copyright__ = '2009, Kovid Goyal <kovid@kovidgoyal.net>'
@@ -20,7 +21,7 @@ class WizardWidget(QWidget, Ui_Form):
         self.setupUi(self)
         try:
             self.example_label.setText(self.example_label.text() % localize_user_manual_link(
-                'http://manual.calibre-ebook.com/xpath.html'))
+                'https://manual.calibre-ebook.com/xpath.html'))
         except TypeError:
             pass
 
@@ -41,6 +42,7 @@ class WizardWidget(QWidget, Ui_Form):
             q = '[re:test(., "%s", "i")]'%(val)
         expr = '//'+tag + q
         return expr
+
 
 class Wizard(QDialog):
 
@@ -112,4 +114,4 @@ if __name__ == '__main__':
     w.setObjectName('test')
     w.show()
     app.exec_()
-    print w.xpath
+    print(w.xpath)

@@ -10,11 +10,12 @@ Device driver for Bookeen's Cybook Gen 3
 
 from calibre.devices.usbms.driver import USBMS
 
+
 class README(USBMS):
 
     name           = 'Binatone Readme Device Interface'
     gui_name       = 'Binatone Readme'
-    description    = _('Communicate with the Binatone Readme eBook reader.')
+    description    = _('Communicate with the Binatone Readme e-book reader.')
     author         = 'John Schember'
     supported_platforms = ['windows', 'osx', 'linux']
 
@@ -36,7 +37,8 @@ class README(USBMS):
     SUPPORTS_SUB_DIRS = True
 
     def linux_swap_drives(self, drives):
-        if len(drives) < 2: return drives
+        if len(drives) < 2:
+            return drives
         drives = list(drives)
         t = drives[0]
         drives[0] = drives[1]
@@ -44,11 +46,11 @@ class README(USBMS):
         return tuple(drives)
 
     def windows_sort_drives(self, drives):
-        if len(drives) < 2: return drives
+        if len(drives) < 2:
+            return drives
         main = drives.get('main', None)
         carda = drives.get('carda', None)
         if main and carda:
             drives['main'] = carda
             drives['carda'] = main
         return drives
-

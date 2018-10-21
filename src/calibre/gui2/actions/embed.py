@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python2
 # vim:fileencoding=utf-8
 from __future__ import (unicode_literals, division, absolute_import,
                         print_function)
@@ -11,8 +11,9 @@ from functools import partial
 from PyQt5.Qt import QTimer, QProgressDialog, Qt
 
 from calibre import force_unicode
-from calibre.gui2 import warning_dialog
+from calibre.gui2 import gprefs
 from calibre.gui2.actions import InterfaceAction
+
 
 class EmbedAction(InterfaceAction):
 
@@ -53,7 +54,7 @@ class EmbedAction(InterfaceAction):
         self.embed_menu = self.qaction.menu()
         m = partial(self.create_menu_action, self.embed_menu)
         m('embed-specific',
-                _('Embed metadata into files of a specific format from selected books..'),
+                _('Embed metadata into files of a specific format from selected books...'),
                 triggered=self.embed_selected_formats)
         self.qaction.setMenu(self.embed_menu)
         self.pd_timer = t = QTimer()
@@ -79,6 +80,7 @@ class EmbedAction(InterfaceAction):
 
     def do_embed(self, book_ids, only_fmts=None):
         pd = QProgressDialog(_('Embedding updated metadata into book files...'), _('&Stop'), 0, len(book_ids), self.gui)
+        pd.setWindowTitle(_('Embedding metadata...'))
         pd.setWindowModality(Qt.WindowModal)
         errors = []
         self.job_data = (0, tuple(book_ids), pd, only_fmts, errors)
@@ -96,19 +98,33 @@ class EmbedAction(InterfaceAction):
             self.job_data = None
             self.gui.library_view.model().refresh_ids(book_ids)
             if i > 0:
-                self.gui.status_bar.show_message(_('Embedded metadata in %d books') % i, 5000)
+                self.gui.status_bar.show_message(ngettext(
+                    'Embedded metadata in one book', 'Embedded metadata in {} books', i).format(i), 5000)
             if errors:
-                det_msg = [_('The {0} format of {1}:\n\n{2}\n').format(
-                    (fmt or '').upper(), force_unicode(mi.title), force_unicode(tb)) for mi, fmt, tb in errors]
-                warning_dialog(
-                    self.gui, _('Failed for some files'), _(
-                    'Failed to embed metadata into some book files. Click "Show details" for details.'),
-                    det_msg='\n\n'.join(det_msg), show=True)
+                det_msg = '\n\n'.join([_('The {0} format of {1}:\n\n{2}\n').format(
+                    (fmt or '').upper(), force_unicode(mi.title), force_unicode(tb)) for mi, fmt, tb in errors])
+                from calibre.gui2.dialogs.message_box import MessageBox
+                title, msg = _('Failed for some files'), _(
+                    'Failed to embed metadata into some book files. Click "Show details" for details.')
+                d = MessageBox(MessageBox.WARNING, _('WARNING:')+ ' ' + title, msg, det_msg, parent=self.gui, show_copy_button=True)
+                tc = d.toggle_checkbox
+                tc.setVisible(True), tc.setText(_('Show the &failed books in the main book list'))
+                tc.setChecked(gprefs.get('show-embed-failed-books', False))
+                d.resize_needed.emit()
+                d.exec_()
+                gprefs['show-embed-failed-books'] = tc.isChecked()
+                if tc.isChecked():
+                    failed_ids = {mi.book_id for mi, fmt, tb in errors}
+                    db = self.gui.current_db
+                    db.data.set_marked_ids(failed_ids)
+                    self.gui.search.set_search_string('marked:true')
             return
         pd.setValue(i)
         db = self.gui.current_db.new_api
-        def report_error(mi, fmt, tb):
-            errors.append((mi, fmt, tb))
-        db.embed_metadata((book_ids[i],), only_fmts=only_fmts, report_error=report_error)
-        self.job_data = (i + 1, book_ids, pd, only_fmts, errors)
+        book_id = book_ids[i]
 
+        def report_error(mi, fmt, tb):
+            mi.book_id = book_id
+            errors.append((mi, fmt, tb))
+        db.embed_metadata((book_id,), only_fmts=only_fmts, report_error=report_error)
+        self.job_data = (i + 1, book_ids, pd, only_fmts, errors)

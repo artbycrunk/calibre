@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python2
 # vim:fileencoding=UTF-8:ts=4:sw=4:sta:et:sts=4:fdm=marker:ai
 from __future__ import (unicode_literals, division, absolute_import,
                         print_function)
@@ -7,13 +7,15 @@ __license__   = 'GPL v3'
 __copyright__ = '2013, Kovid Goyal <kovid at kovidgoyal.net>'
 __docformat__ = 'restructuredtext en'
 
-import re, sys, os, time
+import re, sys, time
 from collections import namedtuple
 from functools import partial
 
 from calibre.ebooks.oeb.polish.container import get_container
 from calibre.ebooks.oeb.polish.stats import StatsCollector
-from calibre.ebooks.oeb.polish.subset import subset_all_fonts
+from calibre.ebooks.oeb.polish.subset import subset_all_fonts, iter_subsettable_fonts
+from calibre.ebooks.oeb.polish.images import compress_images
+from calibre.ebooks.oeb.polish.upgrade import upgrade_book
 from calibre.ebooks.oeb.polish.embed import embed_all_fonts
 from calibre.ebooks.oeb.polish.cover import set_cover
 from calibre.ebooks.oeb.polish.replace import smarten_punctuation
@@ -31,10 +33,13 @@ ALL_OPTS = {
     'remove_jacket':False,
     'smarten_punctuation':False,
     'remove_unused_css':False,
+    'compress_images': False,
+    'upgrade_book': False,
 }
 
 CUSTOMIZATION = {
     'remove_unused_classes': False,
+    'merge_identical_selectors': False,
 }
 
 SUPPORTED = {'EPUB', 'AZW3'}
@@ -43,14 +48,14 @@ SUPPORTED = {'EPUB', 'AZW3'}
 HELP = {'about': _(
 '''\
 <p><i>Polishing books</i> is all about putting the shine of perfection onto
-your carefully crafted ebooks.</p>
+your carefully crafted e-books.</p>
 
-<p>Polishing tries to minimize the changes to the internal code of your ebook.
+<p>Polishing tries to minimize the changes to the internal code of your e-book.
 Unlike conversion, it <i>does not</i> flatten CSS, rename files, change font
 sizes, adjust margins, etc. Every action performs only the minimum set of
 changes needed for the desired effect.</p>
 
-<p>You should use this tool as the last step in your ebook creation process.</p>
+<p>You should use this tool as the last step in your e-book creation process.</p>
 {0}
 <p>Note that polishing only works on files in the %s formats.</p>\
 ''')%_(' or ').join(sorted('<b>%s</b>'%x for x in SUPPORTED)),
@@ -103,7 +108,18 @@ created from production templates can have a large number of extra CSS rules
 that dont match any actual content. These extra rules can slow down readers
 that need to parse them all.</p>
 '''),
+
+'compress_images': _('''\
+<p>Losslessly compress images in the book, to reduce the filesize, without
+affecting image quality.</p>
+'''),
+
+'upgrade_book': _('''\
+<p>Upgrade the internal structures of the book, if possible. For instance,
+upgrades EPUB 2 books to EPUB 3 books.</p>
+'''),
 }
+
 
 def hfix(name, raw):
     if name == 'about':
@@ -114,32 +130,33 @@ def hfix(name, raw):
     raw = raw.replace('&lt;', '<').replace('&gt;', '>')
     return raw
 
+
 CLI_HELP = {x:hfix(x, re.sub('<.*?>', '', y)) for x, y in HELP.iteritems()}
 # }}}
 
-def update_metadata(ebook, new_opf):
-    from calibre.ebooks.metadata.opf2 import OPF
-    from calibre.ebooks.metadata.epub import update_metadata
-    opfpath = ebook.name_to_abspath(ebook.opf_name)
-    with ebook.open(ebook.opf_name, 'r+b') as stream, open(new_opf, 'rb') as ns:
-        opf = OPF(stream, basedir=os.path.dirname(opfpath), populate_spine=False,
-                  unquote_urls=False)
-        mi = OPF(ns, unquote_urls=False,
-                      populate_spine=False).to_book_metadata()
-        mi.cover, mi.cover_data = None, (None, None)
 
-        update_metadata(opf, mi, apply_null=True, update_timestamp=True)
+def update_metadata(ebook, new_opf):
+    from calibre.ebooks.metadata.opf import get_metadata, set_metadata
+    with ebook.open(ebook.opf_name, 'r+b') as stream, open(new_opf, 'rb') as ns:
+        mi = get_metadata(ns)[0]
+        mi.cover, mi.cover_data = None, (None, None)
+        opfbytes = set_metadata(stream, mi, apply_null=True, update_timestamp=True)[0]
         stream.seek(0)
         stream.truncate()
-        stream.write(opf.render())
+        stream.write(opfbytes)
+
 
 def polish_one(ebook, opts, report, customization=None):
     rt = lambda x: report('\n### ' + x)
     jacket = None
     changed = False
     customization = customization or CUSTOMIZATION.copy()
+    has_subsettable_fonts = False
+    for x in iter_subsettable_fonts(ebook):
+        has_subsettable_fonts = True
+        break
 
-    if opts.subset or opts.embed:
+    if (opts.subset and has_subsettable_fonts) or opts.embed:
         stats = StatsCollector(ebook, do_embed=opts.embed)
 
     if opts.opf:
@@ -189,17 +206,34 @@ def polish_one(ebook, opts, report, customization=None):
         rt(_('Embedding referenced fonts'))
         if embed_all_fonts(ebook, stats, report):
             changed = True
+            has_subsettable_fonts = True
         report('')
 
     if opts.subset:
-        rt(_('Subsetting embedded fonts'))
-        if subset_all_fonts(ebook, stats.font_stats, report):
-            changed = True
+        if has_subsettable_fonts:
+            rt(_('Subsetting embedded fonts'))
+            if subset_all_fonts(ebook, stats.font_stats, report):
+                changed = True
+        else:
+            rt(_('No embedded fonts to subset'))
         report('')
 
     if opts.remove_unused_css:
         rt(_('Removing unused CSS rules'))
-        if remove_unused_css(ebook, report, remove_unused_classes=customization['remove_unused_classes']):
+        if remove_unused_css(
+                ebook, report, remove_unused_classes=customization['remove_unused_classes'], merge_rules=customization['merge_identical_selectors']):
+            changed = True
+        report('')
+
+    if opts.compress_images:
+        rt(_('Losslessly compressing images'))
+        if compress_images(ebook, report)[0]:
+            changed = True
+        report('')
+
+    if opts.upgrade_book:
+        rt(_('Upgrading book, if possible'))
+        if upgrade_book(ebook, report):
             changed = True
         report('')
 
@@ -216,7 +250,9 @@ def polish(file_map, opts, log, report):
         report('-'*70)
     report(_('Polishing took: %.1f seconds')%(time.time()-st))
 
+
 REPORT = '{0} REPORT {0}'.format('-'*30)
+
 
 def gui_polish(data):
     files = data.pop('files')
@@ -238,6 +274,7 @@ def gui_polish(data):
         log(msg)
     return '\n\n'.join(report)
 
+
 def tweak_polish(container, actions, customization=None):
     opts = ALL_OPTS.copy()
     opts.update(actions)
@@ -247,9 +284,10 @@ def tweak_polish(container, actions, customization=None):
     changed = polish_one(container, opts, report.append, customization=customization)
     return report, changed
 
+
 def option_parser():
     from calibre.utils.config import OptionParser
-    USAGE = '%prog [options] input_file [output_file]\n\n' + re.sub(
+    USAGE = _('%prog [options] input_file [output_file]\n\n') + re.sub(
         r'<.*?>', '', CLI_HELP['about'])
     parser = OptionParser(usage=USAGE)
     a = parser.add_option
@@ -257,7 +295,7 @@ def option_parser():
     o('--embed-fonts', '-e', dest='embed', help=CLI_HELP['embed'])
     o('--subset-fonts', '-f', dest='subset', help=CLI_HELP['subset'])
     a('--cover', '-c', help=_(
-        'Path to a cover image. Changes the cover specified in the ebook. '
+        'Path to a cover image. Changes the cover specified in the e-book. '
         'If no cover is present, or the cover is not properly identified, inserts a new cover.'))
     a('--opf', '-o', help=_(
         'Path to an OPF file. The metadata in the book is updated from the OPF file.'))
@@ -265,10 +303,13 @@ def option_parser():
     o('--remove-jacket', help=CLI_HELP['remove_jacket'])
     o('--smarten-punctuation', '-p', help=CLI_HELP['smarten_punctuation'])
     o('--remove-unused-css', '-u', help=CLI_HELP['remove_unused_css'])
+    o('--compress-images', '-i', help=CLI_HELP['compress_images'])
+    o('--upgrade-book', '-U', help=CLI_HELP['upgrade_book'])
 
     o('--verbose', help=_('Produce more verbose output, useful for debugging.'))
 
     return parser
+
 
 def main(args=None):
     parser = option_parser()
@@ -309,6 +350,6 @@ def main(args=None):
 
     log('Output written to:', outbook)
 
+
 if __name__ == '__main__':
     main()
-

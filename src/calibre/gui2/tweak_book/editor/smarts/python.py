@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python2
 # vim:fileencoding=utf-8
 from __future__ import (unicode_literals, division, absolute_import,
                         print_function)
@@ -19,8 +19,10 @@ get_leading_whitespace_on_block = lambda editor, previous=False: expand_tabs(lw(
 
 tw = 4  # The tab width (hardcoded to the pep8 value)
 
+
 def expand_tabs(text):
     return text.replace('\t', ' ' * tw)
+
 
 class Smarts(NullSmarts):
 

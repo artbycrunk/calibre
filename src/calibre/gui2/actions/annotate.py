@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python2
 # vim:fileencoding=UTF-8:ts=4:sw=4:sta:et:sts=4:ai
 
 __license__   = 'GPL v3'
@@ -13,7 +13,8 @@ from calibre.gui2.actions import InterfaceAction
 from calibre.devices.usbms.device import Device
 from calibre.gui2.dialogs.progress import ProgressDialog
 
-class Updater(QThread): # {{{
+
+class Updater(QThread):  # {{{
 
     update_progress = pyqtSignal(int)
     update_done     = pyqtSignal()
@@ -57,6 +58,7 @@ class Updater(QThread): # {{{
 
 # }}}
 
+
 class FetchAnnotationsAction(InterfaceAction):
 
     name = 'Fetch Annotations'
@@ -88,7 +90,7 @@ class FetchAnnotationsAction(InterfaceAction):
             paths = []
             for x in ('memory', 'card_a', 'card_b'):
                 x = getattr(self.gui, x+'_view').model()
-                paths += x.paths_for_db_ids(set([id_]), as_map=True)[id_]
+                paths += x.paths_for_db_ids({id_}, as_map=True)[id_]
             return paths[0].path if paths else None
 
         def generate_annotation_paths(ids, db, device):
@@ -130,7 +132,8 @@ class FetchAnnotationsAction(InterfaceAction):
 
     def annotations_fetched(self, job):
 
-        if not job.result: return
+        if not job.result:
+            return
 
         if self.gui.current_view() is not self.gui.library_view:
             return error_dialog(self.gui, _('Use library only'),

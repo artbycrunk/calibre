@@ -1,6 +1,7 @@
-#!/usr/bin/env python
+#!/usr/bin/env python2
 # vim:fileencoding=UTF-8:ts=4:sw=4:sta:et:sts=4:ai
 from __future__ import with_statement
+from __future__ import print_function
 
 __license__   = 'GPL v3'
 __copyright__ = '2009, Kovid Goyal <kovid@kovidgoyal.net>'
@@ -10,6 +11,7 @@ __docformat__ = 'restructuredtext en'
 import __builtin__, sys, os
 
 from calibre import config_dir
+
 
 class PathResolver(object):
 
@@ -63,7 +65,9 @@ class PathResolver(object):
 
         return ans
 
+
 _resolver = PathResolver()
+
 
 def get_path(path, data=False, allow_user_override=True):
     fpath = _resolver(path, allow_user_override=allow_user_override)
@@ -72,16 +76,19 @@ def get_path(path, data=False, allow_user_override=True):
             return f.read()
     return fpath
 
+
 def get_image_path(path, data=False, allow_user_override=True):
     if not path:
         return get_path('images', allow_user_override=allow_user_override)
     return get_path('images/'+path, data=data, allow_user_override=allow_user_override)
+
 
 def js_name_to_path(name, ext='.coffee'):
     path = (u'/'.join(name.split('.'))) + ext
     d = os.path.dirname
     base = d(d(os.path.abspath(__file__)))
     return os.path.join(base, path)
+
 
 def _compile_coffeescript(name):
     from calibre.utils.serve_coffee import compile_coffeescript
@@ -94,6 +101,7 @@ def _compile_coffeescript(name):
             raise Exception('Failed to compile coffeescript'
                     ': %s'%src)
         return cs
+
 
 def compiled_coffeescript(name, dynamic=False):
     import zipfile
@@ -110,6 +118,37 @@ def compiled_coffeescript(name, dynamic=False):
             return _compile_coffeescript(name)
         else:
             return zf.read(name+'.js')
+
+
+def load_hyphenator_dicts(hp_cache, lang, default_lang='en'):
+    from calibre.utils.localization import lang_as_iso639_1
+    import zipfile
+    if not lang:
+        lang = default_lang or 'en'
+
+    def lang_name(l):
+        l = l.lower()
+        l = lang_as_iso639_1(l)
+        if not l:
+            l = 'en'
+        l = {'en':'en-us', 'nb':'nb-no', 'el':'el-monoton'}.get(l, l)
+        return l.lower().replace('_', '-')
+
+    if not hp_cache:
+        with zipfile.ZipFile(P('viewer/hyphenate/patterns.zip',
+            allow_user_override=False), 'r') as zf:
+            for pat in zf.namelist():
+                raw = zf.read(pat).decode('utf-8')
+                hp_cache[pat.partition('.')[0]] = raw
+
+    if lang_name(lang) not in hp_cache:
+        lang = lang_name(default_lang)
+
+    lang = lang_name(lang)
+
+    js = '\n\n'.join(hp_cache.itervalues())
+    return js, lang
+
 
 __builtin__.__dict__['P'] = get_path
 __builtin__.__dict__['I'] = get_image_path

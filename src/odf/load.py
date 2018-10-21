@@ -1,4 +1,4 @@
-#!/usr/bin/python
+#!/usr/bin/python2
 # -*- coding: utf-8 -*-
 # Copyright (C) 2007-2008 Søren Roug, European Environment Agency
 #
@@ -24,6 +24,7 @@
 # in memory. The user should then be able to make operations and then save
 # the structure again.
 
+from __future__ import print_function
 from xml.sax import handler
 from element import Element
 from namespaces import OFFICENS
@@ -71,8 +72,8 @@ class LoadParser(handler.ContentHandler):
         try:
             e = Element(qname = tag, qattributes=attrdict, check_grammar=False)
             self.curr = e
-        except AttributeError, v:
-            print "Error: %s" % v
+        except AttributeError as v:
+            print("Error: %s" % v)
 
         if tag == (OFFICENS, 'automatic-styles'):
             e = self.doc.automaticstyles

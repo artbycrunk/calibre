@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python2
 # vim:fileencoding=UTF-8:ts=4:sw=4:sta:et:sts=4:ai
 from __future__ import (unicode_literals, division, absolute_import,
                         print_function)
@@ -8,13 +8,13 @@ __copyright__ = '2011, Kovid Goyal <kovid@kovidgoyal.net>'
 __docformat__ = 'restructuredtext en'
 
 import re, threading
-from future_builtins import map
 
 from calibre import browser, random_user_agent
 from calibre.customize import Plugin
-from calibre.utils.icu import capitalize, lower, upper
 from calibre.ebooks.metadata import check_isbn
+from calibre.ebooks.metadata.author_mapper import cap_author_token
 from calibre.utils.localization import canonicalize_lang, get_lang
+
 
 def create_log(ostream=None):
     from calibre.utils.logging import ThreadSafeLog, FileStream
@@ -22,11 +22,13 @@ def create_log(ostream=None):
     log.outputs = [FileStream(ostream)]
     return log
 
+
 # Comparing Metadata objects for relevance {{{
 words = ("the", "a", "an", "of", "and")
 prefix_pat = re.compile(r'^(%s)\s+'%("|".join(words)))
 trailing_paren_pat = re.compile(r'\(.*\)$')
 whitespace_pat = re.compile(r'\s+')
+
 
 def cleanup_title(s):
     if not s:
@@ -36,6 +38,7 @@ def cleanup_title(s):
     s = trailing_paren_pat.sub('', s)
     s = whitespace_pat.sub(' ', s)
     return s.strip()
+
 
 class InternalMetadataCompareKeyGen(object):
 
@@ -100,6 +103,7 @@ class InternalMetadataCompareKeyGen(object):
 
 # }}}
 
+
 def get_cached_cover_urls(mi):
     from calibre.customize.ui import metadata_plugins
     plugins = list(metadata_plugins(['identify']))
@@ -108,9 +112,11 @@ def get_cached_cover_urls(mi):
         if url:
             yield (p, url)
 
+
 def dump_caches():
     from calibre.customize.ui import metadata_plugins
     return {p.name:p.dump_caches() for p in metadata_plugins(['identify'])}
+
 
 def load_caches(dump):
     from calibre.customize.ui import metadata_plugins
@@ -120,32 +126,6 @@ def load_caches(dump):
         if cache:
             p.load_caches(cache)
 
-def cap_author_token(token):
-    lt = lower(token)
-    if lt in ('von', 'de', 'el', 'van', 'le'):
-        return lt
-    # no digits no spez. characters
-    if re.match(r'([^\d\W]\.){2,}$', lt, re.UNICODE) is not None:
-        # Normalize tokens of the form J.K. to J. K.
-        parts = token.split('.')
-        return '. '.join(map(capitalize, parts)).strip()
-    scots_name = None
-    for x in ('mc', 'mac'):
-        if (token.lower().startswith(x) and len(token) > len(x) and
-                (
-                    token[len(x)] == upper(token[len(x)]) or
-                    lt == token
-                )):
-            scots_name = len(x)
-            break
-    ans = capitalize(token)
-    if scots_name is not None:
-        ans = ans[:scots_name] + upper(ans[scots_name]) + ans[scots_name+1:]
-    for x in ('-', "'"):
-        idx = ans.find(x)
-        if idx > -1 and len(ans) > idx+2:
-            ans = ans[:idx+1] + upper(ans[idx+1]) + ans[idx+2:]
-    return ans
 
 def fixauthors(authors):
     if not authors:
@@ -155,11 +135,13 @@ def fixauthors(authors):
         ans.append(' '.join(map(cap_author_token, x.split())))
     return ans
 
+
 def fixcase(x):
     if x:
         from calibre.utils.titlecase import titlecase
         x = titlecase(x)
     return x
+
 
 class Option(object):
     __slots__ = ['type', 'default', 'label', 'desc', 'name', 'choices']
@@ -181,6 +163,7 @@ class Option(object):
             choices = dict([(x, x) for x in choices])
         self.choices = choices
 
+
 class Source(Plugin):
 
     type = _('Metadata source')
@@ -199,11 +182,15 @@ class Source(Plugin):
     #: Set this to True if your plugin returns HTML formatted comments
     has_html_comments = False
 
-    #: Setting this to True means that the browser object will add
-    #: Accept-Encoding: gzip to all requests. This can speedup downloads
+    #: Setting this to True means that the browser object will indicate
+    #: that it supports gzip transfer encoding. This can speedup downloads
     #: but make sure that the source actually supports gzip transfer encoding
     #: correctly first
     supports_gzip_transfer_encoding = False
+
+    #: Set this to True to ignore HTTPS certificate errors when connecting
+    #: to this source.
+    ignore_ssl_errors = False
 
     #: Cached cover URLs can sometimes be unreliable (i.e. the download could
     #: fail or the returned image could be bogus. If that is often the case
@@ -282,7 +269,7 @@ class Source(Plugin):
     @property
     def browser(self):
         if self._browser is None:
-            self._browser = browser(user_agent=self.user_agent)
+            self._browser = browser(user_agent=self.user_agent, verify_ssl_certificates=not self.ignore_ssl_errors)
             if self.supports_gzip_transfer_encoding:
                 self._browser.set_handle_gzip(True)
         return self._browser.clone_browser()
@@ -489,6 +476,16 @@ class Source(Plugin):
         '''
         return self.name
 
+    def get_book_urls(self, identifiers):
+        '''
+        Override this method if you would like to return multiple urls for this book.
+        Return a list of 3-tuples. By default this method simply calls :func:`get_book_url`.
+        '''
+        data = self.get_book_url(identifiers)
+        if data is None:
+            return ()
+        return (data,)
+
     def get_cached_cover_url(self, identifiers):
         '''
         Return cached cover URL for the book identified by
@@ -575,4 +572,3 @@ class Source(Plugin):
         pass
 
     # }}}
-

@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python2
 # vim:fileencoding=UTF-8:ts=4:sw=4:sta:et:sts=4:ai
 
 __license__ = 'GPL v3'
@@ -24,7 +24,7 @@ class CSV_XML(CatalogPlugin):
     supported_platforms = ['windows', 'osx', 'linux']
     author = 'Greg Riker'
     version = (1, 0, 0)
-    file_types = set(['csv', 'xml'])
+    file_types = {'csv', 'xml'}
 
     cli_options = [
             Option('--fields',
@@ -55,6 +55,7 @@ class CSV_XML(CatalogPlugin):
         from calibre.utils.html2text import html2text
         from calibre.utils.logging import default_log as log
         from lxml import etree
+        from calibre.ebooks.metadata import authors_to_string
 
         self.fmt = path_to_output.rpartition('.')[2]
         self.notification = notification
@@ -116,6 +117,11 @@ class CSV_XML(CatalogPlugin):
                 for field in fields:
                     if field.startswith('#'):
                         item = db.get_field(entry['id'], field, index_is_id=True)
+                        if isinstance(item, (list, tuple)):
+                            if fm.get(field, {}).get('display', {}).get('is_names', False):
+                                item = ' & '.join(item)
+                            else:
+                                item = ', '.join(item)
                     elif field == 'library_name':
                         item = current_library
                     elif field == 'title_sort':
@@ -131,7 +137,9 @@ class CSV_XML(CatalogPlugin):
                         for format in item:
                             fmt_list.append(format.rpartition('.')[2].lower())
                         item = ', '.join(fmt_list)
-                    elif field in ['authors', 'tags']:
+                    elif field == 'authors':
+                        item = authors_to_string(item)
+                    elif field == 'tags':
                         item = ', '.join(item)
                     elif field == 'isbn':
                         # Could be 9, 10 or 13 digits, with hyphens, possibly ending in 'X'
@@ -146,9 +154,9 @@ class CSV_XML(CatalogPlugin):
 
                     # Convert HTML to markdown text
                     if type(item) is unicode:
-                        opening_tag = re.search('<(\w+)(\x20|>)', item)
+                        opening_tag = re.search('<(\\w+)(\x20|>)', item)
                         if opening_tag:
-                            closing_tag = re.search('<\/%s>$' % opening_tag.group(1), item)
+                            closing_tag = re.search('<\\/%s>$' % opening_tag.group(1), item)
                             if closing_tag:
                                 item = html2text(item)
 

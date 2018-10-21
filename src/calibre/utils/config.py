@@ -1,4 +1,5 @@
 from __future__ import with_statement
+from __future__ import print_function
 __license__   = 'GPL v3'
 __copyright__ = '2008, Kovid Goyal kovid@kovidgoyal.net'
 __docformat__ = 'restructuredtext en'
@@ -11,7 +12,7 @@ from copy import deepcopy
 import optparse
 
 from calibre.constants import (config_dir, CONFIG_DIR_MODE, __appname__,
-        get_version, __author__, DEBUG)
+        get_version, __author__, DEBUG, iswindows)
 from calibre.utils.lock import ExclusiveFile
 from calibre.utils.config_base import (make_config_dir, Option, OptionValues,
         OptionSet, ConfigInterface, Config, prefs, StringConfig, ConfigProxy,
@@ -27,8 +28,10 @@ if False:
     OptionSet, ConfigInterface, read_tweaks, write_tweaks
     read_raw_tweaks, tweaks, plugin_dir, prefs
 
+
 def check_config_write_access():
     return os.access(config_dir, os.W_OK) and os.access(config_dir, os.X_OK)
+
 
 class CustomHelpFormatter(optparse.IndentedHelpFormatter):
 
@@ -91,7 +94,8 @@ class OptionParser(optparse.OptionParser):
         if epilog is None:
             epilog = _('Created by ')+colored(__author__, fg='cyan')
         usage += '\n\n'+_('''Whenever you pass arguments to %prog that have spaces in them, '''
-                          '''enclose the arguments in quotation marks. For example "C:\\some path with spaces"''')+'\n'
+                          '''enclose the arguments in quotation marks. For example: "{}"''').format(
+                               "C:\\some path with spaces" if iswindows else '/some path/with spaces') +'\n'
         if version is None:
             version = '%%prog (%s %s)'%(__appname__, get_version())
         optparse.OptionParser.__init__(self, usage=usage, version=version, epilog=epilog,
@@ -188,6 +192,7 @@ class OptionParser(optparse.OptionParser):
             args = [optparse.OptionGroup(self, *args, **kwargs)] + list(args[1:])
         return optparse.OptionParser.add_option_group(self, *args, **kwargs)
 
+
 class DynamicConfig(dict):
     '''
     A replacement for QSettings that supports dynamic config keys.
@@ -195,6 +200,7 @@ class DynamicConfig(dict):
     data is stored in a non human readable pickle file, so only use this
     class for preferences that you don't intend to have the users edit directly.
     '''
+
     def __init__(self, name='dynamic'):
         dict.__init__(self, {})
         self.name = name
@@ -216,7 +222,7 @@ class DynamicConfig(dict):
                 except SystemError:
                     pass
                 except:
-                    print 'WARNING: Failed to unpickle stored config object, ignoring'
+                    print('WARNING: Failed to unpickle stored config object, ignoring')
                     if DEBUG:
                         import traceback
                         traceback.print_exc()
@@ -254,7 +260,9 @@ class DynamicConfig(dict):
                 f.truncate()
                 f.write(raw)
 
+
 dynamic = DynamicConfig()
+
 
 class XMLConfig(dict):
 
@@ -262,23 +270,35 @@ class XMLConfig(dict):
     Similar to :class:`DynamicConfig`, except that it uses an XML storage
     backend instead of a pickle file.
 
-    See `http://docs.python.org/dev/library/plistlib.html`_ for the supported
+    See `https://docs.python.org/dev/library/plistlib.html`_ for the supported
     data types.
     '''
 
     EXTENSION = '.plist'
 
-    def __init__(self, rel_path_to_cf_file):
+    def __init__(self, rel_path_to_cf_file, base_path=config_dir):
         dict.__init__(self)
         self.no_commit = False
         self.defaults = {}
-        self.file_path = os.path.join(config_dir,
+        self.file_path = os.path.join(base_path,
                 *(rel_path_to_cf_file.split('/')))
         self.file_path = os.path.abspath(self.file_path)
         if not self.file_path.endswith(self.EXTENSION):
             self.file_path += self.EXTENSION
 
         self.refresh()
+
+    def mtime(self):
+        try:
+            return os.path.getmtime(self.file_path)
+        except EnvironmentError:
+            return 0
+
+    def touch(self):
+        try:
+            os.utime(self.file_path, None)
+        except EnvironmentError:
+            pass
 
     def raw_to_object(self, raw):
         return plistlib.readPlistFromString(raw)
@@ -362,6 +382,7 @@ class XMLConfig(dict):
         self.no_commit = False
         self.commit()
 
+
 def to_json(obj):
     if isinstance(obj, bytearray):
         return {'__class__': 'bytearray',
@@ -372,14 +393,16 @@ def to_json(obj):
                 '__value__': isoformat(obj, as_utc=True)}
     raise TypeError(repr(obj) + ' is not JSON serializable')
 
+
 def from_json(obj):
     if '__class__' in obj:
         if obj['__class__'] == 'bytearray':
             return bytearray(base64.standard_b64decode(obj['__value__']))
         if obj['__class__'] == 'datetime.datetime':
-            from calibre.utils.date import parse_date
-            return parse_date(obj['__value__'], assume_utc=True)
+            from calibre.utils.iso8601 import parse_iso8601
+            return parse_iso8601(obj['__value__'], assume_utc=True)
     return obj
+
 
 class JSONConfig(XMLConfig):
 
@@ -407,6 +430,7 @@ class JSONConfig(XMLConfig):
         dict.__setitem__(self, key, val)
         self.commit()
 
+
 class DevicePrefs:
 
     def __init__(self, global_prefs):
@@ -419,6 +443,5 @@ class DevicePrefs:
     def __getitem__(self, key):
         return self.overrides.get(key, self.global_prefs[key])
 
+
 device_prefs = DevicePrefs(prefs)
-
-

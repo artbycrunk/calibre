@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python2
 # vim:fileencoding=UTF-8:ts=4:sw=4:sta:et:sts=4:fdm=marker:ai
 from __future__ import (unicode_literals, division, absolute_import,
                         print_function)
@@ -15,6 +15,7 @@ from calibre.utils.fonts.sfnt.errors import UnsupportedFont
 from calibre.utils.fonts.sfnt.common import (ScriptListTable, FeatureListTable,
         SimpleListTable, LookupTable, ExtensionSubstitution,
         UnknownLookupSubTable)
+
 
 class SingleSubstitution(UnknownLookupSubTable):
 
@@ -33,6 +34,7 @@ class SingleSubstitution(UnknownLookupSubTable):
             return {gid + self.delta for gid in gid_index_map}
         return {self.substitutes[i] for i in gid_index_map.itervalues()}
 
+
 class MultipleSubstitution(UnknownLookupSubTable):
 
     formats = {1}
@@ -48,8 +50,10 @@ class MultipleSubstitution(UnknownLookupSubTable):
             ans |= glyphs
         return ans
 
+
 class AlternateSubstitution(MultipleSubstitution):
     pass
+
 
 class LigatureSubstitution(UnknownLookupSubTable):
 
@@ -73,6 +77,7 @@ class LigatureSubstitution(UnknownLookupSubTable):
                     ans.add(glyph_id)
         return ans
 
+
 class ContexttualSubstitution(UnknownLookupSubTable):
 
     formats = {1, 2, 3}
@@ -82,7 +87,7 @@ class ContexttualSubstitution(UnknownLookupSubTable):
         return self.format != 3
 
     def initialize(self, data):
-        pass # TODO
+        pass  # TODO
 
     def all_substitutions(self, glyph_ids):
         # This table only defined substitution in terms of other tables
@@ -98,11 +103,12 @@ class ChainingContextualSubstitution(UnknownLookupSubTable):
         return self.format != 3
 
     def initialize(self, data):
-        pass # TODO
+        pass  # TODO
 
     def all_substitutions(self, glyph_ids):
         # This table only defined substitution in terms of other tables
         return set()
+
 
 class ReverseChainSingleSubstitution(UnknownLookupSubTable):
 
@@ -117,7 +123,7 @@ class ReverseChainSingleSubstitution(UnknownLookupSubTable):
                 single_special=False)
         backtrack_offsets = [data.start_pos + x for x in backtrack_offsets]
         lookahead_offsets = [data.start_pos + x for x in lookahead_offsets]
-        backtrack_offsets, lookahead_offsets # TODO: Use these
+        backtrack_offsets, lookahead_offsets  # TODO: Use these
         count = data.unpack('H')
         self.substitutes = data.unpack('%dH'%count)
 
@@ -135,6 +141,7 @@ subtable_map = {
         8: ReverseChainSingleSubstitution,
 }
 
+
 class GSUBLookupTable(LookupTable):
 
     def set_child_class(self):
@@ -144,9 +151,11 @@ class GSUBLookupTable(LookupTable):
         else:
             self.child_class = subtable_map[self.lookup_type]
 
+
 class LookupListTable(SimpleListTable):
 
     child_class = GSUBLookupTable
+
 
 class GSUBTable(UnknownTable):
 
@@ -171,11 +180,11 @@ class GSUBTable(UnknownTable):
                 self.lookuplist_offset)
 
     def all_substitutions(self, glyph_ids):
-        ans = set()
         glyph_ids = frozenset(glyph_ids)
+        ans = set(glyph_ids)
         for lookup_table in self.lookup_list_table:
             for subtable in lookup_table:
-                gids = subtable.all_substitutions(glyph_ids)
-                ans |= gids
-        return ans
-
+                glyphs = subtable.all_substitutions(ans)
+                if glyphs:
+                    ans |= glyphs
+        return ans - {glyph_ids}

@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python2
 # vim:fileencoding=UTF-8:ts=4:sw=4:sta:et:sts=4:ai
 from __future__ import (unicode_literals, division, absolute_import,
                         print_function)
@@ -37,6 +37,7 @@ XML_DOCS = OEB_DOCS | {SVG_MIME}
 # References to record numbers in KF8 are stored as base-32 encoded integers,
 # with 4 digits
 to_ref = partial(to_base, base=32, min_num_digits=4)
+
 
 class KF8Writer(object):
 
@@ -101,6 +102,11 @@ class KF8Writer(object):
                 if not tag.text and not tag.get('src', False):
                     tag.getparent().remove(tag)
 
+            # Remove [ac]id attributes as they are used by this code for anchor
+            # to offset mapping
+            for tag in XPath('//*[@aid or @cid]')(root):
+                tag.attrib.pop('aid', None), tag.attrib.pop('cid', None)
+
     def replace_resource_links(self):
         ''' Replace links to resources (raster images/fonts) with pointers to
         the MOBI record containing the resource. The pointers are of the form:
@@ -149,11 +155,12 @@ class KF8Writer(object):
     def extract_css_into_flows(self):
         inlines = defaultdict(list)  # Ensure identical <style>s not repeated
         sheets = {}
+        passthrough = getattr(self.opts, 'mobi_passthrough', False)
 
         for item in self.oeb.manifest:
             if item.media_type in OEB_STYLES:
                 sheet = self.data(item)
-                if not self.opts.expand_css and hasattr(item.data, 'cssText'):
+                if not passthrough and not self.opts.expand_css and hasattr(item.data, 'cssText'):
                     condense_sheet(sheet)
                 sheets[item.href] = len(self.flows)
                 self.flows.append(sheet)
@@ -269,10 +276,19 @@ class KF8Writer(object):
 
     def insert_aid_attributes(self):
         self.id_map = {}
+        cid = 0
         for i, item in enumerate(self.oeb.spine):
             root = self.data(item)
             aidbase = i * int(1e6)
             j = 0
+
+            def in_table(elem):
+                p = elem.getparent()
+                if p is None:
+                    return False
+                if barename(p.tag).lower() == 'table':
+                    return True
+                return in_table(p)
             for tag in root.iterdescendants(etree.Element):
                 id_ = tag.attrib.get('id', None)
                 if id_ is None and tag.tag == XHTML('a'):
@@ -280,15 +296,26 @@ class KF8Writer(object):
                     id_ = tag.attrib.get('name', None)
                     if id_ is not None:
                         tag.attrib['id'] = id_
-                if id_ is not None or barename(tag.tag).lower() in aid_able_tags:
-                    aid = to_base(aidbase + j, base=32)
-                    tag.set('aid', aid)
-                    if tag.tag == XHTML('body'):
-                        self.id_map[(item.href, '')] = aid
-                    if id_ is not None:
-                        self.id_map[(item.href, id_)] = aid
+                tagname = barename(tag.tag).lower()
+                if id_ is not None or tagname in aid_able_tags:
+                    if tagname == 'table' or in_table(tag):
+                        # The Kindle renderer barfs on large tables that have
+                        # aid on any of their tags. See
+                        # https://bugs.launchpad.net/bugs/1489495
+                        if id_:
+                            cid += 1
+                            val = 'c%d' % cid
+                            self.id_map[(item.href, id_)] = val
+                            tag.set('cid', val)
+                    else:
+                        aid = to_base(aidbase + j, base=32)
+                        tag.set('aid', aid)
+                        if tag.tag == XHTML('body'):
+                            self.id_map[(item.href, '')] = aid
+                        if id_ is not None:
+                            self.id_map[(item.href, id_)] = aid
 
-                    j += 1
+                        j += 1
 
     def chunk_it_up(self):
         placeholder_map = {}
@@ -465,7 +492,7 @@ class KF8Writer(object):
             self.guide_table.sort(key=lambda x:x.type)  # Needed by the Kindle
             self.guide_records = GuideIndex(self.guide_table)()
 
+
 def create_kf8_book(oeb, opts, resources, for_joint=False):
     writer = KF8Writer(oeb, opts, resources)
     return KF8Book(writer, for_joint=for_joint)
-

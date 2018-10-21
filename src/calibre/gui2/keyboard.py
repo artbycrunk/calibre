@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python2
 # vim:fileencoding=UTF-8:ts=4:sw=4:sta:et:sts=4:ai
 from __future__ import (unicode_literals, division, absolute_import,
                         print_function)
@@ -10,15 +10,18 @@ __docformat__ = 'restructuredtext en'
 from collections import OrderedDict
 from functools import partial
 
-import sip
 from PyQt5.Qt import (QObject, QKeySequence, QAbstractItemModel, QModelIndex,
         Qt, QStyledItemDelegate, QTextDocument, QStyle, pyqtSignal, QFrame,
         QApplication, QSize, QRectF, QWidget, QTreeView,
         QGridLayout, QLabel, QRadioButton, QPushButton, QToolButton, QIcon)
+try:
+    from PyQt5 import sip
+except ImportError:
+    import sip
 
 from calibre.utils.config import JSONConfig
 from calibre.constants import DEBUG
-from calibre import prints
+from calibre import prints, prepare_string_for_xml
 from calibre.utils.icu import sort_key, lower
 from calibre.gui2 import error_dialog, info_dialog
 from calibre.utils.search_query_parser import SearchQueryParser, ParseException
@@ -26,8 +29,10 @@ from calibre.gui2.search_box import SearchBox2
 
 ROOT = QModelIndex()
 
+
 class NameConflict(ValueError):
     pass
+
 
 def keysequence_from_event(ev):  # {{{
     k, mods = ev.key(), int(ev.modifiers())
@@ -43,6 +48,7 @@ def keysequence_from_event(ev):  # {{{
         mods = mods & ~Qt.SHIFT
     return QKeySequence(k | mods)
 # }}}
+
 
 def finalize(shortcuts, custom_keys_map={}):  # {{{
     '''
@@ -86,6 +92,7 @@ def finalize(shortcuts, custom_keys_map={}):  # {{{
     return keys_map
 
 # }}}
+
 
 class Manager(QObject):  # {{{
 
@@ -159,6 +166,7 @@ class Manager(QObject):  # {{{
 
 # Model {{{
 
+
 class Node(object):
 
     def __init__(self, group_map, shortcut_map, name=None, shortcut=None):
@@ -178,6 +186,7 @@ class Node(object):
     def __iter__(self):
         for child in self.children:
             yield child
+
 
 class ConfigModel(SearchQueryParser, QAbstractItemModel):
 
@@ -360,6 +369,7 @@ class ConfigModel(SearchQueryParser, QAbstractItemModel):
 
 # }}}
 
+
 class Editor(QFrame):  # {{{
 
     editing_done = pyqtSignal(object)
@@ -379,7 +389,7 @@ class Editor(QFrame):  # {{{
         l.addWidget(self.header, 0, 0, 1, 2)
 
         self.use_default = QRadioButton('')
-        self.use_custom = QRadioButton(_('Custom'))
+        self.use_custom = QRadioButton(_('&Custom'))
         l.addWidget(self.use_default, 1, 0, 1, 3)
         l.addWidget(self.use_custom, 2, 0, 1, 3)
         self.use_custom.toggled.connect(self.custom_toggled)
@@ -393,7 +403,7 @@ class Editor(QFrame):  # {{{
             setattr(self, 'label%d'%which, la)
             button = QPushButton(_('None'), self)
             button.clicked.connect(partial(self.capture_clicked, which=which))
-            button.keyPressEvent = partial(self.key_press_event, which=which)
+            button.installEventFilter(self)
             setattr(self, 'button%d'%which, button)
             clear = QToolButton(self)
             clear.setIcon(QIcon(I('clear_left.png')))
@@ -427,7 +437,7 @@ class Editor(QFrame):  # {{{
         if not current:
             current = _('None')
 
-        self.use_default.setText(_('Default: %(deflt)s [Currently not conflicting: %(curr)s]')%
+        self.use_default.setText(_('&Default: %(deflt)s [Currently not conflicting: %(curr)s]')%
                 dict(deflt=default, curr=current))
 
         if shortcut['set_to_default']:
@@ -454,6 +464,17 @@ class Editor(QFrame):  # {{{
         button = getattr(self, 'button%d'%which)
         button.setText(_('None'))
 
+    def eventFilter(self, obj, event):
+        if self.capture and obj in (self.button1, self.button2):
+            t = event.type()
+            if t == event.ShortcutOverride:
+                event.accept()
+                return True
+            if t == event.KeyPress:
+                self.key_press_event(event, 1 if obj is self.button1 else 2)
+                return True
+        return QFrame.eventFilter(self, obj, event)
+
     def key_press_event(self, ev, which=0):
         if self.capture == 0:
             return QWidget.keyPressEvent(self, ev)
@@ -469,8 +490,8 @@ class Editor(QFrame):  # {{{
         dup_desc = self.dup_check(sequence)
         if dup_desc is not None:
             error_dialog(self, _('Already assigned'),
-                    unicode(sequence.toString(QKeySequence.NativeText)) + ' ' +
-                    _('already assigned to') + ' ' + dup_desc, show=True)
+                    unicode(sequence.toString(QKeySequence.NativeText)) + ' ' + _(
+                        'already assigned to') + ' ' + dup_desc, show=True)
             self.clear_clicked(which=which)
 
     def dup_check(self, sequence):
@@ -520,7 +541,8 @@ class Delegate(QStyledItemDelegate):  # {{{
                 keys = _('None')
             else:
                 keys = ', '.join(keys)
-            html = '<b>%s</b><br>%s: %s'%(shortcut['name'], _('Shortcuts'), keys)
+            html = '<b>%s</b><br>%s: %s'%(
+                prepare_string_for_xml(shortcut['name']), _('Shortcuts'), prepare_string_for_xml(keys))
         else:
             # Group
             html = '<h3>%s</h3>'%data.data
@@ -601,6 +623,7 @@ class Delegate(QStyledItemDelegate):  # {{{
             self.sizeHintChanged.emit(idx)
 
 # }}}
+
 
 class ShortcutConfig(QWidget):  # {{{
 

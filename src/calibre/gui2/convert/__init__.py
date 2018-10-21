@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python2
 # vim:fileencoding=UTF-8:ts=4:sw=4:sta:et:sts=4:ai
 from __future__ import with_statement
 
@@ -11,7 +11,7 @@ from functools import partial
 
 from PyQt5.Qt import (QWidget, QSpinBox, QDoubleSpinBox, QLineEdit, QTextEdit,
     QCheckBox, QComboBox, Qt, QIcon, pyqtSignal, QLabel, QFontComboBox, QFont,
-    QFontInfo)
+    QFontInfo, QPlainTextEdit)
 
 from calibre.customize.conversion import OptionRecommendation
 from calibre.ebooks.conversion.config import (
@@ -19,6 +19,7 @@ from calibre.ebooks.conversion.config import (
 from calibre import prepare_string_for_xml
 from calibre.customize.ui import plugin_for_input_format
 from calibre.gui2.font_family_chooser import FontFamilyChooser
+
 
 def config_widget_for_input_plugin(plugin):
     name = plugin.name.lower().replace(' ', '_')
@@ -36,6 +37,7 @@ def config_widget_for_input_plugin(plugin):
                 if issubclass(ans, Widget):
                     return ans
 
+
 def bulk_defaults_for_input_format(fmt):
     plugin = plugin_for_input_format(fmt)
     if plugin is not None:
@@ -43,6 +45,7 @@ def bulk_defaults_for_input_format(fmt):
         if w is not None:
             return load_defaults(w.COMMIT_NAME)
     return {}
+
 
 class Widget(QWidget):
 
@@ -58,6 +61,7 @@ class Widget(QWidget):
     set_help_signal = pyqtSignal(object)
 
     def __init__(self, parent, options):
+        options = list(options)
         QWidget.__init__(self, parent)
         self.setupUi(self)
         self._options = options
@@ -143,7 +147,7 @@ class Widget(QWidget):
             return ret
         if isinstance(g, (QSpinBox, QDoubleSpinBox)):
             return g.value()
-        elif isinstance(g, (QLineEdit, QTextEdit)):
+        elif isinstance(g, (QLineEdit, QTextEdit, QPlainTextEdit)):
             func = getattr(g, 'toPlainText', getattr(g, 'text', None))()
             ans = unicode(func)
             if self.STRIP_TEXT_FIELDS:
@@ -189,7 +193,7 @@ class Widget(QWidget):
         from calibre.gui2.convert.regex_builder import RegexEdit
         if isinstance(g, (QSpinBox, QDoubleSpinBox)):
             g.valueChanged.connect(f)
-        elif isinstance(g, (QLineEdit, QTextEdit)):
+        elif isinstance(g, (QLineEdit, QTextEdit, QPlainTextEdit)):
             g.textChanged.connect(f)
         elif isinstance(g, QComboBox):
             g.editTextChanged.connect(f)
@@ -215,10 +219,10 @@ class Widget(QWidget):
             return
         if isinstance(g, (QSpinBox, QDoubleSpinBox)):
             g.setValue(val)
-        elif isinstance(g, (QLineEdit, QTextEdit)):
+        elif isinstance(g, (QLineEdit, QTextEdit, QPlainTextEdit)):
             if not val:
                 val = ''
-            getattr(g, 'setPlainText', g.setText)(val)
+            getattr(g, 'setPlainText', getattr(g, 'setText', None))(val)
             getattr(g, 'setCursorPosition', lambda x: x)(0)
         elif isinstance(g, QFontComboBox):
             g.setCurrentFont(QFont(val or ''))
@@ -301,4 +305,3 @@ class Widget(QWidget):
 
     def config_icon(self):
         return self._icon
-

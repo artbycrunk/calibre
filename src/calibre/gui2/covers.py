@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python2
 # vim:fileencoding=utf-8
 from __future__ import (unicode_literals, division, absolute_import,
                         print_function)
@@ -7,7 +7,6 @@ __license__ = 'GPL v3'
 __copyright__ = '2014, Kovid Goyal <kovid at kovidgoyal.net>'
 
 from collections import OrderedDict
-from functools import partial
 
 from PyQt5.Qt import (
     QWidget, QHBoxLayout, QTabWidget, QLabel, QSizePolicy, QSize, QFormLayout,
@@ -21,6 +20,7 @@ from calibre.gui2.font_family_chooser import FontFamilyChooser
 from calibre.utils.date import now
 from calibre.utils.icu import sort_key
 
+
 class Preview(QLabel):
 
     def __init__(self, parent=None):
@@ -29,6 +29,7 @@ class Preview(QLabel):
 
     def sizeHint(self):
         return QSize(300, 400)
+
 
 class ColorButton(QToolButton):
 
@@ -45,6 +46,7 @@ class ColorButton(QToolButton):
     def color(self):
         def fget(self):
             return self._color.name(QColor.HexRgb)[1:]
+
         def fset(self, val):
             self._color = QColor('#' + val)
         return property(fget=fget, fset=fset)
@@ -58,6 +60,7 @@ class ColorButton(QToolButton):
         if c.isValid():
             self._color = c
             self.update_display()
+
 
 class CreateColorScheme(QDialog):
 
@@ -95,6 +98,7 @@ class CreateColorScheme(QDialog):
                 return error_dialog(self, _('Invalid name'), _(
                     'A color scheme with the name "%s" already exists.') % name, show=True)
         QDialog.accept(self)
+
 
 class CoverSettingsWidget(QWidget):
 
@@ -166,10 +170,11 @@ class CoverSettingsWidget(QWidget):
         self.style_map = OrderedDict()
 
         self.font_page = fp = QWidget(st)
-        st.addTab(fp, _('&Fonts and Sizes'))
+        st.addTab(fp, _('&Fonts and sizes'))
         fp.l = l = QFormLayout()
         fp.setLayout(l)
         fp.f = []
+
         def add_hline():
             f = QFrame()
             fp.f.append(f)
@@ -196,6 +201,7 @@ class CoverSettingsWidget(QWidget):
             add_hline()
         self.changed_timer = t = QTimer(self)
         t.setSingleShot(True), t.setInterval(500), t.timeout.connect(self.emit_changed)
+
         def create_sz(label):
             ans = QSpinBox(self)
             ans.setSuffix(' px'), ans.setMinimum(100), ans.setMaximum(10000)
@@ -236,7 +242,7 @@ class CoverSettingsWidget(QWidget):
             la.setWordWrap(True)
             b = QPushButton(button)
             b.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
-            b.clicked.connect(partial(self.change_template, which))
+            connect_lambda(b.clicked, self, lambda self: self.change_template(which))
             setattr(self, attr + '_button', b)
             l.addWidget(b)
             if which != 'footer':
@@ -458,7 +464,8 @@ class CoverSettingsWidget(QWidget):
     def update_preview(self):
         if self.ignore_changed:
             return
-        w, h = self.preview_label.sizeHint().width(), self.preview_label.sizeHint().height()
+        dpr = getattr(self, 'devicePixelRatioF', self.devicePixelRatio)()
+        w, h = int(dpr * self.preview_label.sizeHint().width()), int(dpr * self.preview_label.sizeHint().height())
         prefs = self.prefs_for_rendering
         hr = h / prefs['cover_height']
         for x in ('title', 'subtitle', 'footer'):
@@ -466,6 +473,7 @@ class CoverSettingsWidget(QWidget):
             prefs[attr] = int(prefs[attr] * hr)
         prefs['cover_width'], prefs['cover_height'] = w, h
         img = generate_cover(self.mi, prefs=prefs, as_qimage=True)
+        img.setDevicePixelRatio(dpr)
         self.preview_label.setPixmap(QPixmap.fromImage(img))
 
     def default_mi(self):
@@ -476,7 +484,7 @@ class CoverSettingsWidget(QWidget):
         mi.tags = [_('Tag One'), _('Tag Two')]
         mi.publisher = _('Some publisher')
         mi.rating = 4
-        mi.identifiers = {'isbn':'123456789', 'url': 'http://calibre-ebook.com'}
+        mi.identifiers = {'isbn':'123456789', 'url': 'https://calibre-ebook.com'}
         mi.languages = ['eng', 'fra']
         mi.pubdate = mi.timestamp = now()
         return mi
@@ -496,6 +504,7 @@ class CoverSettingsWidget(QWidget):
         with self.original_prefs:
             for k, v in self.current_prefs.iteritems():
                 self.original_prefs[k] = v
+
 
 class CoverSettingsDialog(QDialog):
 
@@ -544,6 +553,7 @@ class CoverSettingsDialog(QDialog):
     def reject(self):
         self._save_settings()
         QDialog.reject(self)
+
 
 if __name__ == '__main__':
     from calibre.gui2 import Application

@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python2
 # vim:fileencoding=UTF-8:ts=4:sw=4:sta:et:sts=4:ai
 from __future__ import with_statement
 
@@ -9,42 +9,76 @@ __docformat__ = 'restructuredtext en'
 import cStringIO, sys
 from binascii import hexlify, unhexlify
 from functools import partial
+from threading import Thread
 
-from PyQt5.Qt import QWidget, pyqtSignal, QDialog, Qt, QLabel, \
-        QLineEdit, QDialogButtonBox, QGridLayout, QCheckBox
+from PyQt5.Qt import (
+    QWidget, pyqtSignal, QDialog, Qt, QLabel, QLineEdit, QDialogButtonBox,
+    QGridLayout, QCheckBox, QIcon, QVBoxLayout, QPushButton, QPlainTextEdit,
+    QHBoxLayout)
 
+from calibre import prints
 from calibre.gui2.wizard.send_email_ui import Ui_Form
 from calibre.utils.smtp import config as smtp_prefs
-from calibre.gui2.dialogs.test_email_ui import Ui_Dialog as TE_Dialog
 from calibre.gui2 import error_dialog, question_dialog
 
-class TestEmail(QDialog, TE_Dialog):
+
+class TestEmail(QDialog):
+
+    test_done = pyqtSignal(object)
 
     def __init__(self, pa, parent):
         QDialog.__init__(self, parent)
-        TE_Dialog.__init__(self)
-        self.setupUi(self)
-        opts = smtp_prefs().parse()
         self.test_func = parent.test_email_settings
-        self.test_button.clicked.connect(self.test)
-        self.from_.setText(unicode(self.from_.text())%opts.from_)
+        self.setWindowTitle(_("Test email settings"))
+        self.setWindowIcon(QIcon(I('config.ui')))
+        l = QVBoxLayout(self)
+        opts = smtp_prefs().parse()
+        self.from_ = la = QLabel(_("Send test mail from %s to:")%opts.from_)
+        l.addWidget(la)
+        self.to = le = QLineEdit(self)
         if pa:
             self.to.setText(pa)
+        self.test_button = b = QPushButton(_('&Test'), self)
+        b.clicked.connect(self.start_test)
+        self.test_done.connect(self.on_test_done, type=Qt.QueuedConnection)
+        self.h = h = QHBoxLayout()
+        h.addWidget(le), h.addWidget(b)
+        l.addLayout(h)
         if opts.relay_host:
-            self.label.setText(_('Using: %(un)s:%(pw)s@%(host)s:%(port)s and %(enc)s encryption')%
+            self.la = la = QLabel(_('Using: %(un)s:%(pw)s@%(host)s:%(port)s and %(enc)s encryption')%
                     dict(un=opts.relay_username, pw=unhexlify(opts.relay_password).decode('utf-8'),
                         host=opts.relay_host, port=opts.relay_port, enc=opts.encryption))
+            l.addWidget(la)
+        self.log = QPlainTextEdit(self)
+        l.addWidget(self.log)
+        self.bb = bb = QDialogButtonBox(QDialogButtonBox.Close)
+        bb.rejected.connect(self.reject), bb.accepted.connect(self.accept)
+        l.addWidget(bb)
 
-    def test(self, *args):
-        self.log.setPlainText(_('Sending...'))
+    def start_test(self, *args):
+        if not self.to.text().strip():
+            return error_dialog(self, _('No email address'), _(
+                'No email address to send mail to has been specified. You'
+                ' must specify a To: address before running the test.'), show=True)
+        self.log.setPlainText(_('Sending email, please wait...'))
         self.test_button.setEnabled(False)
+        t = Thread(target=self.run_test, name='TestEmailSending')
+        t.daemon = True
+        t.start()
+
+    def run_test(self):
         try:
-            tb = self.test_func(unicode(self.to.text()))
-            if not tb:
-                tb = _('Mail successfully sent')
-            self.log.setPlainText(tb)
-        finally:
+            tb = self.test_func(unicode(self.to.text())) or _('Email successfully sent')
+        except Exception:
+            import traceback
+            tb = traceback.format_exc()
+        self.test_done.emit(tb)
+
+    def on_test_done(self, txt):
+        if self.isVisible():
             self.test_button.setEnabled(True)
+            self.log.setPlainText(txt)
+
 
 class RelaySetup(QDialog):
 
@@ -59,7 +93,7 @@ class RelaySetup(QDialog):
         self.tl = QLabel(('<p>'+_('Setup sending email using') +
                 ' <b>{name}</b><p>' +
             _('If you don\'t have an account, you can sign up for a free {name} email '
-            'account at <a href="http://{url}">http://{url}</a>. {extra}')).format(
+            'account at <a href="https://{url}">https://{url}</a>. {extra}')).format(
                 **service))
         l.addWidget(self.tl, 0, 0, 3, 0)
         self.tl.setWordWrap(True)
@@ -81,13 +115,12 @@ class RelaySetup(QDialog):
                 self.ptoggle = QCheckBox(_('&Show password'), self)
                 l.addWidget(self.ptoggle, r, 2)
                 self.ptoggle.stateChanged.connect(
-                        lambda s: self.password.setEchoMode(self.password.Normal if s
-                            == Qt.Checked else self.password.Password))
+                        lambda s: self.password.setEchoMode(self.password.Normal if s == Qt.Checked else self.password.Password))
         self.username.setText(service['username'])
         self.password.setEchoMode(self.password.Password)
         self.bl = QLabel('<p>' + _(
             'If you plan to use email to send books to your Kindle, remember to'
-            ' add the your %s email address to the allowed email addresses in your '
+            ' add your %s email address to the allowed email addresses in your '
             'Amazon.com Kindle management page.')%service['name'])
         self.bl.setWordWrap(True)
         l.addWidget(self.bl, l.rowCount(), 0, 3, 0)
@@ -160,6 +193,7 @@ class SendEmail(QWidget, Ui_Form):
         opts = smtp_prefs().parse()
         from calibre.utils.smtp import sendmail, create_mail
         buf = cStringIO.StringIO()
+        debug_out = partial(prints, file=buf)
         oout, oerr = sys.stdout, sys.stderr
         sys.stdout = sys.stderr = buf
         tb = None
@@ -168,7 +202,7 @@ class SendEmail(QWidget, Ui_Form):
                     'Test mail from calibre')
             sendmail(msg, from_=opts.from_, to=[to],
                 verbose=3, timeout=30, relay=opts.relay_host,
-                username=opts.relay_username,
+                username=opts.relay_username, debug_output=debug_out,
                 password=unhexlify(opts.relay_password).decode('utf-8'),
                 encryption=opts.encryption, port=opts.relay_port)
         except:
@@ -246,11 +280,6 @@ class SendEmail(QWidget, Ui_Form):
                             _('You must either set both the username <b>and</b> password for '
                             'the mail server or no username and no password at all.')).exec_()
                 return False
-            if not username and not password and enc_method != 'NONE':
-                error_dialog(self, _('Bad configuration'),
-                            _('Please enter a username and password or set'
-                               ' encryption to None ')).exec_()
-                return False
             if not (username and password) and not question_dialog(self,
                     _('Are you sure?'),
                 _('No username and password set for mailserver. Most '
@@ -264,6 +293,3 @@ class SendEmail(QWidget, Ui_Form):
         conf.set('relay_password', hexlify(password.encode('utf-8')))
         conf.set('encryption', enc_method)
         return True
-
-
-

@@ -12,10 +12,12 @@
 #########################################################################
 import os, shutil
 
+
 class Copy:
     """Copy each changed file to a directory for debugging purposes"""
     __dir = ""
-    def __init__(self, bug_handler, file = None, deb_dir = None, ):
+
+    def __init__(self, bug_handler, file=None, deb_dir=None, ):
         self.__file = file
         self.__bug_handler = bug_handler
 
@@ -23,14 +25,14 @@ class Copy:
         """Set the temporary directory to write files to"""
         if deb_dir is None:
             message = "No directory has been provided to write to in the copy.py"
-            raise self.__bug_handler, message
+            raise self.__bug_handler(message)
         check = os.path.isdir(deb_dir)
         if not check:
             message = "%(deb_dir)s is not a directory" % vars()
-            raise self.__bug_handler , message
+            raise self.__bug_handler(message)
         Copy.__dir = deb_dir
 
-    def remove_files(self ):
+    def remove_files(self):
         """Remove files from directory"""
         self.__remove_the_files(Copy.__dir)
 

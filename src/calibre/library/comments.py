@@ -1,6 +1,7 @@
-#!/usr/bin/env python
+#!/usr/bin/env python2
 # vim:fileencoding=UTF-8:ts=4:sw=4:sta:et:sts=4:ai
 
+from __future__ import print_function
 __license__   = 'GPL v3'
 __copyright__ = '2010, Kovid Goyal <kovid@kovidgoyal.net>'
 __docformat__ = 'restructuredtext en'
@@ -15,10 +16,11 @@ from calibre.utils.html2text import html2text
 
 # Hackish - ignoring sentences ending or beginning in numbers to avoid
 # confusion with decimal points.
-lost_cr_pat = re.compile('([a-z])([\.\?!])([A-Z])')
+lost_cr_pat = re.compile('([a-z])([\\.\\?!])([A-Z])')
 lost_cr_exception_pat = re.compile(r'(Ph\.D)|(D\.Phil)|((Dr|Mr|Mrs|Ms)\.[A-Z])')
 sanitize_pat = re.compile(r'<script|<table|<tr|<td|<th|<style|<iframe',
         re.IGNORECASE)
+
 
 def comments_to_html(comments):
     '''
@@ -130,15 +132,27 @@ def comments_to_html(comments):
 
     return result.renderContents(encoding=None)
 
+
+def markdown(val):
+    try:
+        md = markdown.Markdown
+    except AttributeError:
+        from calibre.ebooks.markdown import Markdown
+        md = markdown.Markdown = Markdown()
+    return md.convert(val)
+
+
 def merge_comments(one, two):
     return comments_to_html(one) + '\n\n' + comments_to_html(two)
+
 
 def sanitize_comments_html(html):
     from calibre.ebooks.markdown import Markdown
     text = html2text(html)
-    md = Markdown(safe_mode='remove')
-    cleansed = re.sub('\n+', '', md.convert(text))
-    return cleansed
+    md = Markdown()
+    html = md.convert(text)
+    return html
+
 
 def test():
     for pat, val in [
@@ -147,14 +161,14 @@ def test():
             ('a <b>b&c</b>\nf', '<p class="description">a <b>b&amp;c;</b><br />f</p>'),
             ('a <?xml asd> b\n\ncd', '<p class="description">a  b</p><p class="description">cd</p>'),
             ]:
-        print
-        print 'Testing: %r'%pat
+        print()
+        print('Testing: %r'%pat)
         cval = comments_to_html(pat)
-        print 'Value: %r'%cval
+        print('Value: %r'%cval)
         if comments_to_html(pat) != val:
-            print 'FAILED'
+            print('FAILED')
             break
+
 
 if __name__ == '__main__':
     test()
-

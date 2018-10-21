@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python2
 # vim:fileencoding=UTF-8:ts=4:sw=4:sta:et:sts=4:ai
 from __future__ import with_statement
 
@@ -13,6 +13,7 @@ from Queue import Queue, Empty
 
 from calibre import prints
 from calibre.constants import DEBUG
+
 
 class BaseJob(object):
 
@@ -127,14 +128,14 @@ class BaseJob(object):
     def __cmp__(self, other):
         if self.is_finished == other.is_finished:
             if self.start_time is None:
-                if other.start_time is None: # Both waiting
+                if other.start_time is None:  # Both waiting
                     return cmp(other.id, self.id)
                 else:
                     return 1
             else:
                 if other.start_time is None:
                     return -1
-                else: # Both running
+                else:  # Both running
                     return cmp(other.start_time, self.start_time)
 
         else:

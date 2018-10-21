@@ -17,13 +17,13 @@ from calibre.ebooks.lrf.meta import LRFMetaFile
 from calibre import prints
 from calibre.utils.date import parse_date
 
-USAGE='%%prog ebook_file [' + _('options') + ']\n' + \
+USAGE=_('%prog ebook_file [options]\n') + \
 _('''
-Read/Write metadata from/to ebook files.
+Read/Write metadata from/to e-book files.
 
-Supported formats for reading metadata: %(read)s
+Supported formats for reading metadata: {0}
 
-Supported formats for writing metadata: %(write)s
+Supported formats for writing metadata: {1}
 
 Different file types support different kinds of metadata. If you try to set
 some metadata on a file type that does not support it, the metadata will be
@@ -50,13 +50,13 @@ def config():
     c.add_opt('cover', ['--cover'],
               help=_('Set the cover to the specified file.'))
     c.add_opt('comments', ['-c', '--comments'],
-              help=_('Set the ebook description.'))
+              help=_('Set the e-book description.'))
     c.add_opt('publisher', ['-p', '--publisher'],
-              help=_('Set the ebook publisher.'))
+              help=_('Set the e-book publisher.'))
     c.add_opt('category', ['--category'],
               help=_('Set the book category.'))
     c.add_opt('series', ['-s', '--series'],
-              help=_('Set the series this ebook belongs to.'))
+              help=_('Set the series this e-book belongs to.'))
     c.add_opt('series_index', ['-i', '--index'],
               help=_('Set the index of the book in this series.'))
     c.add_opt('rating', ['-r', '--rating'],
@@ -78,19 +78,20 @@ def config():
               help=_('Set the published date.'))
 
     c.add_opt('get_cover', ['--get-cover'],
-              help=_('Get the cover from the ebook and save it at as the '
+              help=_('Get the cover from the e-book and save it at as the '
                      'specified file.'))
     c.add_opt('to_opf', ['--to-opf'],
               help=_('Specify the name of an OPF file. The metadata will '
                      'be written to the OPF file.'))
     c.add_opt('from_opf', ['--from-opf'],
               help=_('Read metadata from the specified OPF file and use it to '
-                     'set metadata in the ebook. Metadata specified on the '
+                     'set metadata in the e-book. Metadata specified on the '
                      'command line will override metadata read from the OPF file'))
 
     c.add_opt('lrf_bookid', ['--lrf-bookid'],
               help=_('Set the BookID in LRF files'))
     return c
+
 
 def filetypes():
     readers = set([])
@@ -98,12 +99,14 @@ def filetypes():
         readers = readers.union(set(r.file_types))
     return readers
 
+
 def option_parser():
     writers = set([])
     for w in metadata_writers():
         writers = writers.union(set(w.file_types))
     ft, w = ', '.join(sorted(filetypes())), ', '.join(sorted(writers))
-    return config().option_parser(USAGE%dict(read=ft, write=w))
+    return config().option_parser(USAGE.format(ft, w))
+
 
 def do_set_metadata(opts, mi, stream, stream_type):
     mi = MetaInformation(mi)
@@ -165,7 +168,6 @@ def main(args=sys.argv):
         prints(_('No file specified'), file=sys.stderr)
         return 1
     path = args[1]
-    stream = open(path, 'r+b')
     stream_type = os.path.splitext(path)[1].replace('.', '').lower()
 
     trying_to_set = False
@@ -175,7 +177,8 @@ def main(args=sys.argv):
         if getattr(opts, pref.name) is not None:
             trying_to_set = True
             break
-    mi = get_metadata(stream, stream_type, force_read_metadata=True)
+    with open(path, 'rb') as stream:
+        mi = get_metadata(stream, stream_type, force_read_metadata=True)
     if trying_to_set:
         prints(_('Original metadata')+'::')
     metadata = unicode(mi)
@@ -184,16 +187,16 @@ def main(args=sys.argv):
     prints(metadata, safe_encode=True)
 
     if trying_to_set:
-        stream.seek(0)
-        do_set_metadata(opts, mi, stream, stream_type)
-        stream.seek(0)
-        stream.flush()
-        lrf = None
-        if stream_type == 'lrf':
-            if opts.lrf_bookid is not None:
-                lrf = LRFMetaFile(stream)
-                lrf.book_id = opts.lrf_bookid
-        mi = get_metadata(stream, stream_type, force_read_metadata=True)
+        with open(path, 'r+b') as stream:
+            do_set_metadata(opts, mi, stream, stream_type)
+            stream.seek(0)
+            stream.flush()
+            lrf = None
+            if stream_type == 'lrf':
+                if opts.lrf_bookid is not None:
+                    lrf = LRFMetaFile(stream)
+                    lrf.book_id = opts.lrf_bookid
+            mi = get_metadata(stream, stream_type, force_read_metadata=True)
         prints('\n' + _('Changed metadata') + '::')
         metadata = unicode(mi)
         metadata = '\t'+'\n\t'.join(metadata.split('\n'))
@@ -217,6 +220,7 @@ def main(args=sys.argv):
             prints(_('No cover found'), file=sys.stderr)
 
     return 0
+
 
 if __name__ == '__main__':
     sys.exit(main())

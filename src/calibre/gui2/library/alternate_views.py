@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python2
 # vim:fileencoding=utf-8
 from __future__ import (unicode_literals, division, absolute_import,
                         print_function)
@@ -15,28 +15,61 @@ from textwrap import wrap
 
 from PyQt5.Qt import (
     QListView, QSize, QStyledItemDelegate, QModelIndex, Qt, QImage, pyqtSignal,
-    QTimer, QPalette, QColor, QItemSelection, QPixmap, QMenu, QApplication,
+    QTimer, QPalette, QColor, QItemSelection, QPixmap, QApplication,
     QMimeData, QUrl, QDrag, QPoint, QPainter, QRect, pyqtProperty, QEvent,
     QPropertyAnimation, QEasingCurve, pyqtSlot, QHelpEvent, QAbstractItemView,
     QStyleOptionViewItem, QToolTip, QByteArray, QBuffer, QBrush, qRed, qGreen,
-    qBlue, QItemSelectionModel)
+    qBlue, QItemSelectionModel, QIcon, QFont)
 
 from calibre import fit_image, prints, prepare_string_for_xml, human_readable
-from calibre.constants import DEBUG, config_dir
-from calibre.ebooks.metadata import fmt_sidx
+from calibre.constants import DEBUG, config_dir, islinux
+from calibre.gui2.pin_columns import PinContainer
+from calibre.ebooks.metadata import fmt_sidx, rating_to_stars
 from calibre.utils import join_with_timeout
-from calibre.gui2 import gprefs, config
+from calibre.gui2 import gprefs, config, rating_font, empty_index
+from calibre.gui2.gestures import GestureManager
 from calibre.gui2.library.caches import CoverCache, ThumbnailCache
 from calibre.utils.config import prefs, tweaks
 
 CM_TO_INCH = 0.393701
 CACHE_FORMAT = 'PPM'
 
+
 def auto_height(widget):
-    return max(185, QApplication.instance().desktop().availableGeometry(widget).height() / 5.0)
+    # On some broken systems, availableGeometry() returns tiny values, we need
+    # a value of at least 1000 for 200 DPI systems.
+    return max(1000, QApplication.instance().desktop().availableGeometry(widget).height()) / 5.0
+
 
 class EncodeError(ValueError):
     pass
+
+
+def handle_enter_press(self, ev, special_action=None, has_edit_cell=True):
+    if ev.key() in (Qt.Key_Enter, Qt.Key_Return):
+        mods = ev.modifiers()
+        if mods & Qt.CTRL or mods & Qt.ALT or mods & Qt.SHIFT or mods & Qt.META:
+            return
+        if self.state() != self.EditingState and self.hasFocus() and self.currentIndex().isValid():
+            from calibre.gui2.ui import get_gui
+            ev.ignore()
+            tweak = tweaks['enter_key_behavior']
+            gui = get_gui()
+            if tweak == 'edit_cell':
+                if has_edit_cell:
+                    self.edit(self.currentIndex(), self.EditKeyPressed, ev)
+                else:
+                    gui.iactions['Edit Metadata'].edit_metadata(False)
+            elif tweak == 'edit_metadata':
+                gui.iactions['Edit Metadata'].edit_metadata(False)
+            elif tweak == 'do_nothing':
+                pass
+            else:
+                if special_action is not None:
+                    special_action(self.currentIndex())
+                gui.iactions['View'].view_triggered(self.currentIndex())
+            return True
+
 
 def image_to_data(image):  # {{{
     ba = QByteArray()
@@ -50,13 +83,17 @@ def image_to_data(image):  # {{{
 # }}}
 
 # Drag 'n Drop {{{
+
+
 def dragMoveEvent(self, event):
     event.acceptProposedAction()
+
 
 def event_has_mods(self, event=None):
     mods = event.modifiers() if event is not None else \
             QApplication.keyboardModifiers()
     return mods & Qt.ControlModifier or mods & Qt.ShiftModifier
+
 
 def mousePressEvent(base_class, self, event):
     ep = event.pos()
@@ -66,6 +103,7 @@ def mousePressEvent(base_class, self, event):
     if hasattr(self, 'handle_mouse_press_event'):
         return self.handle_mouse_press_event(event)
     return base_class.mousePressEvent(self, event)
+
 
 def drag_icon(self, cover, multiple):
     cover = cover.scaledToHeight(120, Qt.SmoothTransformation)
@@ -95,13 +133,14 @@ def drag_icon(self, cover, multiple):
         cover = base
     return QPixmap.fromImage(cover)
 
+
 def drag_data(self):
     m = self.model()
     db = m.db
     selected = self.get_selected_ids()
     ids = ' '.join(map(str, selected))
     md = QMimeData()
-    md.setData('application/calibre+from_library', ids)
+    md.setData('application/calibre+from_library', ids.encode('utf-8'))
     fmt = prefs['output_format']
 
     def url_for_id(i):
@@ -138,6 +177,7 @@ def drag_data(self):
     drag.setPixmap(cover)
     return drag
 
+
 def mouseMoveEvent(base_class, self, event):
     if not self.drag_allowed:
         return
@@ -160,20 +200,39 @@ def mouseMoveEvent(base_class, self, event):
     drag.exec_(Qt.CopyAction)
     self.drag_start_pos = None
 
+
+def dnd_merge_ok(md):
+    return md.hasFormat('application/calibre+from_library') and gprefs['dnd_merge']
+
+
 def dragEnterEvent(self, event):
     if int(event.possibleActions() & Qt.CopyAction) + \
         int(event.possibleActions() & Qt.MoveAction) == 0:
         return
     paths = self.paths_from_event(event)
+    md = event.mimeData()
 
-    if paths:
+    if paths or dnd_merge_ok(md):
         event.acceptProposedAction()
 
+
 def dropEvent(self, event):
+    md = event.mimeData()
+    if dnd_merge_ok(md):
+        ids = set(map(int, bytes(md.data('application/calibre+from_library')).decode('utf-8').split(' ')))
+        row = self.indexAt(event.pos()).row()
+        if row > -1 and ids:
+            book_id = self.model().id(row)
+            if book_id and book_id not in ids:
+                self.books_dropped.emit({book_id: ids})
+                event.setDropAction(Qt.CopyAction)
+                event.accept()
+        return
     paths = self.paths_from_event(event)
     event.setDropAction(Qt.CopyAction)
     event.accept()
     self.files_dropped.emit(paths)
+
 
 def paths_from_event(self, event):
     '''
@@ -184,8 +243,8 @@ def paths_from_event(self, event):
     if md.hasFormat('text/uri-list') and not \
             md.hasFormat('application/calibre+from_library'):
         urls = [unicode(u.toLocalFile()) for u in md.urls()]
-        return [u for u in urls if os.path.splitext(u)[1] and
-                os.path.exists(u)]
+        return [u for u in urls if os.path.splitext(u)[1] and os.path.exists(u)]
+
 
 def setup_dnd_interface(cls_or_self):
     if isinstance(cls_or_self, type):
@@ -210,6 +269,8 @@ def setup_dnd_interface(cls_or_self):
 # }}}
 
 # Manage slave views {{{
+
+
 def sync(func):
     @wraps(func)
     def ans(self, *args, **kwargs):
@@ -218,6 +279,7 @@ def sync(func):
         with self:
             return func(self, *args, **kwargs)
     return ans
+
 
 class AlternateViews(object):
 
@@ -232,7 +294,9 @@ class AlternateViews(object):
 
     def set_stack(self, stack):
         self.stack = stack
-        self.stack.addWidget(self.main_view)
+        pin_container = PinContainer(self.main_view, stack)
+        self.stack.addWidget(pin_container)
+        return pin_container
 
     def add_view(self, key, view):
         self.views[key] = view
@@ -243,6 +307,7 @@ class AlternateViews(object):
         view.selectionModel().currentChanged.connect(self.slave_current_changed)
         view.selectionModel().selectionChanged.connect(self.slave_selection_changed)
         view.files_dropped.connect(self.main_view.files_dropped)
+        view.books_dropped.connect(self.main_view.books_dropped)
 
     def show_view(self, key=None):
         view = self.views[key]
@@ -309,6 +374,8 @@ class AlternateViews(object):
 # }}}
 
 # Rendering of covers {{{
+
+
 class CoverDelegate(QStyledItemDelegate):
 
     MARGIN = 4
@@ -325,7 +392,7 @@ class CoverDelegate(QStyledItemDelegate):
     def __init__(self, parent):
         super(CoverDelegate, self).__init__(parent)
         self._animated_size = 1.0
-        self.animation = QPropertyAnimation(self, 'animated_size', self)
+        self.animation = QPropertyAnimation(self, b'animated_size', self)
         self.animation.setEasingCurve(QEasingCurve.OutInCirc)
         self.animation.setDuration(500)
         self.set_dimensions()
@@ -333,6 +400,7 @@ class CoverDelegate(QStyledItemDelegate):
         self.render_queue = LifoQueue()
         self.animating = None
         self.highlight_color = QColor(Qt.white)
+        self.rating_font = QFont(rating_font())
 
     def set_dimensions(self):
         width = self.original_width = gprefs['cover_grid_width']
@@ -384,6 +452,7 @@ class CoverDelegate(QStyledItemDelegate):
         return self.item_size
 
     def render_field(self, db, book_id):
+        is_stars = False
         try:
             field = db.pref('field_under_covers_in_grid', 'title')
             if field == 'size':
@@ -392,13 +461,14 @@ class CoverDelegate(QStyledItemDelegate):
                 mi = db.get_proxy_metadata(book_id)
                 display_name, ans, val, fm = mi.format_field_extended(field)
                 if fm and fm['datatype'] == 'rating':
-                    ans = u'\u2605' * int(val/2.0) if val is not None else ''
-            return '' if ans is None else unicode(ans)
+                    ans = rating_to_stars(val, fm['display'].get('allow_half_stars', False))
+                    is_stars = True
+            return ('' if ans is None else unicode(ans)), is_stars
         except Exception:
             if DEBUG:
                 import traceback
                 traceback.print_exc()
-        return ''
+        return '', is_stars
 
     def render_emblem(self, book_id, rule, rule_index, cache, mi, db, formatter, template_cache):
         ans = cache[book_id].get(rule, False)
@@ -420,16 +490,16 @@ class CoverDelegate(QStyledItemDelegate):
         if raw_icon is not None:
             ans = raw_icon.pixmap(sz, sz)
         elif name == ':ondevice':
-            ans = QPixmap(I('ok.png')).scaled(sz, sz, transformMode=Qt.SmoothTransformation)
+            ans = QIcon(I('ok.png')).pixmap(sz, sz)
         elif name:
-            pmap = QPixmap(os.path.join(config_dir, 'cc_icons', name))
+            pmap = QIcon(os.path.join(config_dir, 'cc_icons', name)).pixmap(sz, sz)
             if not pmap.isNull():
-                ans = pmap.scaled(sz, sz)
+                ans = pmap
         cache[name] = ans
         return ans
 
     def paint(self, painter, option, index):
-        QStyledItemDelegate.paint(self, painter, option, QModelIndex())  # draw the hover and selection highlights
+        QStyledItemDelegate.paint(self, painter, option, empty_index)  # draw the hover and selection highlights
         m = index.model()
         db = m.db
         try:
@@ -486,8 +556,10 @@ class CoverDelegate(QStyledItemDelegate):
                     rect.setBottom(rect.bottom() - self.title_height)
                 if self.animating is not None and self.animating.row() == index.row():
                     cdata = cdata.scaled(cdata.size() * self._animated_size)
-                dx = max(0, int((rect.width() - cdata.width())/2.0))
-                dy = max(0, rect.height() - cdata.height())
+                dpr = cdata.devicePixelRatio()
+                cw, ch = int(cdata.width() / dpr), int(cdata.height() / dpr)
+                dx = max(0, int((rect.width() - cw)/2.0))
+                dy = max(0, rect.height() - ch)
                 right_adjust = dx
                 rect.adjust(dx, dy, -dx, 0)
                 painter.drawPixmap(rect, cdata)
@@ -495,7 +567,9 @@ class CoverDelegate(QStyledItemDelegate):
                     rect = trect
                     rect.setTop(rect.bottom() - self.title_height + 5)
                     painter.setRenderHint(QPainter.TextAntialiasing, True)
-                    title = self.render_field(db, book_id)
+                    title, is_stars = self.render_field(db, book_id)
+                    if is_stars:
+                        painter.setFont(self.rating_font)
                     metrics = painter.fontMetrics()
                     painter.setPen(self.highlight_color)
                     painter.drawText(rect, Qt.AlignCenter|Qt.TextSingleLine,
@@ -513,7 +587,7 @@ class CoverDelegate(QStyledItemDelegate):
                 try:
                     p = self.on_device_emblem
                 except AttributeError:
-                    p = self.on_device_emblem = QPixmap(I('ok.png')).scaled(48, 48, transformMode=Qt.SmoothTransformation)
+                    p = self.on_device_emblem = QIcon(I('ok.png')).pixmap(48, 48)
                 self.paint_embossed_emblem(p, painter, orect, right_adjust, left=False)
         finally:
             painter.restore()
@@ -542,21 +616,23 @@ class CoverDelegate(QStyledItemDelegate):
                 delta = 0 if i == 0 else self.emblem_size + self.MARGIN
                 grect.moveLeft(grect.left() + delta) if horizontal else grect.moveTop(grect.top() + delta)
                 rect = QRect(grect)
-                rect.setWidth(emblem.width()), rect.setHeight(emblem.height())
+                rect.setWidth(int(emblem.width() / emblem.devicePixelRatio())), rect.setHeight(int(emblem.height() / emblem.devicePixelRatio()))
                 painter.drawPixmap(rect, emblem)
         finally:
             painter.restore()
 
     def paint_embossed_emblem(self, pixmap, painter, orect, right_adjust, left=True):
         drect = QRect(orect)
+        pw = int(pixmap.width() / pixmap.devicePixelRatio())
+        ph = int(pixmap.height() / pixmap.devicePixelRatio())
         if left:
             drect.setLeft(drect.left() + right_adjust)
-            drect.setRight(drect.left() + pixmap.width())
+            drect.setRight(drect.left() + pw)
         else:
             drect.setRight(drect.right() - right_adjust)
-            drect.setLeft(drect.right() - pixmap.width() + 1)
+            drect.setLeft(drect.right() - pw + 1)
         drect.setBottom(drect.bottom() - self.title_height)
-        drect.setTop(drect.bottom() - pixmap.height())
+        drect.setTop(drect.bottom() - ph)
         painter.drawPixmap(drect, pixmap)
 
     @pyqtSlot(QHelpEvent, QAbstractItemView, QStyleOptionViewItem, QModelIndex, result=bool)
@@ -596,15 +672,20 @@ class CoverDelegate(QStyledItemDelegate):
 
 # }}}
 
+
 # The View {{{
+
 @setup_dnd_interface
 class GridView(QListView):
 
     update_item = pyqtSignal(object)
     files_dropped = pyqtSignal(object)
+    books_dropped = pyqtSignal(object)
 
     def __init__(self, parent):
         QListView.__init__(self, parent)
+        self._ncols = None
+        self.gesture_manager = GestureManager(self)
         setup_dnd_interface(self)
         self.setUniformItemSizes(True)
         self.setWrapping(True)
@@ -620,11 +701,11 @@ class GridView(QListView):
         self.delegate.animation.finished.connect(self.animation_done)
         self.setItemDelegate(self.delegate)
         self.setSpacing(self.delegate.spacing)
-        self.padding_left = 0
         self.set_color()
         self.ignore_render_requests = Event()
+        dpr = self.device_pixel_ratio
         self.thumbnail_cache = ThumbnailCache(max_size=gprefs['cover_grid_disk_cache_size'],
-            thumbnail_size=(self.delegate.cover_size.width(), self.delegate.cover_size.height()))
+            thumbnail_size=(int(dpr * self.delegate.cover_size.width()), int(dpr * self.delegate.cover_size.height())))
         self.render_thread = None
         self.update_item.connect(self.re_render, type=Qt.QueuedConnection)
         self.doubleClicked.connect(self.double_clicked)
@@ -638,6 +719,22 @@ class GridView(QListView):
         self.resize_timer = t = QTimer(self)
         t.setInterval(200), t.setSingleShot(True)
         t.timeout.connect(self.update_memory_cover_cache_size)
+
+    def viewportEvent(self, ev):
+        try:
+            ret = self.gesture_manager.handle_event(ev)
+        except AttributeError:
+            ret = None
+        if ret is not None:
+            return ret
+        return QListView.viewportEvent(self, ev)
+
+    @property
+    def device_pixel_ratio(self):
+        try:
+            return self.devicePixelRatioF()
+        except AttributeError:
+            return self.devicePixelRatio()
 
     @property
     def first_visible_row(self):
@@ -665,11 +762,14 @@ class GridView(QListView):
         for r in xrange(self.first_visible_row or 0, self.last_visible_row or (m.count() - 1)):
             self.update(m.index(r, 0))
 
-    def double_clicked(self, index):
+    def start_view_animation(self, index):
         d = self.delegate
         if d.animating is None and not config['disable_animations']:
             d.animating = index
             d.animation.start()
+
+    def double_clicked(self, index):
+        self.start_view_animation(index)
         if tweaks['doubleclick_on_library_view'] == 'open_viewer':
             self.gui.iactions['View'].view_triggered(index)
         elif tweaks['doubleclick_on_library_view'] in {'edit_metadata', 'edit_cell'}:
@@ -707,13 +807,13 @@ class GridView(QListView):
 
     def refresh_settings(self):
         size_changed = (
-            gprefs['cover_grid_width'] != self.delegate.original_width or
-            gprefs['cover_grid_height'] != self.delegate.original_height
+            gprefs['cover_grid_width'] != self.delegate.original_width or gprefs['cover_grid_height'] != self.delegate.original_height
         )
-        if (size_changed or gprefs['cover_grid_show_title'] != self.delegate.original_show_title or
-                gprefs['show_emblems'] != self.delegate.original_show_emblems or
-                gprefs['emblem_size'] != self.delegate.orginal_emblem_size or
-                gprefs['emblem_position'] != self.delegate.orginal_emblem_position):
+        if (size_changed or gprefs[
+            'cover_grid_show_title'] != self.delegate.original_show_title or gprefs[
+                'show_emblems'] != self.delegate.original_show_emblems or gprefs[
+                    'emblem_size'] != self.delegate.orginal_emblem_size or gprefs[
+                        'emblem_position'] != self.delegate.orginal_emblem_position):
             self.delegate.set_dimensions()
             self.setSpacing(self.delegate.spacing)
             if size_changed:
@@ -723,13 +823,15 @@ class GridView(QListView):
             self.setSpacing(self.delegate.spacing)
         self.set_color()
         if size_changed:
-            self.thumbnail_cache.set_thumbnail_size(self.delegate.cover_size.width(), self.delegate.cover_size.height())
+            dpr = self.device_pixel_ratio
+            self.thumbnail_cache.set_thumbnail_size(int(dpr * self.delegate.cover_size.width()), int(dpr*self.delegate.cover_size.height()))
         cs = gprefs['cover_grid_disk_cache_size']
         if (cs*(1024**2)) != self.thumbnail_cache.max_size:
             self.thumbnail_cache.set_size(cs)
         self.update_memory_cover_cache_size()
 
     def resizeEvent(self, ev):
+        self._ncols = None
         self.resize_timer.start()
         return QListView.resizeEvent(self, ev)
 
@@ -787,6 +889,8 @@ class GridView(QListView):
         if has_cover:
             p = QImage()
             p.loadFromData(cdata, CACHE_FORMAT if cdata is tcdata else 'JPEG')
+            dpr = self.device_pixel_ratio
+            p.setDevicePixelRatio(dpr)
             if p.isNull() and cdata is tcdata:
                 # Invalid image in cache
                 self.thumbnail_cache.invalidate((book_id,))
@@ -796,11 +900,13 @@ class GridView(QListView):
             if not use_cache:  # cache is stale
                 if cdata is not None:
                     width, height = p.width(), p.height()
-                    scaled, nwidth, nheight = fit_image(width, height, self.delegate.cover_size.width(), self.delegate.cover_size.height())
+                    scaled, nwidth, nheight = fit_image(
+                        width, height, int(dpr * self.delegate.cover_size.width()), int(dpr * self.delegate.cover_size.height()))
                     if scaled:
                         if self.ignore_render_requests.is_set():
                             return
                         p = p.scaled(nwidth, nheight, Qt.IgnoreAspectRatio, Qt.SmoothTransformation)
+                        p.setDevicePixelRatio(dpr)
                     cdata = p
                 # update cache
                 if cdata is None:
@@ -863,7 +969,7 @@ class GridView(QListView):
         # Create a range based selector for each set of contiguous rows
         # as supplying selectors for each individual row causes very poor
         # performance if a large number of rows has to be selected.
-        for k, g in itertools.groupby(enumerate(rows), lambda (i,x):i-x):
+        for k, g in itertools.groupby(enumerate(rows), lambda i_x:i_x[0]-i_x[1]):
             group = list(map(operator.itemgetter(1), g))
             sel.merge(QItemSelection(m.index(min(group), 0), m.index(max(group), 0)), sm.Select)
         sm.select(sel, sm.ClearAndSelect)
@@ -886,17 +992,12 @@ class GridView(QListView):
         self.context_menu = menu
 
     def contextMenuEvent(self, event):
-        if self.context_menu is not None:
-            menu = self._temp_menu = QMenu(self)
-            sac = self.gui.iactions['Sort By']
-            sort_added = tuple(ac for ac in self.context_menu.actions() if ac is sac.qaction)
-            if not sort_added:
-                menu.addAction(sac.qaction)
-            for ac in self.context_menu.actions():
-                menu.addAction(ac)
-            sac.update_menu()
-            menu.popup(event.globalPos())
-            event.accept()
+        if self.context_menu is None:
+            return
+        from calibre.gui2.main_window import clone_menu
+        m = clone_menu(self.context_menu) if islinux else self.context_menu
+        m.popup(event.globalPos())
+        event.accept()
 
     def get_selected_ids(self):
         m = self.model()
@@ -933,6 +1034,51 @@ class GridView(QListView):
             sm.select(QItemSelection(top, bottom), sm.Select)
         else:
             return QListView.mousePressEvent(self, ev)
+
+    def indices_for_merge(self, resolved=True):
+        return self.selectionModel().selectedIndexes()
+
+    def number_of_columns(self):
+        # Number of columns currently visible in the grid
+        if self._ncols is None:
+            step = max(10, self.spacing())
+            for y in range(step, 500, step):
+                for x in range(step, 500, step):
+                    i = self.indexAt(QPoint(x, y))
+                    if i.isValid():
+                        for x in range(self.viewport().width() - step, self.viewport().width() - 300, -step):
+                            j = self.indexAt(QPoint(x, y))
+                            if j.isValid():
+                                self._ncols = j.row() - i.row() + 1
+                                return self._ncols
+        return self._ncols
+
+    def keyPressEvent(self, ev):
+        if handle_enter_press(self, ev, self.start_view_animation, False):
+            return
+        k = ev.key()
+        if ev.modifiers() & Qt.ShiftModifier and k in (Qt.Key_Left, Qt.Key_Right, Qt.Key_Up, Qt.Key_Down):
+            ci = self.currentIndex()
+            if not ci.isValid():
+                return
+            c = ci.row()
+            delta = {Qt.Key_Left: -1, Qt.Key_Right: 1, Qt.Key_Up: -self.number_of_columns(), Qt.Key_Down: self.number_of_columns()}[k]
+            n = max(0, min(c + delta, self.model().rowCount(None) - 1))
+            if n == c:
+                return
+            sm = self.selectionModel()
+            rows = {i.row() for i in sm.selectedIndexes()}
+            if rows:
+                mi, ma = min(rows), max(rows)
+                end = mi if c == ma else ma if c == mi else c
+            else:
+                end = c
+            top = self.model().index(min(n, end), 0)
+            bottom = self.model().index(max(n, end), 0)
+            sm.select(QItemSelection(top, bottom), sm.ClearAndSelect)
+            sm.setCurrentIndex(self.model().index(n, 0), sm.NoUpdate)
+        else:
+            return QListView.keyPressEvent(self, ev)
 
     @property
     def current_book(self):
@@ -982,12 +1128,13 @@ class GridView(QListView):
         return super(GridView, self).selectionCommand(index, event)
 
     def wheelEvent(self, ev):
-        if ev.phase() != Qt.ScrollUpdate:
+        if ev.phase() not in (Qt.ScrollUpdate, 0):
             return
         number_of_pixels = ev.pixelDelta()
-        number_of_degrees = ev.angleDelta() / 8
+        number_of_degrees = ev.angleDelta() / 8.0
         b = self.verticalScrollBar()
-        if number_of_pixels.isNull():
+        if number_of_pixels.isNull() or islinux:
+            # pixelDelta() is broken on linux with wheel mice
             dy = number_of_degrees.y() / 15.0
             # Scroll by approximately half a row
             dy = int(math.ceil((dy) * b.singleStep() / 2.0))

@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python2
 # vim:fileencoding=UTF-8:ts=4:sw=4:sta:et:sts=4:fdm=marker:ai
 from __future__ import (unicode_literals, division, absolute_import,
                         print_function)
@@ -10,7 +10,7 @@ __docformat__ = 'restructuredtext en'
 import os, weakref, shutil, textwrap
 from collections import OrderedDict
 from functools import partial
-from future_builtins import map
+from polyglot.builtins import map
 
 from PyQt5.Qt import (QDialog, QGridLayout, QIcon, QCheckBox, QLabel, QFrame,
                       QApplication, QDialogButtonBox, Qt, QSize, QSpacerItem,
@@ -23,6 +23,7 @@ from calibre.gui2.convert.metadata import create_opf_file
 from calibre.gui2.dialogs.progress import ProgressDialog
 from calibre.ptempfile import PersistentTemporaryDirectory
 from calibre.utils.config_base import tweaks
+
 
 class Polish(QDialog):  # {{{
 
@@ -53,20 +54,22 @@ class Polish(QDialog):  # {{{
 
             'metadata':_('<h3>Updating metadata</h3>'
                          '<p>This will update all metadata <i>except</i> the cover in the'
-                         ' ebook files to match the current metadata in the'
+                         ' e-book files to match the current metadata in the'
                          ' calibre library.</p>'
-                         ' <p>Note that most ebook'
+                         ' <p>Note that most e-book'
                          ' formats are not capable of supporting all the'
                          ' metadata in calibre.</p><p>There is a separate option to'
                          ' update the cover.</p>'),
-            'do_cover': _('<h3>Update cover</h3><p>Update the covers in the ebook files to match the'
+            'do_cover': _('<h3>Update cover</h3><p>Update the covers in the e-book files to match the'
                         ' current cover in the calibre library.</p>'
-                        '<p>If the ebook file does not have'
+                        '<p>If the e-book file does not have'
                         ' an identifiable cover, a new cover is inserted.</p>'
                         ),
-            'jacket':_('<h3>Book Jacket</h3>%s')%HELP['jacket'],
-            'remove_jacket':_('<h3>Remove Book Jacket</h3>%s')%HELP['remove_jacket'],
+            'jacket':_('<h3>Book jacket</h3>%s')%HELP['jacket'],
+            'remove_jacket':_('<h3>Remove book jacket</h3>%s')%HELP['remove_jacket'],
             'remove_unused_css':_('<h3>Remove unused CSS rules</h3>%s')%HELP['remove_unused_css'],
+            'compress_images': _('<h3>Losslessly compress images</h3>%s') % HELP['compress_images'],
+            'upgrade_book': _('<h3>Upgrade book internals</h3>%s') % HELP['upgrade_book'],
         }
 
         self.l = l = QGridLayout()
@@ -82,16 +85,19 @@ class Polish(QDialog):  # {{{
             ('smarten_punctuation', _('Smarten &punctuation')),
             ('metadata', _('Update &metadata in the book files')),
             ('do_cover', _('Update the &cover in the book files')),
-            ('jacket', _('Add/Replace metadata as a "book &jacket" page')),
+            ('jacket', _('Add/replace metadata as a "book &jacket" page')),
             ('remove_jacket', _('&Remove a previously inserted book jacket')),
             ('remove_unused_css', _('Remove &unused CSS rules from the book')),
+            ('compress_images', _('Losslessly &compress images')),
+            ('upgrade_book', _('&Upgrade book internals')),
         ])
         prefs = gprefs.get('polishing_settings', {})
         for name, text in self.all_actions.iteritems():
             count += 1
             x = QCheckBox(text, self)
             x.setChecked(prefs.get(name, False))
-            x.stateChanged.connect(partial(self.option_toggled, name))
+            x.setObjectName(name)
+            connect_lambda(x.stateChanged, self, lambda self, state: self.option_toggled(self.sender().objectName(), state))
             l.addWidget(x, count, 0, 1, 1)
             setattr(self, 'opt_'+name, x)
             la = QLabel(' <a href="#%s">%s</a>'%(name, _('About')))
@@ -127,9 +133,9 @@ class Polish(QDialog):  # {{{
         self.load_menu = QMenu(lb)
         lb.setMenu(self.load_menu)
         self.all_button = b = bb.addButton(_('Select &all'), bb.ActionRole)
-        b.clicked.connect(partial(self.select_all, True))
+        connect_lambda(b.clicked, self, lambda self: self.select_all(True))
         self.none_button = b = bb.addButton(_('Select &none'), bb.ActionRole)
-        b.clicked.connect(partial(self.select_all, False))
+        connect_lambda(b.clicked, self, lambda self: self.select_all(False))
         l.addWidget(bb, count+1, 1, 1, -1)
         self.setup_load_button()
 
@@ -217,6 +223,12 @@ class Polish(QDialog):  # {{{
                 return
             ac['metadata'] = saved_prefs['metadata'] = True
             self.opt_metadata.setChecked(True)
+        if ac['jacket'] and ac['remove_jacket']:
+            if not question_dialog(self, _('Add or remove jacket?'), _(
+                    'You have chosen to both add and remove the metadata jacket.'
+                    ' This will result in the final book having no jacket. Is this'
+                    ' what you want?')):
+                return
         if not something:
             return error_dialog(self, _('No actions selected'),
                 _('You must select at least one action, or click Cancel.'),
@@ -288,6 +300,7 @@ class Polish(QDialog):  # {{{
         self.jobs.append((desc, data, book_id, base, is_orig))
 # }}}
 
+
 class Report(QDialog):  # {{{
 
     def __init__(self, parent):
@@ -308,8 +321,7 @@ class Report(QDialog):  # {{{
         la.setVisible(False)
         la.setWordWrap(True)
 
-        self.ign_msg = _('Ignore remaining %d reports')
-        self.ign = QCheckBox(self.ign_msg, self)
+        self.ign = QCheckBox(_('Ignore remaining report'), self)
         l.addWidget(self.ign, 2, 0)
 
         bb = self.bb = QDialogButtonBox(QDialogButtonBox.Close)
@@ -325,7 +337,8 @@ class Report(QDialog):  # {{{
         self.resize(QSize(800, 600))
 
     def setup_ign(self):
-        self.ign.setText(self.ign_msg%len(self.reports))
+        self.ign.setText(ngettext(
+            'Ignore remaining report', 'Ignore remaining {} reports', len(self.reports)).format(len(self.reports)))
         self.ign.setVisible(bool(self.reports))
         self.ign.setChecked(False)
 
@@ -381,6 +394,7 @@ class Report(QDialog):  # {{{
         super(Report, self).reject()
 # }}}
 
+
 class PolishAction(InterfaceAction):
 
     name = 'Polish Books'
@@ -421,6 +435,7 @@ class PolishAction(InterfaceAction):
     def location_selected(self, loc):
         enabled = loc == 'library'
         self.qaction.setEnabled(enabled)
+        self.menuless_qaction.setEnabled(enabled)
 
     def get_books_for_polishing(self):
         rows = [r.row() for r in
@@ -486,7 +501,8 @@ class PolishAction(InterfaceAction):
             if d.jobs:
                 self.gui.jobs_pointer.start()
                 self.gui.status_bar.show_message(
-                    _('Start polishing of %d book(s)') % len(d.jobs), 2000)
+                    ngettext('Start polishing the book', 'Start polishing of {} books',
+                             len(d.jobs)).format(len(d.jobs)), 2000)
 
     def book_polished(self, job):
         if job.failed:
@@ -517,10 +533,10 @@ class PolishAction(InterfaceAction):
         if show_reports:
             self.report(db.title(book_id, index_is_id=True), book_id, fmts, job, job.result)
 
+
 if __name__ == '__main__':
     app = QApplication([])
     app
     from calibre.library import db
     d = Polish(db(), {1:{'EPUB'}, 2:{'AZW3'}})
     d.exec_()
-

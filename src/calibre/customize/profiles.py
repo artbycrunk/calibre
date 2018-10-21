@@ -39,10 +39,12 @@ class Plugin(_Plugin):
         self.height_pts = self.height * 72./self.dpi
 
 # Input profiles {{{
+
+
 class InputProfile(Plugin):
 
     author = 'Kovid Goyal'
-    supported_platforms = set(['windows', 'osx', 'linux'])
+    supported_platforms = {'windows', 'osx', 'linux'}
     can_be_disabled = False
     type = _('Input profile')
 
@@ -64,6 +66,7 @@ class SonyReaderInput(InputProfile):
     fbase                     = 12
     fsizes                    = [7.5, 9, 10, 12, 15.5, 20, 22, 24]
 
+
 class SonyReader300Input(SonyReaderInput):
 
     name        = 'Sony Reader 300'
@@ -71,6 +74,7 @@ class SonyReader300Input(SonyReaderInput):
     description = _('This profile is intended for the SONY PRS 300.')
 
     dpi                       = 200
+
 
 class SonyReader900Input(SonyReaderInput):
 
@@ -80,6 +84,7 @@ class SonyReader900Input(SonyReaderInput):
     description = _('This profile is intended for the SONY PRS-900.')
 
     screen_size               = (584, 978)
+
 
 class MSReaderInput(InputProfile):
 
@@ -91,6 +96,7 @@ class MSReaderInput(InputProfile):
     dpi                       = 96
     fbase                     = 13
     fsizes                    = [10, 11, 13, 16, 18, 20, 22, 26]
+
 
 class MobipocketInput(InputProfile):
 
@@ -105,6 +111,7 @@ class MobipocketInput(InputProfile):
     fbase                     = 18
     fsizes                    = [14, 14, 16, 18, 20, 22, 24, 26]
 
+
 class HanlinV3Input(InputProfile):
 
     name        = 'Hanlin V3'
@@ -117,6 +124,7 @@ class HanlinV3Input(InputProfile):
     fbase                     = 16
     fsizes                    = [12, 12, 14, 16, 18, 20, 22, 24]
 
+
 class HanlinV5Input(HanlinV3Input):
 
     name        = 'Hanlin V5'
@@ -126,6 +134,7 @@ class HanlinV5Input(HanlinV3Input):
     # Screen size is a best guess
     screen_size               = (584, 754)
     dpi                       = 200
+
 
 class CybookG3Input(InputProfile):
 
@@ -138,6 +147,7 @@ class CybookG3Input(InputProfile):
     dpi                       = 168.451
     fbase                     = 16
     fsizes                    = [12, 12, 14, 16, 18, 20, 22, 24]
+
 
 class CybookOpusInput(InputProfile):
 
@@ -152,6 +162,7 @@ class CybookOpusInput(InputProfile):
     fbase                     = 16
     fsizes                    = [12, 12, 14, 16, 18, 20, 22, 24]
 
+
 class KindleInput(InputProfile):
 
     name        = 'Kindle'
@@ -164,6 +175,7 @@ class KindleInput(InputProfile):
     fbase                     = 16
     fsizes                    = [12, 12, 14, 16, 18, 20, 22, 24]
 
+
 class IlliadInput(InputProfile):
 
     name        = 'Illiad'
@@ -174,6 +186,7 @@ class IlliadInput(InputProfile):
     dpi                       = 160.0
     fbase                     = 12
     fsizes                    = [7.5, 9, 10, 12, 15.5, 20, 22, 24]
+
 
 class IRexDR1000Input(InputProfile):
 
@@ -188,6 +201,7 @@ class IRexDR1000Input(InputProfile):
     fbase                     = 16
     fsizes                    = [12, 14, 16, 18, 20, 22, 24]
 
+
 class IRexDR800Input(InputProfile):
 
     author      = 'Eric Cronin'
@@ -199,6 +213,7 @@ class IRexDR800Input(InputProfile):
     dpi                       = 160
     fbase                     = 16
     fsizes                    = [12, 14, 16, 18, 20, 22, 24]
+
 
 class NookInput(InputProfile):
 
@@ -213,6 +228,7 @@ class NookInput(InputProfile):
     fbase                     = 16
     fsizes                    = [12, 12, 14, 16, 18, 20, 22, 24]
 
+
 input_profiles = [InputProfile, SonyReaderInput, SonyReader300Input,
         SonyReader900Input, MSReaderInput, MobipocketInput, HanlinV3Input,
         HanlinV5Input, CybookG3Input, CybookOpusInput, KindleInput, IlliadInput,
@@ -222,10 +238,11 @@ input_profiles.sort(cmp=lambda x,y:cmp(x.name.lower(), y.name.lower()))
 
 # }}}
 
+
 class OutputProfile(Plugin):
 
     author = 'Kovid Goyal'
-    supported_platforms = set(['windows', 'osx', 'linux'])
+    supported_platforms = {'windows', 'osx', 'linux'}
     can_be_disabled = False
     type = _('Output profile')
 
@@ -424,6 +441,7 @@ class iPadOutput(OutputProfile):
         '''
     # }}}
 
+
 class iPad3Output(iPadOutput):
 
     screen_size = comic_screen_size = (2048, 1536)
@@ -433,6 +451,7 @@ class iPad3Output(iPadOutput):
     description = _('Intended for the iPad 3 and similar devices with a '
             'resolution of 1536x2048')
 
+
 class TabletOutput(iPadOutput):
     name = 'Tablet'
     short_name = 'tablet'
@@ -441,6 +460,7 @@ class TabletOutput(iPadOutput):
     screen_size = (10000, 10000)
     comic_screen_size = (10000, 10000)
 
+
 class SamsungGalaxy(TabletOutput):
     name = 'Samsung Galaxy'
     short_name = 'galaxy'
@@ -448,12 +468,14 @@ class SamsungGalaxy(TabletOutput):
             'a resolution of 600x1280')
     screen_size = comic_screen_size = (600, 1280)
 
+
 class NookHD(TabletOutput):
     name = 'Nook HD+'
     short_name = 'nook_hd_plus'
     description = _('Intended for the Nook HD+ and similar tablet devices with '
             'a resolution of 1280x1920')
     screen_size = comic_screen_size = (1280, 1920)
+
 
 class SonyReaderOutput(OutputProfile):
 
@@ -485,6 +507,7 @@ class KoboReaderOutput(OutputProfile):
     fbase                     = 12
     fsizes                    = [7.5, 9, 10, 12, 15.5, 20, 22, 24]
 
+
 class SonyReader300Output(SonyReaderOutput):
 
     author      = 'John Schember'
@@ -493,6 +516,7 @@ class SonyReader300Output(SonyReaderOutput):
     description = _('This profile is intended for the SONY PRS-300.')
 
     dpi                       = 200
+
 
 class SonyReader900Output(SonyReaderOutput):
 
@@ -503,6 +527,7 @@ class SonyReader900Output(SonyReaderOutput):
 
     screen_size               = (600, 999)
     comic_screen_size = screen_size
+
 
 class SonyReaderT3Output(SonyReaderOutput):
 
@@ -522,6 +547,7 @@ class GenericEink(SonyReaderOutput):
     description = _('Suitable for use with any e-ink device')
     epub_periodical_format = None
 
+
 class GenericEinkLarge(GenericEink):
 
     name = 'Generic e-ink large'
@@ -531,6 +557,17 @@ class GenericEinkLarge(GenericEink):
     screen_size               = (600, 999)
     comic_screen_size = screen_size
 
+
+class GenericEinkHD(GenericEink):
+
+    name = 'Generic e-ink HD'
+    short_name = 'generic_eink_hd'
+    description = _('Suitable for use with any modern high resolution e-ink device')
+
+    screen_size = (10000, 10000)
+    comic_screen_size = (10000, 10000)
+
+
 class JetBook5Output(OutputProfile):
 
     name        = 'JetBook 5-inch'
@@ -539,6 +576,7 @@ class JetBook5Output(OutputProfile):
 
     screen_size               = (480, 640)
     dpi                       = 168.451
+
 
 class SonyReaderLandscapeOutput(SonyReaderOutput):
 
@@ -551,6 +589,7 @@ class SonyReaderLandscapeOutput(SonyReaderOutput):
     screen_size               = (784, 1012)
     comic_screen_size         = (784, 1012)
 
+
 class MSReaderOutput(OutputProfile):
 
     name        = 'Microsoft Reader'
@@ -561,6 +600,7 @@ class MSReaderOutput(OutputProfile):
     dpi                       = 96
     fbase                     = 13
     fsizes                    = [10, 11, 13, 16, 18, 20, 22, 26]
+
 
 class MobipocketOutput(OutputProfile):
 
@@ -575,6 +615,7 @@ class MobipocketOutput(OutputProfile):
     fbase                     = 18
     fsizes                    = [14, 14, 16, 18, 20, 22, 24, 26]
 
+
 class HanlinV3Output(OutputProfile):
 
     name        = 'Hanlin V3'
@@ -587,6 +628,7 @@ class HanlinV3Output(OutputProfile):
     fbase                     = 16
     fsizes                    = [12, 12, 14, 16, 18, 20, 22, 24]
 
+
 class HanlinV5Output(HanlinV3Output):
 
     name        = 'Hanlin V5'
@@ -594,6 +636,7 @@ class HanlinV5Output(HanlinV3Output):
     description = _('This profile is intended for the Hanlin V5 and its clones.')
 
     dpi                       = 200
+
 
 class CybookG3Output(OutputProfile):
 
@@ -608,6 +651,7 @@ class CybookG3Output(OutputProfile):
     fbase                     = 16
     fsizes                    = [12, 12, 14, 16, 18, 20, 22, 24]
 
+
 class CybookOpusOutput(SonyReaderOutput):
 
     author      = 'John Schember'
@@ -621,6 +665,7 @@ class CybookOpusOutput(SonyReaderOutput):
     fsizes                    = [12, 12, 14, 16, 18, 20, 22, 24]
 
     epub_periodical_format = None
+
 
 class KindleOutput(OutputProfile):
 
@@ -641,6 +686,7 @@ class KindleOutput(OutputProfile):
 
     mobi_ems_per_blockquote = 2.0
 
+
 class KindleDXOutput(OutputProfile):
 
     name        = 'Kindle DX'
@@ -658,16 +704,18 @@ class KindleDXOutput(OutputProfile):
     ratings_char = u'\u2605'
     mobi_ems_per_blockquote = 2.0
 
+
 class KindlePaperWhiteOutput(KindleOutput):
 
     name = 'Kindle PaperWhite'
     short_name = 'kindle_pw'
-    description = _('This profile is intended for the Amazon Kindle PaperWhite')
+    description = _('This profile is intended for the Amazon Kindle PaperWhite 1 and 2')
 
     # Screen size is a best guess
     screen_size               = (658, 940)
     dpi                       = 212.0
     comic_screen_size = screen_size
+
 
 class KindleVoyageOutput(KindleOutput):
 
@@ -682,6 +730,30 @@ class KindleVoyageOutput(KindleOutput):
     comic_screen_size = screen_size
 
 
+class KindlePaperWhite3Output(KindleVoyageOutput):
+
+    name = 'Kindle PaperWhite 3'
+    short_name = 'kindle_pw3'
+    description = _('This profile is intended for the Amazon Kindle PaperWhite 3 and above')
+    # Screen size is currently just the spec size, actual renderable area will
+    # depend on someone with the device doing tests.
+    screen_size               = (1072, 1430)
+    dpi                       = 300.0
+    comic_screen_size = screen_size
+
+
+class KindleOasisOutput(KindlePaperWhite3Output):
+
+    name = 'Kindle Oasis'
+    short_name = 'kindle_oasis'
+    description = _('This profile is intended for the Amazon Kindle Oasis 2017 and above')
+    # Screen size is currently just the spec size, actual renderable area will
+    # depend on someone with the device doing tests.
+    screen_size               = (1264, 1680)
+    dpi                       = 300.0
+    comic_screen_size = screen_size
+
+
 class KindleFireOutput(KindleDXOutput):
 
     name = 'Kindle Fire'
@@ -691,6 +763,7 @@ class KindleFireOutput(KindleDXOutput):
     screen_size               = (570, 1016)
     dpi                       = 169.0
     comic_screen_size = (570, 1016)
+
 
 class IlliadOutput(OutputProfile):
 
@@ -703,6 +776,7 @@ class IlliadOutput(OutputProfile):
     dpi                       = 160.0
     fbase                     = 12
     fsizes                    = [7.5, 9, 10, 12, 15.5, 20, 22, 24]
+
 
 class IRexDR1000Output(OutputProfile):
 
@@ -718,6 +792,7 @@ class IRexDR1000Output(OutputProfile):
     fbase                     = 16
     fsizes                    = [12, 14, 16, 18, 20, 22, 24]
 
+
 class IRexDR800Output(OutputProfile):
 
     author      = 'Eric Cronin'
@@ -731,6 +806,7 @@ class IRexDR800Output(OutputProfile):
     dpi                       = 160
     fbase                     = 16
     fsizes                    = [12, 14, 16, 18, 20, 22, 24]
+
 
 class NookOutput(OutputProfile):
 
@@ -746,6 +822,7 @@ class NookOutput(OutputProfile):
     fbase                     = 16
     fsizes                    = [12, 12, 14, 16, 18, 20, 22, 24]
 
+
 class NookColorOutput(NookOutput):
     name = 'Nook Color'
     short_name = 'nook_color'
@@ -755,20 +832,6 @@ class NookColorOutput(NookOutput):
     comic_screen_size         = (594, 900)
     dpi                       = 169
 
-class BambookOutput(OutputProfile):
-
-    author      = 'Li Fanxi'
-    name        = 'Sanda Bambook'
-    short_name  = 'bambook'
-    description = _('This profile is intended for the Sanda Bambook.')
-
-    # Screen size is for full screen display
-    screen_size               = (580, 780)
-    # Comic size is for normal display
-    comic_screen_size         = (540, 700)
-    dpi                       = 168.451
-    fbase                     = 12
-    fsizes                    = [10, 12, 14, 16]
 
 class PocketBook900Output(OutputProfile):
 
@@ -780,6 +843,7 @@ class PocketBook900Output(OutputProfile):
     screen_size               = (810, 1180)
     dpi                       = 150.0
     comic_screen_size         = screen_size
+
 
 class PocketBookPro912Output(OutputProfile):
 
@@ -793,13 +857,18 @@ class PocketBookPro912Output(OutputProfile):
     dpi                       = 155.0
     comic_screen_size         = screen_size
 
-output_profiles = [OutputProfile, SonyReaderOutput, SonyReader300Output,
-        SonyReader900Output, SonyReaderT3Output, MSReaderOutput, MobipocketOutput, HanlinV3Output,
-        HanlinV5Output, CybookG3Output, CybookOpusOutput, KindleOutput,
-        iPadOutput, iPad3Output, KoboReaderOutput, TabletOutput, SamsungGalaxy,
-        SonyReaderLandscapeOutput, KindleDXOutput, IlliadOutput, NookHD,
-        IRexDR1000Output, IRexDR800Output, JetBook5Output, NookOutput,
-        BambookOutput, NookColorOutput, PocketBook900Output, PocketBookPro912Output,
-        GenericEink, GenericEinkLarge, KindleFireOutput, KindlePaperWhiteOutput, KindleVoyageOutput]
+
+output_profiles = [
+    OutputProfile, SonyReaderOutput, SonyReader300Output, SonyReader900Output,
+    SonyReaderT3Output, MSReaderOutput, MobipocketOutput, HanlinV3Output,
+    HanlinV5Output, CybookG3Output, CybookOpusOutput, KindleOutput, iPadOutput,
+    iPad3Output, KoboReaderOutput, TabletOutput, SamsungGalaxy,
+    SonyReaderLandscapeOutput, KindleDXOutput, IlliadOutput, NookHD,
+    IRexDR1000Output, IRexDR800Output, JetBook5Output, NookOutput,
+    NookColorOutput, PocketBook900Output,
+    PocketBookPro912Output, GenericEink, GenericEinkLarge, GenericEinkHD,
+    KindleFireOutput, KindlePaperWhiteOutput, KindleVoyageOutput,
+    KindlePaperWhite3Output, KindleOasisOutput
+]
 
 output_profiles.sort(cmp=lambda x,y:cmp(x.name.lower(), y.name.lower()))

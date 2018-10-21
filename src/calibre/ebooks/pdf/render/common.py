@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python2
 # vim:fileencoding=UTF-8:ts=4:sw=4:sta:et:sts=4:fdm=marker:ai
 from __future__ import (unicode_literals, division, absolute_import,
                         print_function)
@@ -10,8 +10,10 @@ __docformat__ = 'restructuredtext en'
 import codecs, zlib
 from io import BytesIO
 from datetime import datetime
+from binascii import hexlify
 
 from calibre.constants import plugins, ispy3
+from calibre.utils.logging import default_log
 
 pdf_float = plugins['speedup'][0].pdf_float
 
@@ -58,10 +60,12 @@ PAPER_SIZES = {k:globals()[k.upper()] for k in ('a0 a1 a2 a3 a4 a5 a6 b0 b1 b2'
 ic = str if ispy3 else unicode
 icb = (lambda x: str(x).encode('ascii')) if ispy3 else bytes
 
+
 def fmtnum(o):
     if isinstance(o, float):
         return pdf_float(o)
     return ic(o)
+
 
 def serialize(o, stream):
     if isinstance(o, float):
@@ -83,6 +87,7 @@ def serialize(o, stream):
     else:
         raise ValueError('Unknown object: %r'%o)
 
+
 class Name(unicode):
 
     def pdf_serialize(self, stream):
@@ -93,44 +98,53 @@ class Name(unicode):
                in raw]
         stream.write(b'/'+b''.join(buf))
 
-def escape_unbalanced_parantheses(bytestring):
+
+def escape_pdf_string(bytestring):
     indices = []
     bad = []
     ba = bytearray(bytestring)
+    bad_map = {10:ord('n'), 13:ord('r'), 12:ord('f'), 8:ord('b'), 9:ord('\t'), 92:ord('\\')}
     for i, num in enumerate(ba):
         if num == 40:  # (
-            indices.append(i)
+            indices.append((i, 40))
         elif num == 41:  # )
             if indices:
                 indices.pop()
             else:
-                bad.append(i)
-    bad = sorted(list(indices) + bad, reverse=True)
+                bad.append((i, 41))
+        elif num in bad_map:  # '\n\r\f\b\t\\' see Table 3.2 in PDF 1.7 spec
+            bad.append((i, bad_map[num]))
+    bad = sorted(indices + bad, reverse=True)
     if not bad:
         return bytestring
-    for i in bad:
-        ba.insert(i, 92)  # \
+    for i, repl in bad:
+        ba[i:i+1] = (92, repl)  # 92 = ord('\')
     return bytes(ba)
 
 
 class String(unicode):
 
     def pdf_serialize(self, stream):
-        s = self.replace('\\', '\\\\')
         try:
-            raw = s.encode('latin1')
+            raw = self.encode('latin1')
             if raw.startswith(codecs.BOM_UTF16_BE):
-                raw = codecs.BOM_UTF16_BE + s.encode('utf-16-be')
+                raw = codecs.BOM_UTF16_BE + self.encode('utf-16-be')
         except UnicodeEncodeError:
-            raw = codecs.BOM_UTF16_BE + s.encode('utf-16-be')
-        stream.write(b'('+escape_unbalanced_parantheses(raw)+b')')
+            raw = codecs.BOM_UTF16_BE + self.encode('utf-16-be')
+        stream.write(b'('+escape_pdf_string(raw)+b')')
+
 
 class UTF16String(unicode):
 
     def pdf_serialize(self, stream):
-        s = self.replace('\\', '\\\\')
-        raw = codecs.BOM_UTF16_BE + s.encode('utf-16-be')
-        stream.write(b'('+escape_unbalanced_parantheses(raw)+b')')
+        raw = codecs.BOM_UTF16_BE + self.encode('utf-16-be')
+        if False:
+            # Disabled as the parentheses based strings give easier to debug
+            # PDF files
+            stream.write(b'<' + hexlify(raw) + b'>')
+        else:
+            stream.write(b'('+escape_pdf_string(raw)+b')')
+
 
 class Dictionary(dict):
 
@@ -146,6 +160,7 @@ class Dictionary(dict):
             stream.write(EOL)
         stream.write(b'>>' + EOL)
 
+
 class InlineDictionary(Dictionary):
 
     def pdf_serialize(self, stream):
@@ -157,6 +172,7 @@ class InlineDictionary(Dictionary):
             stream.write(b' ')
         stream.write(b'>>')
 
+
 class Array(list):
 
     def pdf_serialize(self, stream):
@@ -166,6 +182,7 @@ class Array(list):
                 stream.write(b' ')
             serialize(o, stream)
         stream.write(b']')
+
 
 class Stream(BytesIO):
 
@@ -205,6 +222,7 @@ class Stream(BytesIO):
     def write_raw(self, raw):
         BytesIO.write(self, raw)
 
+
 class Reference(object):
 
     def __init__(self, num, obj):
@@ -221,3 +239,11 @@ class Reference(object):
         return repr(self)
 # }}}
 
+
+def current_log(newlog=None):
+    if newlog:
+        current_log.ans = newlog
+    return current_log.ans or default_log
+
+
+current_log.ans = None

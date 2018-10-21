@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python2
 # vim:fileencoding=UTF-8:ts=4:sw=4:sta:et:sts=4:fdm=marker:ai
 from __future__ import (unicode_literals, division, absolute_import,
                         print_function)
@@ -12,18 +12,19 @@ from functools import partial
 
 from calibre.devices.errors import DeviceError, WrongDestinationError, FreeSpaceError
 
+
 def sanity_check(on_card, files, card_prefixes, free_space):
     if on_card == 'carda' and not card_prefixes[0]:
         raise WrongDestinationError(_(
             'The reader has no storage card %s. You may have changed '
-            'the default send to device action. Right click on the send '
-            'to device button and reset the default action to be '
+            'the default send to device action. Right click on the "Send '
+            'to device" button and reset the default action to be '
             '"Send to main memory".')%'A')
     elif on_card == 'cardb' and not card_prefixes[1]:
         raise WrongDestinationError(_(
             'The reader has no storage card %s. You may have changed '
-            'the default send to device action. Right click on the send '
-            'to device button and reset the default action to be '
+            'the default send to device action. Right click on the "Send '
+            'to device" button and reset the default action to be '
             '"Send to main memory".')%'B')
     elif on_card and on_card not in ('carda', 'cardb'):
         raise DeviceError(_('Selected slot: %s is not supported.') % on_card)
@@ -38,6 +39,7 @@ def sanity_check(on_card, files, card_prefixes, free_space):
         raise FreeSpaceError(_("There is insufficient free space on the storage card"))
     if on_card == 'cardb' and size > free_space[2] - 1024*1024:
         raise FreeSpaceError(_("There is insufficient free space on the storage card"))
+
 
 def build_template_regexp(template):
     from calibre import prints
@@ -61,6 +63,7 @@ def build_template_regexp(template):
         prints(u'Failed to parse template: %r'%template)
         template = u'{title} - {authors}'
         return re.compile(re.sub('{([^}]*)}', f, template) + '([_\d]*$)')
+
 
 def create_upload_path(mdata, fname, template, sanitize,
         prefix_path='',
@@ -120,7 +123,8 @@ def create_upload_path(mdata, fname, template, sanitize,
         else:
             for c in tag.split('/'):
                 c = sanitize(c)
-                if not c: continue
+                if not c:
+                    continue
                 extra_components.append(c)
         extra_components.append(name)
 
@@ -144,6 +148,3 @@ def create_upload_path(mdata, fname, template, sanitize,
         filepath = path_type.join(*components)
 
     return filepath
-
-
-

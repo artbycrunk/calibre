@@ -12,38 +12,40 @@ from calibre import guess_type
 FB2NS  = 'http://www.gribuser.ru/xml/fictionbook/2.0'
 FB21NS = 'http://www.gribuser.ru/xml/fictionbook/2.1'
 
+
 class FB2Input(InputFormatPlugin):
 
     name        = 'FB2 Input'
     author      = 'Anatoly Shipitsin'
-    description = 'Convert FB2 files to HTML'
-    file_types  = set(['fb2'])
+    description = 'Convert FB2 and FBZ files to HTML'
+    file_types  = {'fb2', 'fbz'}
+    commit_name = 'fb2_input'
 
-    recommendations = set([
+    recommendations = {
         ('level1_toc', '//h:h1', OptionRecommendation.MED),
         ('level2_toc', '//h:h2', OptionRecommendation.MED),
         ('level3_toc', '//h:h3', OptionRecommendation.MED),
-        ])
+        }
 
-    options = set([
+    options = {
     OptionRecommendation(name='no_inline_fb2_toc',
         recommended_value=False, level=OptionRecommendation.LOW,
         help=_('Do not insert a Table of Contents at the beginning of the book.'
                 )
-        ),
-    ])
+        )}
 
     def convert(self, stream, options, file_ext, log,
                 accelerators):
         from lxml import etree
-        from calibre.ebooks.metadata.fb2 import ensure_namespace
+        from calibre.ebooks.metadata.fb2 import ensure_namespace, get_fb2_data
         from calibre.ebooks.metadata.opf2 import OPFCreator
         from calibre.ebooks.metadata.meta import get_metadata
         from calibre.ebooks.oeb.base import XLINK_NS, XHTML_NS, RECOVER_PARSER
         from calibre.ebooks.chardet import xml_to_unicode
         self.log = log
         log.debug('Parsing XML...')
-        raw = stream.read().replace('\0', '')
+        raw = get_fb2_data(stream)[0]
+        raw = raw.replace(b'\0', b'')
         raw = xml_to_unicode(raw, strip_encoding_pats=True,
             assume_utf8=True, resolve_entities=True)[0]
         try:
@@ -172,5 +174,3 @@ class FB2Input(InputFormatPlugin):
                 else:
                     with open(fname, 'wb') as f:
                         f.write(data)
-
-

@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python2
 # vim:fileencoding=UTF-8:ts=4:sw=4:sta:et:sts=4:ai
 from __future__ import with_statement
 
@@ -22,11 +22,13 @@ if iswindows:
                 ' corrupted windows. You should contact Microsoft'
                 ' for assistance and/or follow the steps described here: http://bytes.com/topic/net/answers/264804-compile-error-null-device-missing')
 
+
 def renice(niceness):
     try:
         os.nice(niceness)
     except:
         pass
+
 
 class Worker(object):
     '''
@@ -55,6 +57,8 @@ class Worker(object):
 
     @property
     def executable(self):
+        if hasattr(sys, 'running_from_setup'):
+            return [sys.executable, os.path.join(sys.setup_dir, 'run-calibre-worker.py')]
         e = self.exe_name
         if iswindows:
             return os.path.join(os.path.dirname(sys.executable),
@@ -73,7 +77,7 @@ class Worker(object):
 
     @property
     def gui_executable(self):
-        if isosx:
+        if isosx and not hasattr(sys, 'running_from_setup'):
             if self.job_name in {'ebook-viewer', 'ebook-edit'}:
                 return self.executable.replace('/console.app/', '/%s.app/' % self.job_name)
             return os.path.join(sys.binaries_path, self.exe_name)
@@ -181,7 +185,7 @@ class Worker(object):
         _cwd = cwd
         if priority is None:
             priority = prefs['worker_process_priority']
-        cmd = [exe]
+        cmd = [exe] if isinstance(exe, basestring) else exe
         args = {
                 'env' : env,
                 'cwd' : _cwd,

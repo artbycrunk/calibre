@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python2
 # vim:fileencoding=UTF-8:ts=4:sw=4:sta:et:sts=4:ai
 
 __license__   = 'GPL v3'
@@ -10,7 +10,8 @@ from urllib import unquote
 
 from lxml import etree
 from calibre import guess_type
-from calibre.utils.magick.draw import identify_data
+from calibre.utils.imghdr import identify
+
 
 class CoverManager(object):
 
@@ -72,7 +73,7 @@ class CoverManager(object):
             style = 'style="height: 100%%"'
         else:
             width, height = fixed_size
-            style = 'style="height: %s; width: %s"'%(width, height)
+            style = 'style="height: %s; width: %s"'%(height, width)
         self.non_svg_template = self.NONSVG_TEMPLATE.replace('__style__',
                 style)
 
@@ -95,7 +96,10 @@ class CoverManager(object):
             from calibre.ebooks.covers import create_cover
             series = series_index = None
             if m.series:
-                series, series_index = unicode(m.series[0]), m.series_index[0]
+                try:
+                    series, series_index = unicode(m.series[0]), m.series_index[0]
+                except IndexError:
+                    pass
             img_data = create_cover(title, authors, series, series_index)
             id, href = self.oeb.manifest.generate('cover',
                     u'cover_image.jpg')
@@ -115,10 +119,10 @@ class CoverManager(object):
             if x.href == urlnormalize(href):
                 try:
                     raw = x.data
-                    return identify_data(raw)[:2]
-                except:
-                    self.log.exception('Failed to read image dimensions')
-        return None, None
+                    return identify(raw)[1:]
+                except Exception:
+                    self.log.exception('Failed to read cover image dimensions')
+        return -1, -1
 
     def insert_cover(self):
         from calibre.ebooks.oeb.base import urldefrag
@@ -132,7 +136,7 @@ class CoverManager(object):
             if href is None:
                 return
             width, height = self.inspect_cover(href)
-            if width is None or height is None:
+            if width == -1 or height == -1:
                 self.log.warning('Failed to read cover dimensions')
                 width, height = 600, 800
             # if self.preserve_aspect_ratio:

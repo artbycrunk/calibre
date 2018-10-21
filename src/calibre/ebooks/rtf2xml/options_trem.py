@@ -1,4 +1,7 @@
+from __future__ import print_function
 import sys
+
+
 class ParseOptions:
     """
         Requires:
@@ -28,6 +31,7 @@ class ParseOptions:
             The result will be:
                 {indents:None, output:'/home/paul/file'}, ['/home/paul/input']
         """
+
     def __init__(self, system_string, options_dict):
         self.__system_string = system_string[1:]
         long_list  = self.__make_long_list_func(options_dict)
@@ -41,6 +45,7 @@ class ParseOptions:
         self.__opt_with_args = self.__make_options_with_arg_list(options_dict)
         # # print self.__opt_with_args
         self.__options_okay = 1
+
     def __make_long_list_func(self, options_dict):
         """
         Required:
@@ -54,6 +59,7 @@ class ParseOptions:
             key = '--' + key
             legal_list.append(key)
         return legal_list
+
     def __make_short_list_func(self, options_dict):
         """
         Required:
@@ -70,6 +76,7 @@ class ParseOptions:
             except IndexError:
                 pass
         return legal_list
+
     def __make_short_long_dict_func(self, options_dict):
         """
         Required:
@@ -90,6 +97,7 @@ class ParseOptions:
             except IndexError:
                 pass
         return short_long_dict
+
     def __make_options_with_arg_list(self, options_dict):
         """
         Required:
@@ -107,6 +115,7 @@ class ParseOptions:
             except IndexError:
                 pass
         return opt_with_arg
+
     def __sub_short_with_long(self):
         """
         Required:
@@ -123,6 +132,7 @@ class ParseOptions:
                 item = self.__short_long_dict[item]
             new_string.append(item)
         return new_string
+
     def __pair_arg_with_option(self):
         """
         Required:
@@ -173,6 +183,7 @@ class ParseOptions:
                 else:
                     new_system_string.append(arg)
         return new_system_string
+
     def __get_just_options(self):
         """
         Requires:
@@ -205,6 +216,7 @@ class ParseOptions:
                     sys.stderr.write('%s is an argument in an option list\n' % item)
                     self.__options_okay = 0
         return just_options, arguments
+
     def __is_legal_option_func(self):
         """
         Requires:
@@ -227,6 +239,7 @@ class ParseOptions:
             sys.stderr.write('The following options are not permitted:\n')
             for not_legal in illegal_options:
                 sys.stderr.write('%s\n' % not_legal)
+
     def __make_options_dict(self, options):
         options_dict = {}
         for item in options:
@@ -241,6 +254,7 @@ class ParseOptions:
                 option = option[1:]
             options_dict[option] = arg
         return options_dict
+
     def parse_options(self):
         self.__system_string = self.__sub_short_with_long()
         # # print 'subbed list is  %s' % self.__system_string
@@ -256,17 +270,19 @@ class ParseOptions:
             return options_dict, arguments
         else:
             return 0,0
+
+
 if __name__ == '__main__':
     this_dict = {
         'indents': [0, 'i'],
         'output': [1, 'o'],
         'test3': [1, 't'],
     }
-    test_obj = ParseOptions(system_string = sys.argv,
-                    options_dict = this_dict
+    test_obj = ParseOptions(system_string=sys.argv,
+                    options_dict=this_dict
             )
     options, the_args = test_obj.parse_options()
-    print options, the_args
+    print(options, the_args)
     """
     this_options = ['--foo', '-o']
     this_opt_with_args = ['--foo']

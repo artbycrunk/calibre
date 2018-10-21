@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python2
 # vim:fileencoding=UTF-8:ts=4:sw=4:sta:et:sts=4:ai
 
 __license__   = 'GPL v3'
@@ -10,6 +10,7 @@ import json, os
 from calibre.constants import preferred_encoding
 from calibre.utils.config import to_json, from_json
 from calibre import prints
+
 
 class DBPrefs(dict):
 
@@ -68,8 +69,10 @@ class DBPrefs(dict):
             return default
 
     def set_namespaced(self, namespace, key, val):
-        if u':' in key: raise KeyError('Colons are not allowed in keys')
-        if u':' in namespace: raise KeyError('Colons are not allowed in'
+        if u':' in key:
+            raise KeyError('Colons are not allowed in keys')
+        if u':' in namespace:
+            raise KeyError('Colons are not allowed in'
                 ' the namespace')
         key = u'namespaced:%s:%s'%(namespace, key)
         self[key] = val

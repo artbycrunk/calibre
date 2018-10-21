@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python2
 # vim:fileencoding=UTF-8:ts=4:sw=4:sta:et:sts=4:ai
 from __future__ import (unicode_literals, division, absolute_import,
                         print_function)
@@ -10,6 +10,7 @@ from PyQt5.Qt import (QDialog, QLineEdit, Qt)
 from calibre.gui2 import error_dialog
 from calibre.gui2.dialogs.smartdevice_ui import Ui_Dialog
 from calibre.utils.mdns import get_all_ips
+
 
 def _cmp_ipaddr(l, r):
     lparts = ['%3s'%x for x in l.split('.')]
@@ -25,6 +26,7 @@ def _cmp_ipaddr(l, r):
 
     return cmp(lparts, rparts)
 
+
 def get_all_ip_addresses():
     ipaddrs = list()
     for iface in get_all_ips().itervalues():
@@ -33,6 +35,7 @@ def get_all_ip_addresses():
                 ipaddrs.append(addrs['addr'])
     ipaddrs.sort(cmp=_cmp_ipaddr)
     return ipaddrs
+
 
 class SmartdeviceDialog(QDialog, Ui_Dialog):
 
@@ -63,7 +66,6 @@ class SmartdeviceDialog(QDialog, Ui_Dialog):
             _('Try 9090. If calibre says that it fails to connect '
               'to the port, try another number. You can use any number between '
               '8,000 and 32,000.') + '</p>')
-
 
         self.ip_addresses.setToolTip('<p>' +
             _('These are the IP addresses for this computer. If you decide to have your device connect to '

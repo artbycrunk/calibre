@@ -8,22 +8,6 @@ from collections import OrderedDict
 
 from calibre.utils.config_base import tweaks
 
-class TagsIcons(dict):
-    '''
-    If the client wants icons to be in the tag structure, this class must be
-    instantiated and filled in with real icons. If this class is instantiated
-    and passed to get_categories, All items must be given a value not None
-    '''
-
-    category_icons = ['authors', 'series', 'formats', 'publisher', 'rating',
-                      'news',    'tags',   'custom:', 'user:',     'search',
-                      'identifiers', 'languages', 'gst']
-    def __init__(self, icon_dict):
-        for a in self.category_icons:
-            if a not in icon_dict:
-                raise ValueError('Missing category icon [%s]'%a)
-            self[a] = icon_dict[a]
-
 category_icon_map = {
                     'authors'    : 'user_profile.png',
                     'series'     : 'series.png',
@@ -41,6 +25,7 @@ category_icon_map = {
             }
 
 # Builtin metadata {{{
+
 
 def _builtin_field_metadata():
     # This is a function so that changing the UI language allows newly created
@@ -166,7 +151,7 @@ def _builtin_field_metadata():
                             'datatype':'text',
                            'is_multiple':{},
                            'kind':'field',
-                           'name':_('Author Sort'),
+                           'name':_('Author sort'),
                            'search_terms':['author_sort'],
                            'is_custom':False,
                            'is_category':False,
@@ -228,7 +213,7 @@ def _builtin_field_metadata():
                            'datatype':'text',
                            'is_multiple':{},
                            'kind':'field',
-                           'name':_('On Device'),
+                           'name':_('On device'),
                            'search_terms':['ondevice'],
                            'is_custom':False,
                            'is_category':False,
@@ -278,7 +263,7 @@ def _builtin_field_metadata():
                            'datatype':'text',
                            'is_multiple':{},
                            'kind':'field',
-                           'name':_('Series Sort'),
+                           'name':_('Series sort'),
                            'search_terms':['series_sort'],
                            'is_custom':False,
                            'is_category':False,
@@ -288,7 +273,7 @@ def _builtin_field_metadata():
                            'datatype':'text',
                            'is_multiple':{},
                            'kind':'field',
-                           'name':_('Title Sort'),
+                           'name':_('Title sort'),
                            'search_terms':['title_sort'],
                            'is_custom':False,
                            'is_category':False,
@@ -336,7 +321,8 @@ def _builtin_field_metadata():
         ]
 # }}}
 
-class FieldMetadata(dict):
+
+class FieldMetadata(object):
     '''
     key: the key to the dictionary is:
     - for standard fields, the metadata field name.
@@ -394,7 +380,8 @@ class FieldMetadata(dict):
                 'int', 'float', 'bool', 'series', 'composite', 'enumeration'])
 
     # search labels that are not db columns
-    search_items = ['all', 'search']
+    search_items = ['all', 'search', 'vl']
+    __calibre_serializable__ = True
 
     def __init__(self):
         self._field_metadata = _builtin_field_metadata()
@@ -443,10 +430,30 @@ class FieldMetadata(dict):
     def keys(self):
         return self._tb_cats.keys()
 
+    def __eq__(self, other):
+        if not isinstance(other, FieldMetadata):
+            return False
+        for attr in ('_tb_custom_fields', '_search_term_map', 'custom_label_to_key_map', 'custom_field_prefix'):
+            if getattr(self, attr) != getattr(other, attr):
+                return False
+        return dict(self._tb_cats) == dict(other._tb_cats)
+
+    def __ne__(self, other):
+        return not self.__eq__(other)
+
     def sortable_field_keys(self):
         return [k for k in self._tb_cats.keys()
                 if self._tb_cats[k]['kind']=='field' and
                    self._tb_cats[k]['datatype'] is not None]
+
+    def ui_sortable_field_keys(self):
+        ans = {k:self._tb_cats[k]['name'] for k in set(self.sortable_field_keys()) - {
+            'sort', 'author_sort', 'au_map', 'series_sort', 'marked',
+            'series_index', 'path', 'formats', 'identifiers', 'uuid',
+            'comments',
+        } if self._tb_cats[k]['name']}
+        ans['cover'] = _('Has cover')
+        return ans
 
     def displayable_field_keys(self):
         return [k for k in self._tb_cats.keys()
@@ -621,8 +628,10 @@ class FieldMetadata(dict):
                                 'is_category':True,    'is_csp': False}
         self._add_search_terms_to_map(label, st)
 
-    def add_search_category(self, label, name):
+    def add_search_category(self, label, name, fail_on_existing=True):
         if label in self._tb_cats:
+            if not fail_on_existing:
+                return
             raise ValueError('Duplicate user field [%s]'%(label))
         self._tb_cats[label] = {'table':None,        'column':None,
                                 'datatype':None,     'is_multiple':{},
@@ -662,3 +671,27 @@ class FieldMetadata(dict):
         return [k for k in self._tb_cats.keys()
                 if self._tb_cats[k]['kind']=='field' and
                    len(self._tb_cats[k]['search_terms']) > 0]
+
+
+# The following two methods are to support serialization
+# Note that they do not create copies of internal structures, for performance,
+# so they are not safe to use for anything else
+def fm_as_dict(self):
+    return {
+        'custom_fields': self._tb_custom_fields,
+        'search_term_map': self._search_term_map,
+        'custom_label_to_key_map': self.custom_label_to_key_map,
+        'user_categories': {k:v for k, v in self._tb_cats.iteritems() if v['kind'] == 'user'},
+        'search_categories': {k:v for k, v in self._tb_cats.iteritems() if v['kind'] == 'search'},
+    }
+
+
+def fm_from_dict(src):
+    ans = FieldMetadata()
+    ans._tb_custom_fields = src['custom_fields']
+    ans._search_term_map = src['search_term_map']
+    ans.custom_label_to_key_map = src['custom_label_to_key_map']
+    for q in ('custom_fields', 'user_categories', 'search_categories'):
+        for k, v in src[q].iteritems():
+            ans._tb_cats[k] = v
+    return ans

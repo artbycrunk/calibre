@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python2
 # vim:fileencoding=UTF-8:ts=4:sw=4:sta:et:sts=4:ai
 from __future__ import with_statement
 
@@ -11,6 +11,7 @@ import textwrap
 from PyQt5.Qt import QComboBox, Qt
 
 from calibre.gui2 import config as gui_conf
+
 
 class HistoryBox(QComboBox):
 

@@ -22,6 +22,8 @@ from calibre.devices.usbms.books import BookList, Book
 from calibre.ebooks.metadata.book.json_codec import JsonCodec
 
 BASE_TIME = None
+
+
 def debug_print(*args):
     global BASE_TIME
     if BASE_TIME is None:
@@ -29,15 +31,57 @@ def debug_print(*args):
     if DEBUG:
         prints('DEBUG: %6.1f'%(time.time()-BASE_TIME), *args)
 
+
+def safe_walk(top, topdown=True, onerror=None, followlinks=False):
+    ' A replacement for os.walk that does not die when it encounters undecodeable filenames in a linux filesystem'
+    islink, join, isdir = os.path.islink, os.path.join, os.path.isdir
+
+    # We may not have read permission for top, in which case we can't
+    # get a list of the files the directory contains.  os.path.walk
+    # always suppressed the exception then, rather than blow up for a
+    # minor reason when (say) a thousand readable directories are still
+    # left to visit.  That logic is copied here.
+    try:
+        names = os.listdir(top)
+    except os.error as err:
+        if onerror is not None:
+            onerror(err)
+        return
+
+    dirs, nondirs = [], []
+    for name in names:
+        if isinstance(name, bytes):
+            try:
+                name = name.decode(filesystem_encoding)
+            except UnicodeDecodeError:
+                debug_print('Skipping undecodeable file: %r' % name)
+                continue
+        if isdir(join(top, name)):
+            dirs.append(name)
+        else:
+            nondirs.append(name)
+
+    if topdown:
+        yield top, dirs, nondirs
+    for name in dirs:
+        new_path = join(top, name)
+        if followlinks or not islink(new_path):
+            for x in safe_walk(new_path, topdown, onerror, followlinks):
+                yield x
+    if not topdown:
+        yield top, dirs, nondirs
+
+
 # CLI must come before Device as it implements the CLI functions that
 # are inherited from the device interface in Device.
 class USBMS(CLI, Device):
+
     '''
     The base class for all USBMS devices. Implements the logic for
     sending/getting/updating metadata/caching metadata/etc.
     '''
 
-    description    = _('Communicate with an eBook reader.')
+    description    = _('Communicate with an e-book reader.')
     author         = 'John Schember'
     supported_platforms = ['windows', 'osx', 'linux']
 
@@ -76,19 +120,19 @@ class USBMS(CLI, Device):
     def _update_driveinfo_file(self, prefix, location_code, name=None):
         from calibre.utils.config import from_json, to_json
         if os.path.exists(os.path.join(prefix, self.DRIVEINFO)):
-            with open(os.path.join(prefix, self.DRIVEINFO), 'rb') as f:
+            with lopen(os.path.join(prefix, self.DRIVEINFO), 'rb') as f:
                 try:
                     driveinfo = json.loads(f.read(), object_hook=from_json)
                 except:
                     driveinfo = None
                 driveinfo = self._update_driveinfo_record(driveinfo, prefix,
                                                           location_code, name)
-            with open(os.path.join(prefix, self.DRIVEINFO), 'wb') as f:
+            with lopen(os.path.join(prefix, self.DRIVEINFO), 'wb') as f:
                 f.write(json.dumps(driveinfo, default=to_json))
                 fsync(f)
         else:
             driveinfo = self._update_driveinfo_record({}, prefix, location_code, name)
-            with open(os.path.join(prefix, self.DRIVEINFO), 'wb') as f:
+            with lopen(os.path.join(prefix, self.DRIVEINFO), 'wb') as f:
                 f.write(json.dumps(driveinfo, default=to_json))
                 fsync(f)
         return driveinfo
@@ -133,6 +177,9 @@ class USBMS(CLI, Device):
     def formats_to_scan_for(self):
         return set(self.settings().format_map) | set(self.FORMATS)
 
+    def is_allowed_book_file(self, filename, path, prefix):
+        return True
+
     def books(self, oncard=None, end_session=True):
         from calibre.ebooks.metadata.meta import path_to_ext
 
@@ -175,7 +222,7 @@ class USBMS(CLI, Device):
 
         def update_booklist(filename, path, prefix):
             changed = False
-            if path_to_ext(filename) in all_formats:
+            if path_to_ext(filename) in all_formats and self.is_allowed_book_file(filename, path, prefix):
                 try:
                     lpath = os.path.join(path, filename).partition(self.normalize_path(prefix))[2]
                     if lpath.startswith(os.sep):
@@ -212,7 +259,7 @@ class USBMS(CLI, Device):
             if self.SUPPORTS_SUB_DIRS or self.SUPPORTS_SUB_DIRS_FOR_SCAN:
                 # build a list of files to check, so we can accurately report progress
                 flist = []
-                for path, dirs, files in os.walk(ebook_dir):
+                for path, dirs, files in safe_walk(ebook_dir):
                     for filename in files:
                         if filename != self.METADATA_CACHE:
                             flist.append({'filename': self.path_to_unicode(filename),
@@ -291,7 +338,7 @@ class USBMS(CLI, Device):
         :param filename: The name of the book file without the extension.
         :param metadata: metadata belonging to the book. Use metadata.thumbnail
                          for cover
-        :param filepath: The full path to the ebook file
+        :param filepath: The full path to the e-book file
 
         '''
         pass
@@ -335,6 +382,26 @@ class USBMS(CLI, Device):
         self.report_progress(1.0, _('Adding books to device metadata listing...'))
         debug_print('USBMS: finished adding metadata')
 
+    def delete_single_book(self, path):
+        os.unlink(path)
+
+    def delete_extra_book_files(self, path):
+        filepath = os.path.splitext(path)[0]
+        for ext in self.DELETE_EXTS:
+            for x in (filepath, path):
+                x += ext
+                if os.path.exists(x):
+                    if os.path.isdir(x):
+                        shutil.rmtree(x, ignore_errors=True)
+                    else:
+                        os.unlink(x)
+
+        if self.SUPPORTS_SUB_DIRS:
+            try:
+                os.removedirs(os.path.dirname(path))
+            except:
+                pass
+
     def delete_books(self, paths, end_session=True):
         debug_print('USBMS: deleting %d books'%(len(paths)))
         for i, path in enumerate(paths):
@@ -342,23 +409,9 @@ class USBMS(CLI, Device):
             path = self.normalize_path(path)
             if os.path.exists(path):
                 # Delete the ebook
-                os.unlink(path)
+                self.delete_single_book(path)
+                self.delete_extra_book_files(path)
 
-                filepath = os.path.splitext(path)[0]
-                for ext in self.DELETE_EXTS:
-                    for x in (filepath, path):
-                        x += ext
-                        if os.path.exists(x):
-                            if os.path.isdir(x):
-                                shutil.rmtree(x, ignore_errors=True)
-                            else:
-                                os.unlink(x)
-
-                if self.SUPPORTS_SUB_DIRS:
-                    try:
-                        os.removedirs(os.path.dirname(path))
-                    except:
-                        pass
         self.report_progress(1.0, _('Removing books from device...'))
         debug_print('USBMS: finished deleting %d books'%(len(paths)))
 
@@ -389,7 +442,7 @@ class USBMS(CLI, Device):
                     isinstance(booklists[listid], self.booklist_class)):
                 if not os.path.exists(prefix):
                     os.makedirs(self.normalize_path(prefix))
-                with open(self.normalize_path(os.path.join(prefix, self.METADATA_CACHE)), 'wb') as f:
+                with lopen(self.normalize_path(os.path.join(prefix, self.METADATA_CACHE)), 'wb') as f:
                     json_codec.encode_to_file(f, booklists[listid])
                     fsync(f)
         write_prefix(self._main_prefix, 0)
@@ -435,7 +488,7 @@ class USBMS(CLI, Device):
         cache_file = cls.normalize_path(os.path.join(prefix, name))
         if os.access(cache_file, os.R_OK):
             try:
-                with open(cache_file, 'rb') as f:
+                with lopen(cache_file, 'rb') as f:
                     json_codec.decode_from_file(f, bl, cls.book_class, prefix)
             except:
                 import traceback

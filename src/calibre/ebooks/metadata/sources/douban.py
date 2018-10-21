@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python2
 # vim:fileencoding=UTF-8:ts=4:sw=4:sta:et:sts=4:ai
 from __future__ import (unicode_literals, division, absolute_import,
                         print_function)
@@ -20,10 +20,12 @@ from calibre import as_unicode
 NAMESPACES = {
               'openSearch':'http://a9.com/-/spec/opensearchrss/1.0/',
               'atom' : 'http://www.w3.org/2005/Atom',
-              'db': 'http://www.douban.com/xmlns/',
+              'db': 'https://www.douban.com/xmlns/',
               'gd': 'http://schemas.google.com/g/2005'
             }
-def get_details(browser, url, timeout): # {{{
+
+
+def get_details(browser, url, timeout):  # {{{
     try:
         if Douban.DOUBAN_API_KEY and Douban.DOUBAN_API_KEY != '':
             url = url + "?apikey=" + Douban.DOUBAN_API_KEY
@@ -39,7 +41,8 @@ def get_details(browser, url, timeout): # {{{
     return raw
 # }}}
 
-def to_metadata(browser, log, entry_, timeout): # {{{
+
+def to_metadata(browser, log, entry_, timeout):  # {{{
     from lxml import etree
     from calibre.ebooks.chardet import xml_to_unicode
     from calibre.utils.date import parse_date, utcnow
@@ -58,7 +61,6 @@ def to_metadata(browser, log, entry_, timeout): # {{{
     rating         = XPath("descendant::gd:rating/attribute::average")
     cover_url      = XPath("descendant::atom:link[@rel='image']/attribute::href")
 
-
     def get_text(extra, x):
         try:
             ans = x(extra)
@@ -70,7 +72,7 @@ def to_metadata(browser, log, entry_, timeout): # {{{
             log.exception('Programming error:')
         return None
 
-    id_url = entry_id(entry_)[0].text
+    id_url = entry_id(entry_)[0].text.replace('http://', 'https://')
     douban_id = id_url.split('/')[-1]
     title_ = ': '.join([x.text for x in title(entry_)]).strip()
     authors = [x.text.strip() for x in creator(entry_) if x.text]
@@ -138,43 +140,45 @@ def to_metadata(browser, log, entry_, timeout): # {{{
     mi.has_douban_cover = None
     u = cover_url(extra)
     if u:
-        u = u[0].replace('/spic/', '/lpic/');
+        u = u[0].replace('/spic/', '/lpic/')
         # If URL contains "book-default", the book doesn't have a cover
         if u.find('book-default') == -1:
             mi.has_douban_cover = u
     return mi
 # }}}
 
+
 class Douban(Source):
 
     name = 'Douban Books'
     author = 'Li Fanxi'
-    version = (2, 0, 0)
+    version = (2, 1, 0)
+    minimum_calibre_version = (2, 80, 0)
 
     description = _('Downloads metadata and covers from Douban.com. '
-            'Useful only for chinese language books.')
+            'Useful only for Chinese language books.')
 
     capabilities = frozenset(['identify', 'cover'])
     touched_fields = frozenset(['title', 'authors', 'tags',
         'pubdate', 'comments', 'publisher', 'identifier:isbn', 'rating',
-        'identifier:douban']) # language currently disabled
+        'identifier:douban'])  # language currently disabled
     supports_gzip_transfer_encoding = True
     cached_cover_url_is_reliable = True
 
     DOUBAN_API_KEY = '0bd1672394eb1ebf2374356abec15c3d'
-    DOUBAN_BOOK_URL = 'http://book.douban.com/subject/%s/'
+    DOUBAN_BOOK_URL = 'https://book.douban.com/subject/%s/'
 
-    def get_book_url(self, identifiers): # {{{
+    def get_book_url(self, identifiers):  # {{{
         db = identifiers.get('douban', None)
         if db is not None:
             return ('douban', db, self.DOUBAN_BOOK_URL%db)
     # }}}
 
-    def create_query(self, log, title=None, authors=None, identifiers={}): # {{{
+    def create_query(self, log, title=None, authors=None, identifiers={}):  # {{{
         from urllib import urlencode
-        SEARCH_URL = 'http://api.douban.com/book/subjects?'
-        ISBN_URL = 'http://api.douban.com/book/subject/isbn/'
-        SUBJECT_URL = 'http://api.douban.com/book/subject/'
+        SEARCH_URL = 'https://api.douban.com/book/subjects?'
+        ISBN_URL = 'https://api.douban.com/book/subject/isbn/'
+        SUBJECT_URL = 'https://api.douban.com/book/subject/'
 
         q = ''
         t = None
@@ -192,8 +196,8 @@ class Douban(Source):
             title_tokens = list(self.get_title_tokens(title))
             if title_tokens:
                 q += build_term('title', title_tokens)
-            author_tokens = self.get_author_tokens(authors,
-                    only_first_author=True)
+            author_tokens = list(self.get_author_tokens(authors,
+                    only_first_author=True))
             if author_tokens:
                 q += ((' ' if q != '' else '') +
                     build_term('author', author_tokens))
@@ -220,7 +224,7 @@ class Douban(Source):
         return url
     # }}}
 
-    def download_cover(self, log, result_queue, abort, # {{{
+    def download_cover(self, log, result_queue, abort,  # {{{
             title=None, authors=None, identifiers={}, timeout=30, get_best_cover=False):
         cached_url = self.get_cached_cover_url(identifiers)
         if cached_url is None:
@@ -259,7 +263,7 @@ class Douban(Source):
 
     # }}}
 
-    def get_cached_cover_url(self, identifiers): # {{{
+    def get_cached_cover_url(self, identifiers):  # {{{
         url = None
         db = identifiers.get('douban', None)
         if db is None:
@@ -272,7 +276,7 @@ class Douban(Source):
         return url
     # }}}
 
-    def get_all_details(self, br, log, entries, abort, # {{{
+    def get_all_details(self, br, log, entries, abort,  # {{{
             result_queue, timeout):
         from lxml import etree
         for relevance, i in enumerate(entries):
@@ -296,7 +300,7 @@ class Douban(Source):
                 break
     # }}}
 
-    def identify(self, log, result_queue, abort, title=None, authors=None, # {{{
+    def identify(self, log, result_queue, abort, title=None, authors=None,  # {{{
             identifiers={}, timeout=30):
         from lxml import etree
         from calibre.ebooks.chardet import xml_to_unicode
@@ -336,7 +340,8 @@ class Douban(Source):
         return None
     # }}}
 
-if __name__ == '__main__': # tests {{{
+
+if __name__ == '__main__':  # tests {{{
     # To run these test use: calibre-debug -e src/calibre/ebooks/metadata/sources/douban.py
     from calibre.ebooks.metadata.sources.test import (test_identify_plugin,
             title_test, authors_test)
@@ -357,4 +362,3 @@ if __name__ == '__main__': # tests {{{
             ),
     ])
 # }}}
-

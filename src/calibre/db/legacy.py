@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python2
 # vim:fileencoding=utf-8
 from __future__ import (unicode_literals, division, absolute_import,
                         print_function)
@@ -7,7 +7,7 @@ __license__ = 'GPL v3'
 __copyright__ = '2013, Kovid Goyal <kovid at kovidgoyal.net>'
 
 import os, traceback, types
-from future_builtins import zip
+from polyglot.builtins import zip
 
 from calibre import force_unicode, isbytestring
 from calibre.constants import preferred_encoding
@@ -15,7 +15,7 @@ from calibre.db import _get_next_series_num_for_list, _get_series_values, get_da
 from calibre.db.adding import (
     find_books_in_directory, import_book_directory_multiple,
     import_book_directory, recursive_import, add_catalog, add_news)
-from calibre.db.backend import DB
+from calibre.db.backend import DB, set_global_state as backend_set_global_state
 from calibre.db.cache import Cache
 from calibre.db.errors import NoSuchFormat
 from calibre.db.categories import CATEGORY_SORTS
@@ -23,6 +23,7 @@ from calibre.db.view import View
 from calibre.db.write import clean_identifier, get_series_values
 from calibre.utils.date import utcnow
 from calibre.utils.search_query_parser import set_saved_searches
+
 
 def cleanup_tags(tags):
     tags = [x.strip().replace(',', ';') for x in tags if x.strip()]
@@ -36,12 +37,21 @@ def cleanup_tags(tags):
             ans.append(tag)
     return ans
 
+
 def create_backend(
         library_path, default_prefs=None, read_only=False,
-        progress_callback=lambda x, y:True, restore_all_prefs=False):
+        progress_callback=lambda x, y:True, restore_all_prefs=False,
+        load_user_formatter_functions=True):
     return DB(library_path, default_prefs=default_prefs,
                      read_only=read_only, restore_all_prefs=restore_all_prefs,
-                     progress_callback=progress_callback)
+                     progress_callback=progress_callback,
+                     load_user_formatter_functions=load_user_formatter_functions)
+
+
+def set_global_state(db):
+    backend_set_global_state(db.backend)
+    set_saved_searches(db, 'saved_searches')
+
 
 class LibraryDatabase(object):
 
@@ -67,7 +77,8 @@ class LibraryDatabase(object):
 
         backend = self.backend = create_backend(library_path, default_prefs=default_prefs,
                     read_only=read_only, restore_all_prefs=restore_all_prefs,
-                    progress_callback=progress_callback)
+                    progress_callback=progress_callback,
+                    load_user_formatter_functions=not is_second_db)
         cache = self.new_api = Cache(backend)
         cache.init()
         self.data = View(cache)
@@ -86,14 +97,16 @@ class LibraryDatabase(object):
             set_saved_searches(self, 'saved_searches')
 
     def close(self):
-        self.new_api.close()
+        if hasattr(self, 'new_api'):
+            self.new_api.close()
 
     def break_cycles(self):
-        delattr(self.backend, 'field_metadata')
-        self.data.cache.backend = None
-        self.data.cache = None
-        for x in ('data', 'backend', 'new_api', 'listeners',):
-            delattr(self, x)
+        if hasattr(self, 'backend'):
+            delattr(self.backend, 'field_metadata')
+            self.data.cache.backend = None
+            self.data.cache = None
+            for x in ('data', 'backend', 'new_api', 'listeners',):
+                delattr(self, x)
 
     # Library wide properties {{{
     @property
@@ -121,7 +134,7 @@ class LibraryDatabase(object):
         return self.backend.dbpath
 
     def last_modified(self):
-        return self.backend.last_modified()
+        return self.new_api.last_modified()
 
     def check_if_modified(self):
         if self.last_modified() > self.last_update_check:
@@ -244,28 +257,27 @@ class LibraryDatabase(object):
             self.notify('add', book_ids)
         return book_ids[0]
 
-    def find_books_in_directory(self, dirpath, single_book_per_directory):
-        return find_books_in_directory(dirpath, single_book_per_directory)
+    def find_books_in_directory(self, dirpath, single_book_per_directory, compiled_rules=()):
+        return find_books_in_directory(dirpath, single_book_per_directory, compiled_rules=compiled_rules)
 
-    def import_book_directory_multiple(self, dirpath, callback=None,
-            added_ids=None):
-        return import_book_directory_multiple(self, dirpath, callback=callback, added_ids=added_ids)
+    def import_book_directory_multiple(self, dirpath, callback=None, added_ids=None, compiled_rules=()):
+        return import_book_directory_multiple(self, dirpath, callback=callback, added_ids=added_ids, compiled_rules=compiled_rules)
 
-    def import_book_directory(self, dirpath, callback=None, added_ids=None):
-        return import_book_directory(self, dirpath, callback=callback, added_ids=added_ids)
+    def import_book_directory(self, dirpath, callback=None, added_ids=None, compiled_rules=()):
+        return import_book_directory(self, dirpath, callback=callback, added_ids=added_ids, compiled_rules=compiled_rules)
 
-    def recursive_import(self, root, single_book_per_directory=True,
-            callback=None, added_ids=None):
-        return recursive_import(self, root, single_book_per_directory=single_book_per_directory, callback=callback, added_ids=added_ids)
+    def recursive_import(self, root, single_book_per_directory=True, callback=None, added_ids=None, compiled_rules=()):
+        return recursive_import(
+            self, root, single_book_per_directory=single_book_per_directory, callback=callback, added_ids=added_ids, compiled_rules=compiled_rules)
 
     def add_catalog(self, path, title):
-        book_id, new_book_added = add_catalog(self.new_api, path, title)
+        book_id, new_book_added = add_catalog(self.new_api, path, title, dbapi=self)
         if book_id is not None and new_book_added:
             self.data.books_added((book_id,))
         return book_id
 
     def add_news(self, path, arg):
-        book_id = add_news(self.new_api, path, arg)
+        book_id = add_news(self.new_api, path, arg, dbapi=self)
         if book_id is not None:
             self.data.books_added((book_id,))
         return book_id
@@ -273,22 +285,16 @@ class LibraryDatabase(object):
     def add_format(self, index, fmt, stream, index_is_id=False, path=None, notify=True, replace=True, copy_function=None):
         ''' path and copy_function are ignored by the new API '''
         book_id = index if index_is_id else self.id(index)
-        try:
-            return self.new_api.add_format(book_id, fmt, stream, replace=replace, run_hooks=False, dbapi=self)
-        except:
-            raise
-        else:
-            self.notify('metadata', [book_id])
+        ret = self.new_api.add_format(book_id, fmt, stream, replace=replace, run_hooks=False, dbapi=self)
+        self.notify('metadata', [book_id])
+        return ret
 
     def add_format_with_hooks(self, index, fmt, fpath, index_is_id=False, path=None, notify=True, replace=True):
         ''' path is ignored by the new API '''
         book_id = index if index_is_id else self.id(index)
-        try:
-            return self.new_api.add_format(book_id, fmt, fpath, replace=replace, run_hooks=True, dbapi=self)
-        except:
-            raise
-        else:
-            self.notify('metadata', [book_id])
+        ret = self.new_api.add_format(book_id, fmt, fpath, replace=replace, run_hooks=True, dbapi=self)
+        self.notify('metadata', [book_id])
+        return ret
 
     # }}}
 
@@ -689,7 +695,7 @@ class LibraryDatabase(object):
         self.new_api.delete_custom_column(label, num)
 
     def create_custom_column(self, label, name, datatype, is_multiple, editable=True, display={}):
-        self.new_api.create_custom_column(label, name, datatype, is_multiple, editable=editable, display=display)
+        return self.new_api.create_custom_column(label, name, datatype, is_multiple, editable=editable, display=display)
 
     def set_custom_column_metadata(self, num, name=None, label=None, is_editable=None, display=None,
                                    notify=True, update_last_modified=False):
@@ -743,6 +749,7 @@ class LibraryDatabase(object):
 
     # }}}
 
+
 MT = lambda func: types.MethodType(func, None, LibraryDatabase)
 
 # Legacy getter API {{{
@@ -752,6 +759,7 @@ for prop in ('author_sort', 'authors', 'comment', 'comments', 'publisher', 'max_
     def getter(prop):
         fm = {'comment':'comments', 'metadata_last_modified':
               'last_modified', 'title_sort':'sort', 'max_size':'size'}.get(prop, prop)
+
         def func(self, index, index_is_id=False):
             return self.get_property(index, index_is_id=index_is_id, loc=self.FIELD_MAP[fm])
         return func
@@ -773,7 +781,7 @@ LibraryDatabase.format_hash = MT(lambda self, book_id, fmt:self.new_api.format_h
 LibraryDatabase.index = MT(lambda self, book_id, cache=False:self.data.id_to_index(book_id))
 LibraryDatabase.has_cover = MT(lambda self, book_id:self.new_api.field_for('cover', book_id))
 LibraryDatabase.get_tags = MT(lambda self, book_id:set(self.new_api.field_for('tags', book_id)))
-LibraryDatabase.get_categories = MT(lambda self, sort='name', ids=None, icon_map=None:self.new_api.get_categories(sort=sort, book_ids=ids, icon_map=icon_map))
+LibraryDatabase.get_categories = MT(lambda self, sort='name', ids=None:self.new_api.get_categories(sort=sort, book_ids=ids))
 LibraryDatabase.get_identifiers = MT(
     lambda self, index, index_is_id=False: self.new_api.field_for('identifiers', index if index_is_id else self.id(index)))
 LibraryDatabase.isbn = MT(
@@ -797,6 +805,7 @@ for field in (
         if has_case_change:
             field = field[1:]
             acc = field == 'series'
+
             def func(self, book_id, val, notify=True, commit=True, allow_case_change=acc):
                 ret = self.new_api.set_field(field, {book_id:val}, allow_case_change=allow_case_change)
                 if notify:
@@ -808,6 +817,7 @@ for field in (
         else:
             null_field = field in {'title', 'sort', 'uuid'}
             retval = (True if field == 'sort' else None)
+
             def func(self, book_id, val, notify=True, commit=True):
                 if not val and null_field:
                     return (False if field == 'sort' else None)
@@ -861,6 +871,7 @@ LibraryDatabase.get_author_id = MT(
 for field in ('tags', 'series', 'publishers', 'ratings', 'languages'):
     def getter(field):
         fname = field[:-1] if field in {'publishers', 'ratings'} else field
+
         def func(self):
             return [[tid, tag] for tid, tag in self.new_api.get_id_map(fname).iteritems()]
         return func
@@ -869,6 +880,7 @@ for field in ('tags', 'series', 'publishers', 'ratings', 'languages'):
 for field in ('author', 'tag', 'series'):
     def getter(field):
         field = field if field == 'series' else (field+'s')
+
         def func(self, item_id):
             return self.new_api.get_item_name(field, item_id)
         return func
@@ -877,6 +889,7 @@ for field in ('author', 'tag', 'series'):
 for field in ('publisher', 'series', 'tag'):
     def getter(field):
         fname = 'tags' if field == 'tag' else field
+
         def func(self, item_id):
             self.new_api.remove_items(fname, (item_id,))
         return func
@@ -892,6 +905,7 @@ for func in (
     def getter(func):
         if func.startswith('!'):
             func = func[1:]
+
             def meth(self, include_composites=True):
                 return getattr(self.field_metadata, func)(include_composites=include_composites)
         elif func == 'search_term_to_field_key':
@@ -907,14 +921,13 @@ LibraryDatabase.metadata_for_field = MT(lambda self, field:self.field_metadata.g
 # }}}
 
 # Miscellaneous API {{{
-for meth in ('get_next_series_num_for', 'has_book', 'author_sort_from_authors'):
+for meth in ('get_next_series_num_for', 'has_book',):
     def getter(meth):
         def func(self, x):
             return getattr(self.new_api, meth)(x)
         return func
     setattr(LibraryDatabase, meth, MT(getter(meth)))
 
-LibraryDatabase.move_library_to = MT(lambda self, newloc, progress=None:self.new_api.move_library_to(newloc, progress=progress))
 LibraryDatabase.saved_search_names = MT(lambda self:self.new_api.saved_search_names())
 LibraryDatabase.saved_search_lookup = MT(lambda self, x:self.new_api.saved_search_lookup(x))
 LibraryDatabase.saved_search_set_all = MT(lambda self, smap:self.new_api.saved_search_set_all(smap))
@@ -922,6 +935,7 @@ LibraryDatabase.saved_search_delete = MT(lambda self, x:self.new_api.saved_searc
 LibraryDatabase.saved_search_add = MT(lambda self, x, y:self.new_api.saved_search_add(x, y))
 LibraryDatabase.saved_search_rename = MT(lambda self, x, y:self.new_api.saved_search_rename(x, y))
 LibraryDatabase.commit_dirty_cache = MT(lambda self: self.new_api.commit_dirty_cache())
+LibraryDatabase.author_sort_from_authors = MT(lambda self, x: self.new_api.author_sort_from_authors(x))
 # Cleaning is not required anymore
 LibraryDatabase.clean = LibraryDatabase.clean_custom = MT(lambda self:None)
 LibraryDatabase.clean_standard_field = MT(lambda self, field, commit=False:None)
@@ -930,4 +944,3 @@ LibraryDatabase.commit = MT(lambda self:None)
 # }}}
 
 del MT
-

@@ -1,32 +1,19 @@
 {% extends "!layout.html" %}
 
-{% block extrahead %}
-    <style type="text/css">
-        .float-left-img { float: left; margin-right: 1em; margin-bottom: 1em }
-        .float-right-img { float: right; margin-left: 1em; margin-bottom: 1em }
-        .half-with-img { max-width: 50% }
-        .fit-img { max-width: 95% }
-        #languages-menu { display: none }
-    </style>
-    <script type="text/javascript">
-    function toggle_languages_menu() {
-        var m = document.getElementById('languages-menu');
-        if (m.style.display === "block") m.style.display = "none";
-        else m.style.display = "block";
-    }
-    </script>
+{%- block relbar1 %}{{ relbar() }}{% endblock %}
 
-{% endblock %}
-
-{% block document %}
+{%- block content %}
+  <div class="document">
+    {{ sidebar() }}
+    {%- block document %}
       <div class="documentwrapper">
       {%- if render_sidebar %}
         <div class="bodywrapper">
       {%- endif %}
-        <div class="body">
-            {% if not embedded %}
+      {% if not embedded %}
+          <div class="body" role="main">
             <div id="ad-container" style="text-align:center">
-                <script async="async" src="http://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js"></script>
+                <script async="async" src="//pagead2.googlesyndication.com/pagead/js/adsbygoogle.js"></script>
                 <ins class="adsbygoogle"
                     style="display:inline-block;width:728px;height:90px"
                     data-ad-client="ca-pub-5939552585043235"
@@ -35,53 +22,16 @@
                 (adsbygoogle = window.adsbygoogle || []).push({});
                 </script>
             </div>
-            {% endif %}
+        {% endif %}
             {% block body %} {% endblock %}
-        </div>
+          </div>
       {%- if render_sidebar %}
         </div>
       {%- endif %}
       </div>
-        {% if not embedded %}
-            <script type="text/javascript">
-
-                var _gaq = _gaq || [];
-                _gaq.push(['_setAccount', 'UA-20736318-1']);
-                _gaq.push(['_setDomainName', '.calibre-ebook.com']);
-                _gaq.push(['_trackPageview']);
-
-                (function() {
-                    var ga = document.createElement('script'); ga.type = 'text/javascript'; ga.async = true;
-                    ga.src = ('https:' == document.location.protocol ? 'https://ssl' : 'http://www') + '.google-analytics.com/ga.js';
-                    var s = document.getElementsByTagName('script')[0]; s.parentNode.insertBefore(ga, s);
-                })();
-
-            </script>
-        {%- endif %}
-
-{% endblock %}
-
-{% block sidebarlogo %}
-        <p class="logo">
-            <a href="http://calibre-ebook.com"><img class="logo" src="{{ pathto('_static/' + logo, 1) }}" alt="Logo"/></a>
-        </p>
-
-        <form action="https://www.paypal.com/cgi-bin/webscr" method="post" title="Contribute to support calibre development">
-            <input type="hidden" name="cmd" value="_s-xclick" />
-            <input type="hidden" name="hosted_button_id" value="AF4H3B8QVDG6N" />
-            <input type="image" src="{{ pathto('_static/simple_donate_button.gif', 1) }}" border="0" name="submit" alt="Contribute to support calibre development" style="border:0pt" />
-            <img alt="" border="0" src="https://www.paypalobjects.com/en_GB/i/scr/pixel.gif" width="1" height="1" />
-        </form>
-        <hr/>
-        {%- if not embedded %}
-        <div><a href="#" onclick="toggle_languages_menu(); return false;">{{ change_language_text }}</a></div>
-        <ul id="languages-menu">
-        {%- for lang in other_languages %}
-        <li><a href="{{ localized_path(lang[0], pagename) }}">{{ lang[1] }}</a></li>
-        {%- endfor %}
-        </ul>
-        <hr/>
-        {%- endif %}
-{% endblock %}
+    {%- endblock %}
+    <div class="clearer"></div>
+  </div>
+{%- endblock %}
 
 

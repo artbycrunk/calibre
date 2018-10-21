@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python2
 # vim:fileencoding=UTF-8:ts=4:sw=4:sta:et:sts=4:fdm=marker:ai
 from __future__ import (unicode_literals, division, absolute_import,
                         print_function)
@@ -18,12 +18,15 @@ from calibre.constants import numeric_version, DEBUG
 from calibre.gui2.store import StorePlugin
 from calibre.utils.config import JSONConfig
 
+
 class VersionMismatch(ValueError):
+
     def __init__(self, ver):
         ValueError.__init__(self, 'calibre too old')
         self.ver = ver
 
-def download_updates(ver_map={}, server='https://status.calibre-ebook.com'):
+
+def download_updates(ver_map={}, server='https://code.calibre-ebook.com'):
     from calibre.utils.https import get_https_resource_securely
     data = {k:type(u'')(v) for k, v in ver_map.iteritems()}
     data['ver'] = '1'
@@ -37,13 +40,14 @@ def download_updates(ver_map={}, server='https://status.calibre-ebook.com'):
         name = name.decode('utf-8')
         d = decompressobj()
         src = d.decompress(raw)
-        src = src.decode('utf-8')
+        src = src.decode('utf-8').lstrip(u'\ufeff')
         # Python complains if there is a coding declaration in a unicode string
         src = re.sub(r'^#.*coding\s*[:=]\s*([-\w.]+)', '#', src, flags=re.MULTILINE)
         # Translate newlines to \n
         src = io.StringIO(src, newline=None).getvalue()
         yield name, src
         raw = d.unused_data
+
 
 class Stores(OrderedDict):
 
@@ -171,7 +175,7 @@ class Stores(OrderedDict):
     def load_object(self, src, key):
         namespace = {}
         builtin = self[key]
-        exec src in namespace
+        exec(src, namespace)
         ver = namespace['store_version']
         cls = None
         for x in namespace.itervalues():
@@ -186,14 +190,13 @@ class Stores(OrderedDict):
         return cls(builtin.gui, builtin.name, config=builtin.config,
                    base_plugin=builtin.base_plugin), ver
 
+
 if __name__ == '__main__':
     st = time.time()
     count = 0
     for name, code in download_updates():
         count += 1
         print(name)
-        print(code)
+        print(code.encode('utf-8'))
         print('\n', '_'*80, '\n', sep='')
-    print ('Time to download all %d plugins: %.2f'%(count, time.time() - st))
-
-
+    print ('Time to download all %d plugins: %.2f seconds'%(count, time.time() - st))

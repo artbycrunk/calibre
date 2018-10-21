@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python2
 # vim:fileencoding=UTF-8:ts=4:sw=4:sta:et:sts=4:fdm=marker:ai
 from __future__ import (unicode_literals, division, absolute_import,
                         print_function)
@@ -14,7 +14,7 @@ from PyQt5.Qt import (
     QFont, QDialog, Qt, QColor, QColorDialog, QMenu, QInputDialog,
     QListWidgetItem, QFormLayout, QLabel, QLineEdit, QDialogButtonBox)
 
-from calibre.constants import iswindows, isxp
+from calibre.constants import isxp
 from calibre.utils.config import Config, StringConfig, JSONConfig
 from calibre.utils.icu import sort_key
 from calibre.utils.localization import get_language, calibre_langcode_to_name
@@ -23,8 +23,9 @@ from calibre.gui2.languages import LanguagesEdit
 from calibre.gui2.shortcuts import ShortcutConfig
 from calibre.gui2.viewer.config_ui import Ui_Dialog
 
+
 def config(defaults=None):
-    desc = _('Options to customize the ebook viewer')
+    desc = _('Options to customize the e-book viewer')
     if defaults is None:
         c = Config('viewer', desc)
     else:
@@ -47,10 +48,18 @@ def config(defaults=None):
     c.add_opt('hyphenate', default=False, help=_('Hyphenate text'))
     c.add_opt('hyphenate_default_lang', default='en',
             help=_('Default language for hyphenation rules'))
+    c.add_opt('search_online_url', default='https://www.google.com/search?q={text}',
+              help=_('The URL to use when searching for selected text online'))
     c.add_opt('remember_current_page', default=True,
             help=_('Save the current position in the document, when quitting'))
+    c.add_opt('copy_bookmarks_to_file', default=True,
+            help=_('Copy bookmarks to the e-book file for easy sharing, if possible'))
     c.add_opt('wheel_flips_pages', default=False,
             help=_('Have the mouse wheel turn pages'))
+    c.add_opt('wheel_scroll_fraction', default=100,
+            help=_('Control how much the mouse wheel scrolls by in flow mode'))
+    c.add_opt('line_scroll_fraction', default=100,
+            help=_('Control how much the arrow keys scroll by in flow mode'))
     c.add_opt('tap_flips_pages', default=True,
             help=_('Tapping on the screen turns pages'))
     c.add_opt('line_scrolling_stops_on_pagebreaks', default=False,
@@ -74,6 +83,9 @@ def config(defaults=None):
     c.add_opt('show_fullscreen_help', default=True, action='store_false',
               help=_('Show full screen usage help'))
     c.add_opt('cols_per_screen', default=1)
+    c.add_opt('cols_per_screen_portrait', default=1)
+    c.add_opt('cols_per_screen_landscape', default=1)
+    c.add_opt('cols_per_screen_migrated', default=False, action='store_true')
     c.add_opt('use_book_margins', default=False, action='store_true')
     c.add_opt('top_margin', default=20)
     c.add_opt('side_margin', default=40)
@@ -83,21 +95,32 @@ def config(defaults=None):
     c.add_opt('show_controls', default=True)
 
     fonts = c.add_group('FONTS', _('Font options'))
-    fonts('serif_family', default='Times New Roman' if iswindows else 'Liberation Serif',
+    fonts('serif_family', default='Liberation Serif',
           help=_('The serif font family'))
-    fonts('sans_family', default='Verdana' if iswindows else 'Liberation Sans',
+    fonts('sans_family', default='Liberation Sans',
           help=_('The sans-serif font family'))
-    fonts('mono_family', default='Courier New' if iswindows else 'Liberation Mono',
-          help=_('The monospaced font family'))
+    fonts('mono_family', default='Liberation Mono',
+          help=_('The monospace font family'))
     fonts('default_font_size', default=20, help=_('The standard font size in px'))
-    fonts('mono_font_size', default=16, help=_('The monospaced font size in px'))
+    fonts('mono_font_size', default=16, help=_('The monospace font size in px'))
     fonts('standard_font', default='serif', help=_('The standard font type'))
     fonts('minimum_font_size', default=8, help=_('The minimum font size in px'))
 
+    oparse = c.parse
+
+    def parse():
+        ans = oparse()
+        if not ans.cols_per_screen_migrated:
+            ans.cols_per_screen_portrait = ans.cols_per_screen_landscape = ans.cols_per_screen
+        return ans
+    c.parse = parse
+
     return c
+
 
 def load_themes():
     return JSONConfig('viewer_themes')
+
 
 class ConfigDialog(QDialog, Ui_Dialog):
 
@@ -120,7 +143,15 @@ class ConfigDialog(QDialog, Ui_Dialog):
         with zipfile.ZipFile(P('viewer/hyphenate/patterns.zip',
             allow_user_override=False), 'r') as zf:
             pats = [x.split('.')[0].replace('-', '_') for x in zf.namelist()]
-        names = list(map(get_language, pats))
+
+        lang_pats = {
+            'el_monoton': get_language('el').partition(';')[0] + _(' monotone'), 'el_polyton':get_language('el').partition(';')[0] + _(' polytone'),
+            'sr_cyrl': get_language('sr') + _(' cyrillic'), 'sr_latn': get_language('sr') + _(' latin'),
+        }
+
+        def gl(pat):
+            return lang_pats.get(pat, get_language(pat))
+        names = list(map(gl, pats))
         pmap = {}
         for i in range(len(pats)):
             pmap[names[i]] = pats[i]
@@ -208,9 +239,10 @@ class ConfigDialog(QDialog, Ui_Dialog):
     def word_lookups(self):
         def fget(self):
             return dict(self.dictionary_list.item(i).data(Qt.UserRole) for i in range(self.dictionary_list.count()))
+
         def fset(self, wl):
             self.dictionary_list.clear()
-            for langcode, url in sorted(wl.iteritems(), key=lambda (lc, url):sort_key(calibre_langcode_to_name(lc))):
+            for langcode, url in sorted(wl.iteritems(), key=lambda lc_url:sort_key(calibre_langcode_to_name(lc_url[0]))):
                 i = QListWidgetItem('%s: %s' % (calibre_langcode_to_name(langcode), url), self.dictionary_list)
                 i.setData(Qt.UserRole, (langcode, url))
         return property(fget=fget, fset=fset)
@@ -275,13 +307,17 @@ class ConfigDialog(QDialog, Ui_Dialog):
     def restore_defaults(self):
         opts = config('').parse()
         self.load_options(opts)
-        from calibre.gui2.viewer.main import dprefs
+        from calibre.gui2.viewer.main import dprefs, vprefs
         self.word_lookups = dprefs.defaults['word_lookups']
+        self.opt_singleinstance.setChecked(vprefs.defaults['singleinstance'])
 
     def load_options(self, opts):
         self.opt_remember_window_size.setChecked(opts.remember_window_size)
         self.opt_remember_current_page.setChecked(opts.remember_current_page)
+        self.opt_copy_bookmarks_to_file.setChecked(opts.copy_bookmarks_to_file)
         self.opt_wheel_flips_pages.setChecked(opts.wheel_flips_pages)
+        self.opt_wheel_scroll_fraction.setValue(opts.wheel_scroll_fraction)
+        self.opt_line_scroll_fraction.setValue(opts.line_scroll_fraction)
         self.opt_tap_flips_pages.setChecked(opts.tap_flips_pages)
         self.opt_page_flip_duration.setValue(opts.page_flip_duration)
         fms = opts.font_magnification_step
@@ -310,13 +346,15 @@ class ConfigDialog(QDialog, Ui_Dialog):
         self.hyphenate_default_lang.setCurrentIndex(idx)
         self.hyphenate.setChecked(opts.hyphenate)
         self.hyphenate_default_lang.setEnabled(opts.hyphenate)
+        self.search_online_url.setText(opts.search_online_url or '')
         self.opt_fit_images.setChecked(opts.fit_images)
         self.opt_fullscreen_clock.setChecked(opts.fullscreen_clock)
         self.opt_fullscreen_scrollbar.setChecked(opts.fullscreen_scrollbar)
         self.opt_start_in_fullscreen.setChecked(opts.start_in_fullscreen)
         self.opt_show_fullscreen_help.setChecked(opts.show_fullscreen_help)
         self.opt_fullscreen_pos.setChecked(opts.fullscreen_pos)
-        self.opt_cols_per_screen.setValue(opts.cols_per_screen)
+        self.opt_cols_per_screen_portrait.setValue(opts.cols_per_screen_portrait)
+        self.opt_cols_per_screen_landscape.setValue(opts.cols_per_screen_landscape)
         self.opt_override_book_margins.setChecked(not opts.use_book_margins)
         for x in ('top', 'bottom', 'side'):
             getattr(self, 'opt_%s_margin'%x).setValue(getattr(opts,
@@ -325,6 +363,8 @@ class ConfigDialog(QDialog, Ui_Dialog):
             setattr(self, 'current_%s_color'%x, getattr(opts, '%s_color'%x))
         self.update_sample_colors()
         self.opt_show_controls.setChecked(opts.show_controls)
+        from calibre.gui2.viewer.main import vprefs
+        self.opt_singleinstance.setChecked(bool(vprefs['singleinstance']))
 
     def change_color(self, which, reset=False):
         if reset:
@@ -383,7 +423,10 @@ class ConfigDialog(QDialog, Ui_Dialog):
         c.set('max_fs_height', max_fs_height)
         c.set('hyphenate', self.hyphenate.isChecked())
         c.set('remember_current_page', self.opt_remember_current_page.isChecked())
+        c.set('copy_bookmarks_to_file', self.opt_copy_bookmarks_to_file.isChecked())
         c.set('wheel_flips_pages', self.opt_wheel_flips_pages.isChecked())
+        c.set('wheel_scroll_fraction', self.opt_wheel_scroll_fraction.value())
+        c.set('line_scroll_fraction', self.opt_line_scroll_fraction.value())
         c.set('tap_flips_pages', self.opt_tap_flips_pages.isChecked())
         c.set('page_flip_duration', self.opt_page_flip_duration.value())
         c.set('font_magnification_step',
@@ -393,11 +436,14 @@ class ConfigDialog(QDialog, Ui_Dialog):
                 self.hyphenate_default_lang.itemData(idx))
         c.set('line_scrolling_stops_on_pagebreaks',
                 self.opt_line_scrolling_stops_on_pagebreaks.isChecked())
+        c.set('search_online_url', self.search_online_url.text().strip())
         c.set('fullscreen_clock', self.opt_fullscreen_clock.isChecked())
         c.set('fullscreen_pos', self.opt_fullscreen_pos.isChecked())
         c.set('fullscreen_scrollbar', self.opt_fullscreen_scrollbar.isChecked())
         c.set('show_fullscreen_help', self.opt_show_fullscreen_help.isChecked())
-        c.set('cols_per_screen', int(self.opt_cols_per_screen.value()))
+        c.set('cols_per_screen_migrated', True)
+        c.set('cols_per_screen_portrait', int(self.opt_cols_per_screen_portrait.value()))
+        c.set('cols_per_screen_landscape', int(self.opt_cols_per_screen_landscape.value()))
         c.set('start_in_fullscreen', self.opt_start_in_fullscreen.isChecked())
         c.set('use_book_margins', not
                 self.opt_override_book_margins.isChecked())
@@ -406,5 +452,6 @@ class ConfigDialog(QDialog, Ui_Dialog):
         c.set('show_controls', self.opt_show_controls.isChecked())
         for x in ('top', 'bottom', 'side'):
             c.set(x+'_margin', int(getattr(self, 'opt_%s_margin'%x).value()))
-        from calibre.gui2.viewer.main import dprefs
+        from calibre.gui2.viewer.main import dprefs, vprefs
         dprefs['word_lookups'] = self.word_lookups
+        vprefs['singleinstance'] = self.opt_singleinstance.isChecked()

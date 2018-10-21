@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python2
 # vim:fileencoding=UTF-8:ts=4:sw=4:sta:et:sts=4:fdm=marker:ai
 from __future__ import (unicode_literals, division, absolute_import,
                         print_function)
@@ -11,6 +11,7 @@ from struct import calcsize, unpack_from, pack
 from operator import itemgetter
 
 from calibre.utils.fonts.sfnt import UnknownTable
+
 
 class LocaTable(UnknownTable):
 
@@ -61,6 +62,6 @@ class LocaTable(UnknownTable):
         for i in xrange(len(self.offset_map)-1):
             off, noff = self.offset_map[i], self.offset_map[i+1]
             if noff != off:
-                print ('Glyph id:', i, 'size:', noff-off)
+                print('Glyph id:', i, 'size:', noff-off)
 
 

@@ -29,6 +29,7 @@ See the end of the module code for a brief, annotated usage example.
 
 Website : http://chrisarndt.de/en/software/python/threadpool/
 """
+from __future__ import print_function
 
 __all__ = [
   'makeRequests',
@@ -50,15 +51,20 @@ import threading
 import Queue
 
 # exceptions
+
+
 class NoResultsPending(Exception):
     """All work requests have been processed."""
     pass
+
 
 class NoWorkersAvailable(Exception):
     """No worker threads available to process remaining requests."""
     pass
 
 # classes
+
+
 class WorkerThread(threading.Thread):
     """Background thread connected to the requests/results queues.
 
@@ -89,7 +95,7 @@ class WorkerThread(threading.Thread):
             if self._dismissed.isSet():
                 # if told to exit, return the work request we just picked up
                 self.workRequestQueue.put(request)
-                break # and exit
+                break  # and exit
             try:
                 self.resultQueue.put(
                     (request, request.callable(*request.args, **request.kwds))
@@ -118,7 +124,7 @@ class WorkRequest:
       callback=None, exc_callback=None):
         """Create a work request for a callable and attach callbacks.
 
-        A work request consists of the a callable to be executed by a
+        A work request consists of the callable to be executed by a
         worker thread, a list of positional arguments, a dictionary
         of keyword arguments.
 
@@ -231,6 +237,8 @@ class ThreadPool:
                 break
 
 # helper functions
+
+
 def makeRequests(callable, args_list, callback=None, exc_callback=None):
     """Create several work requests for same callable with different arguments.
 
@@ -264,6 +272,7 @@ def makeRequests(callable, args_list, callback=None, exc_callback=None):
 # USAGE EXAMPLE
 ################
 
+
 if __name__ == '__main__':
     import random
     import time
@@ -279,12 +288,12 @@ if __name__ == '__main__':
 
     # this will be called each time a result is available
     def print_result(request, result):
-        print "**Result: %s from request #%s" % (result, request.requestID)
+        print("**Result: %s from request #%s" % (result, request.requestID))
 
     # this will be called when an exception occurs within a thread
     def handle_exception(request, exc_info):
-        print "Exception occured in request #%s: %s" % \
-          (request.requestID, exc_info[1])
+        print("Exception occured in request #%s: %s" %
+          (request.requestID, exc_info[1]))
 
     # assemble the arguments for each job to a list...
     data = [random.randint(1,10) for i in range(20)]
@@ -303,7 +312,7 @@ if __name__ == '__main__':
     # then we put the work requests in the queue...
     for req in requests:
         main.putRequest(req)
-        print "Work request #%s added." % req.requestID
+        print("Work request #%s added." % req.requestID)
     # or shorter:
     # [main.putRequest(req) for req in requests]
 
@@ -317,15 +326,15 @@ if __name__ == '__main__':
     while 1:
         try:
             main.poll()
-            print "Main thread working..."
+            print("Main thread working...")
             time.sleep(0.5)
             if i == 10:
-                print "Adding 3 more worker threads..."
+                print("Adding 3 more worker threads...")
                 main.createWorkers(3)
             i += 1
         except KeyboardInterrupt:
-            print "Interrupted!"
+            print("Interrupted!")
             break
         except NoResultsPending:
-            print "All results collected."
+            print("All results collected.")
             break

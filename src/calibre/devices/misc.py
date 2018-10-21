@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python2
 # vim:fileencoding=UTF-8:ts=4:sw=4:sta:et:sts=4:ai
 from __future__ import with_statement
 
@@ -10,6 +10,7 @@ import os
 
 from calibre.devices.usbms.driver import USBMS
 from calibre import fsync
+
 
 class PALMPRE(USBMS):
 
@@ -51,6 +52,7 @@ class AVANT(USBMS):
 
     EBOOK_DIR_MAIN = ''
     SUPPORTS_SUB_DIRS = True
+
 
 class SWEEX(USBMS):
     # Identical to the Promedia
@@ -97,9 +99,10 @@ class PDNOVEL(USBMS):
     def upload_cover(self, path, filename, metadata, filepath):
         coverdata = getattr(metadata, 'thumbnail', None)
         if coverdata and coverdata[2]:
-            with open('%s.jpg' % os.path.join(path, filename), 'wb') as coverfile:
+            with lopen('%s.jpg' % os.path.join(path, filename), 'wb') as coverfile:
                 coverfile.write(coverdata[2])
                 fsync(coverfile)
+
 
 class PDNOVEL_KOBO(PDNOVEL):
     name = 'Pandigital Kobo device interface'
@@ -116,7 +119,7 @@ class PDNOVEL_KOBO(PDNOVEL):
             dirpath = os.path.join(path, '.thumbnail')
             if not os.path.exists(dirpath):
                 os.makedirs(dirpath)
-            with open(os.path.join(dirpath, filename+'.jpg'), 'wb') as coverfile:
+            with lopen(os.path.join(dirpath, filename+'.jpg'), 'wb') as coverfile:
                 coverfile.write(coverdata[2])
                 fsync(coverfile)
 
@@ -139,6 +142,7 @@ class VELOCITYMICRO(USBMS):
     EBOOK_DIR_MAIN = 'eBooks'
     SUPPORTS_SUB_DIRS = False
 
+
 class GEMEI(USBMS):
     name           = 'Gemei Device Interface'
     gui_name       = 'GM2000'
@@ -158,6 +162,7 @@ class GEMEI(USBMS):
 
     EBOOK_DIR_MAIN = 'eBooks'
     SUPPORTS_SUB_DIRS = True
+
 
 class LUMIREAD(USBMS):
     name           = 'Acer Lumiread Device Interface'
@@ -189,9 +194,10 @@ class LUMIREAD(USBMS):
             pdir = os.path.dirname(cfilepath)
             if not os.path.exists(pdir):
                 os.makedirs(pdir)
-            with open(cfilepath+'.jpg', 'wb') as f:
+            with lopen(cfilepath+'.jpg', 'wb') as f:
                 f.write(metadata.thumbnail[-1])
                 fsync(f)
+
 
 class ALURATEK_COLOR(USBMS):
 
@@ -210,10 +216,11 @@ class ALURATEK_COLOR(USBMS):
 
     EBOOK_DIR_MAIN = EBOOK_DIR_CARD_A = 'books'
 
-    VENDOR_NAME = ['USB_2.0', 'EZREADER', 'C4+', 'WOXTER', 'KIANO']
-    WINDOWS_MAIN_MEM = WINDOWS_CARD_A_MEM = ['USB_FLASH_DRIVER', '.', 'TOUCH', 'SCRIBA_190', 'BOOKYLIGHT']
+    VENDOR_NAME = ['USB_2.0', 'EZREADER', 'C4+', 'WOXTER', 'KIANO', 'SAD', 'LARK']
+    WINDOWS_MAIN_MEM = WINDOWS_CARD_A_MEM = ['USB_FLASH_DRIVER', '.', 'TOUCH', 'SCRIBA_190', 'BOOKYLIGHT', 'SAPIENS_V2', 'EBOOK']
     SCAN_FROM_ROOT = True
     SUPPORTS_SUB_DIRS_FOR_SCAN = True
+
 
 class TREKSTOR(USBMS):
 
@@ -231,9 +238,9 @@ class TREKSTOR(USBMS):
             0x0067,  # This is for the Pyrus Mini
             0x006f,  # This is for the Pyrus Maxi
             0x003e,  # This is for the EBOOK_PLAYER_5M https://bugs.launchpad.net/bugs/792091
-            0x05cL,  # This is for the 4ink http://www.mobileread.com/forums/showthread.php?t=191318
-            0x006c,  # This is for the 4ink http://www.mobileread.com/forums/showthread.php?t=218273
-            0x006d,  # Another Pyrus? http://www.mobileread.com/forums/showthread.php?t=231982
+            0x05c,  # This is for the 4ink https://www.mobileread.com/forums/showthread.php?t=191318
+            0x006c,  # This is for the 4ink https://www.mobileread.com/forums/showthread.php?t=218273
+            0x006d,  # Another Pyrus? https://www.mobileread.com/forums/showthread.php?t=231982
             0x73,    # This is for the Pyrus 2 LED https://bugs.launchpad.net/bugs/1376018
             ]
     BCD         = [0x0002, 0x100, 0x0222, 0x2]
@@ -245,6 +252,7 @@ class TREKSTOR(USBMS):
             'EBOOK_PLAYER_5M', 'EBOOK-READER_3.0', 'EREADER_PYRUS', 'PYRUS_MINI', 'PYRUS_MAXI', 'PYRUS_2_LED']
     SUPPORTS_SUB_DIRS = True
     SUPPORTS_SUB_DIRS_DEFAULT = False
+
 
 class EEEREADER(USBMS):
 
@@ -265,6 +273,7 @@ class EEEREADER(USBMS):
 
     VENDOR_NAME = ['LINUX', 'ASUS']
     WINDOWS_MAIN_MEM = WINDOWS_CARD_A_MEM = ['FILE-STOR_GADGET', 'EEE_NOTE']
+
 
 class ADAM(USBMS):
 
@@ -287,6 +296,7 @@ class ADAM(USBMS):
     VENDOR_NAME = 'NI'
     WINDOWS_MAIN_MEM = WINDOWS_CARD_A_MEM = ['ADAM']
     SUPPORTS_SUB_DIRS = True
+
 
 class NEXTBOOK(USBMS):
 
@@ -336,10 +346,11 @@ class NEXTBOOK(USBMS):
             thumbnail_dir = os.path.join(thumbnail_dir, relpath)
             if not os.path.exists(thumbnail_dir):
                 os.makedirs(thumbnail_dir)
-            with open(os.path.join(thumbnail_dir, filename+'.jpg'), 'wb') as f:
+            with lopen(os.path.join(thumbnail_dir, filename+'.jpg'), 'wb') as f:
                 f.write(metadata.thumbnail[-1])
                 fsync(f)
     '''
+
 
 class MOOVYBOOK(USBMS):
 
@@ -362,6 +373,7 @@ class MOOVYBOOK(USBMS):
 
     def get_main_ebook_dir(self, for_upload=False):
         return 'Books' if for_upload else self.EBOOK_DIR_MAIN
+
 
 class COBY(USBMS):
 
@@ -389,6 +401,7 @@ class COBY(USBMS):
             return 'eBooks'
         return self.EBOOK_DIR_CARD_A
 
+
 class EX124G(USBMS):
 
     name = 'Motorola Ex124G device interface'
@@ -415,6 +428,7 @@ class EX124G(USBMS):
         if for_upload:
             return 'eBooks'
         return self.EBOOK_DIR_CARD_A
+
 
 class WAYTEQ(USBMS):
 
@@ -506,6 +520,7 @@ class WOXTER(USBMS):
     VENDOR_NAME = ['ROCKCHIP', 'TEXET']
     WINDOWS_MAIN_MEM = WINDOWS_CARD_A_MEM = ['EREADER', 'TB-146SE']
 
+
 class POCKETBOOK626(USBMS):
 
     name  = 'PocketBook Touch Lux 2'
@@ -527,3 +542,40 @@ class POCKETBOOK626(USBMS):
     WINDOWS_MAIN_MEM = WINDOWS_CARD_A_MEM = ['USB_FLASH_DRIVER']
 
 
+class SONYDPTS1(USBMS):
+
+    name  = 'SONY DPT-S1'
+    gui_name = 'SONY DPT'
+    description    = _('Communicate with the SONY DPT-S1')
+    author         = 'Kovid Goyal'
+    supported_platforms = ['windows', 'osx', 'linux']
+    # Ordered list of supported formats
+    FORMATS     = ['pdf']
+    VENDOR_ID   = [0x054c]
+    PRODUCT_ID  = [0x0854]
+    BCD         = [0x0226]
+
+    EBOOK_DIR_MAIN = 'Books'
+    SCAN_FROM_ROOT = True
+    SUPPORTS_SUB_DIRS = True
+
+    VENDOR_NAME = ['SONY']
+    WINDOWS_MAIN_MEM = ['DPT-S1']
+    WINDOWS_CARD_A_MEM = ['DPT-S1__SD']
+
+
+class CERVANTES(USBMS):
+
+    name = 'Bq Cervantes Device Interface'
+    gui_name = 'Bq Cervantes'
+    description    = _('Communicate with the Bq Cervantes')
+    author         = 'Kovid Goyal'
+    supported_platforms = ['windows', 'osx', 'linux']
+    FORMATS = ['epub', 'fb2', 'mobi', 'doc', 'rtf', 'pdf', 'txt']
+    VENDOR_ID   = [0x2a47]
+    PRODUCT_ID  = [0xad79, 0xad78, 0xad77, 0xad75]
+    BCD         = [0x0110]
+
+    EBOOK_DIR_MAIN = 'Books'
+    SCAN_FROM_ROOT = True
+    SUPPORTS_SUB_DIRS = True

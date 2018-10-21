@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python2
 # vim:fileencoding=UTF-8:ts=4:sw=4:sta:et:sts=4:fdm=marker:ai
 from __future__ import (unicode_literals, division, absolute_import,
                         print_function)
@@ -16,13 +16,14 @@ from PyQt5.Qt import (
 from calibre.gui2 import gprefs
 from calibre.ebooks.metadata import authors_to_string
 
+
 class DuplicatesQuestion(QDialog):
 
     def __init__(self, db, duplicates, parent=None):
         QDialog.__init__(self, parent)
         self.l = l = QGridLayout()
         self.setLayout(l)
-        t = ngettext('Duplicate found', 'Duplicates found', len(duplicates))
+        t = ngettext('Duplicate found', 'duplicates found', len(duplicates))
         if len(duplicates) > 1:
             t = '%d %s' % (len(duplicates), t)
         self.setWindowTitle(t)
@@ -160,4 +161,3 @@ if __name__ == '__main__':
     d = DuplicatesQuestion(db, [(M('Life of Pi', ['Yann Martel']), None, None),
                             (M('Heirs of the blade', ['Adrian Tchaikovsky']), None, None)])
     print (tuple(d.duplicates))
-

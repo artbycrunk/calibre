@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python2
 # vim:fileencoding=UTF-8:ts=4:sw=4:sta:et:sts=4:ai
 from __future__ import (unicode_literals, division, absolute_import,
                         print_function)
@@ -13,6 +13,7 @@ from calibre.constants import iswindows, cache_dir, get_version
 ipydir = os.path.join(cache_dir(), 'ipython')
 
 BANNER = ('Welcome to the interactive calibre shell!\n')
+
 
 def setup_pyreadline():
     config = '''
@@ -118,27 +119,50 @@ history_length(2000) #value of -1 means no limit
         pyreadline.rlmain.config_path = conf
         import readline, atexit
         import pyreadline.unicode_helper  # noqa
-        #Normally the codepage for pyreadline is set to be sys.stdout.encoding
-        #if you need to change this uncomment the following line
-        #pyreadline.unicode_helper.pyreadline_codepage="utf8"
+        # Normally the codepage for pyreadline is set to be sys.stdout.encoding
+        # if you need to change this uncomment the following line
+        # pyreadline.unicode_helper.pyreadline_codepage="utf8"
     except ImportError:
         print("Module readline not available.")
     else:
-        #import tab completion functionality
+        # import tab completion functionality
         import rlcompleter
 
-        #Override completer from rlcompleter to disable automatic ( on callable
+        # Override completer from rlcompleter to disable automatic ( on callable
         completer_obj = rlcompleter.Completer()
+
         def nop(val, word):
             return word
         completer_obj._callable_postfix = nop
         readline.set_completer(completer_obj.complete)
 
-        #activate tab completion
+        # activate tab completion
         readline.parse_and_bind("tab: complete")
         readline.read_history_file()
         atexit.register(readline.write_history_file)
         del readline, rlcompleter, atexit
+
+
+class Exit:
+
+    def __repr__(self):
+        raise SystemExit(0)
+    __str__ = __repr__
+
+    def __call__(self):
+        raise SystemExit(0)
+
+
+class Helper(object):
+
+    def __repr__(self):
+        return "Type help() for interactive help, " \
+               "or help(object) for help about object."
+
+    def __call__(self, *args, **kwds):
+        import pydoc
+        return pydoc.help(*args, **kwds)
+
 
 def simple_repl(user_ns={}):
     if iswindows:
@@ -155,42 +179,53 @@ def simple_repl(user_ns={}):
     import sys, re  # noqa
     for x in ('os', 'sys', 're'):
         user_ns[x] = user_ns.get(x, globals().get(x, locals().get(x)))
-    import code
-    code.interact(BANNER, raw_input, user_ns)
+    user_ns['exit'] = Exit()
+    user_ns['help'] = Helper()
+    from code import InteractiveConsole
+    console = InteractiveConsole(user_ns)
+    console.runsource('from __future__ import (unicode_literals, division, absolute_import, print_function)')
+    console.interact(BANNER + 'Use exit to quit')
+
 
 def ipython(user_ns=None):
+    os.environ['IPYTHONDIR'] = ipydir
     try:
-        import IPython
-        from IPython.config.loader import Config
+        from IPython.terminal.embed import InteractiveShellEmbed
+        from traitlets.config.loader import Config
+        from IPython.terminal.prompts import Prompts, Token
     except ImportError:
         return simple_repl(user_ns=user_ns)
+
+    class CustomPrompt(Prompts):
+
+        def in_prompt_tokens(self, cli=None):
+            return [
+                (Token.Prompt, 'calibre['),
+                (Token.PromptNum, get_version()),
+                (Token.Prompt, ']> '),
+            ]
+
+        def out_prompt_tokens(self):
+            return []
+
     defns = {'os':os, 're':re, 'sys':sys}
-    if not user_ns:
-        user_ns = defns
-    else:
-        defns.update(user_ns)
-        user_ns = defns
+    defns.update(user_ns or {})
 
     c = Config()
+    user_conf = os.path.expanduser('~/.ipython/profile_default/ipython_config.py')
+    if os.path.exists(user_conf):
+        execfile(user_conf, {'get_config': lambda: c})
+    c.TerminalInteractiveShell.prompts_class = CustomPrompt
     c.InteractiveShellApp.exec_lines = [
         'from __future__ import division, absolute_import, unicode_literals, print_function',
         ]
     c.TerminalInteractiveShell.confirm_exit = False
-    c.PromptManager.in_template = (r'{color.LightGreen}calibre '
-            '{color.LightBlue}[{color.LightCyan}%s{color.LightBlue}]'
-            r'{color.Green}|\#> '%get_version())
-    c.PromptManager.in2_template = r'{color.Green}|{color.LightGreen}\D{color.Green}> '
-    c.PromptManager.out_template = r'<\#> '
     c.TerminalInteractiveShell.banner1 = BANNER
-    c.PromptManager.justify = True
-    c.TerminalIPythonApp.ipython_dir = ipydir
-    os.environ['IPYTHONDIR'] = ipydir
+    c.BaseIPythonApplication.ipython_dir = ipydir
 
     c.InteractiveShell.separate_in = ''
     c.InteractiveShell.separate_out = ''
     c.InteractiveShell.separate_out2 = ''
 
-    c.PrefilterManager.multi_line_specials = True
-
-    IPython.embed(config=c, user_ns=user_ns)
-
+    ipshell = InteractiveShellEmbed.instance(config=c, user_ns=user_ns)
+    ipshell()

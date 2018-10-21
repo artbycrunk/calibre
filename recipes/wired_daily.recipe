@@ -1,4 +1,4 @@
-__license__   = 'GPL v3'
+__license__ = 'GPL v3'
 __copyright__ = '2014, Darko Miletic <darko.miletic at gmail.com>'
 '''
 www.wired.com
@@ -6,72 +6,63 @@ www.wired.com
 
 from calibre.web.feeds.news import BasicNewsRecipe
 
+
+def classes(classes):
+    q = frozenset(classes.split(' '))
+    return dict(attrs={
+        'class': lambda x: x and frozenset(x.split()).intersection(q)})
+
+
 class WiredDailyNews(BasicNewsRecipe):
-    title                 = 'Wired Daily Edition'
-    __author__            = 'Darko Miletic'
-    description           = 'Wired is a full-color monthly American magazine, published in both print and online editions, that reports on how emerging technologies affect culture, the economy and politics.'
-    publisher             = 'Conde Nast'
-    category              = 'news, IT, computers, technology'
-    oldest_article        = 2
+    title = 'Wired Daily Edition'
+    __author__ = 'Darko Miletic'
+    description = ('Wired is a full-color monthly American magazine, published in both print '
+                   'and online editions, that reports on how emerging technologies affect culture,'
+                   'the economy and politics.')
+    publisher = 'Conde Nast'
+    category = 'news, IT, computers, technology'
+    oldest_article = 2
     max_articles_per_feed = 200
-    no_stylesheets        = True
-    encoding              = 'utf-8'
-    use_embedded_content  = False
-    language              = 'en'
+    no_stylesheets = True
+    encoding = 'utf-8'
+    use_embedded_content = False
+    language = 'en'
     ignore_duplicate_articles = {'url'}
-    remove_empty_feeds    = True
-    publication_type      = 'newsportal'
-    masthead_url          = 'http://www.wired.com/images/home/wired_logo.gif'
+    remove_empty_feeds = True
+    publication_type = 'newsportal'
     extra_css             = """
                             .entry-header{
-                                          text-transform: uppercase; 
-                                          vertical-align: baseline; 
+                                          text-transform: uppercase;
+                                          vertical-align: baseline;
                                           display: inline;
                                          }
-                            ul li{display: inline}             
+                            ul li{display: inline}
                             """
 
-    conversion_options = {
-                          'comment'   : description
-                        , 'tags'      : category
-                        , 'publisher' : publisher
-                        , 'language'  : language
-                        }
-
     remove_tags = [
-                     dict(name=['meta','link']),
-                     dict(name='div', attrs={'class':'podcast_storyboard'})
-                  ]
-    keep_only_tags=[
-                     dict(name='h1' , attrs={'id'   :'headline'    }), 
-                     dict(name='ul' , attrs={'class':'entry-header'}), 
-                     dict(name='div', attrs={'class':'entry'       })
-                   ]
+        classes('related-cne-video-component tags-component podcast_storyboard inset-left-component'),
+        dict(name=['meta', 'link']),
+        dict(id=['sharing', 'social', 'article-tags', 'sidebar']),
+    ]
+    keep_only_tags = [
+        dict(name='main', attrs={'class': lambda x: x and 'article-main-component__content' in x}),
+    ]
+    remove_attributes = ['srcset']
+    handle_gzip = True
 
     feeds = [
-              (u'Top Stories'        , u'http://feeds.wired.com/wired/index'      )
-             ,(u'Product reviews'    , u'http://feeds.wired.com/WiredReviews'     )
-             ,(u'Autopia'            , u'http://feeds.wired.com/wiredautopia'     )
-             ,(u'Business'           , u'http://feeds.wired.com/wiredbusinessblog')
-             ,(u'Danger Room'        , u'http://feeds.wired.com/WiredDangerRoom'  )
-             ,(u'Gadget Lab'         , u'http://feeds.wired.com/GearFactor'       )
-             ,(u'Game Life'          , u'http://feeds.wired.com/Gamelife'         )
-             ,(u'GeekMom'            , u'http://feeds.wired.com/wiredgeekmom/'    )
-             ,(u'Innovation Insights', u'http://feeds.wired.com/wiredinsights'    )
-             ,(u'Opinion'            , u'http://feeds.wired.com/wiredopinion/'    )
-             ,(u'Playbook'           , u'http://feeds.wired.com/wiredplaybook/'   )
-             ,(u'This day in Tech'   , u'http://feeds.wired.com/ThisDayInTech'    )
-             ,(u'Threat level'       , u'http://feeds.wired.com/wired27b'         )
-             ,(u'Design'             , u'http://feeds.wired.com/wired/design'     )
-             ,(u'Underwire'          , u'http://feeds.wired.com/wiredunderwire'   )
-             ,(u'Enterprise'         , u'http://feeds.wired.com/wiredenterprise/' )
-             ,(u'Science'            , u'http://feeds.wired.com/wiredscience'     )
-            ]
+    (u'Top Stories', u'https://www.wired.com/feed/'),
+    (u'Business', u'https://www.wired.com/category/business/feed/'),
+    (u'Design', u'https://www.wired.com/category/design/feed/'),
+    (u'Entertainment', u'https://www.wired.com/category/underwire/feed/'),
+    (u'Tech', u'https://www.wired.com/category/gear/feed/'),
+    (u'Product Reviews', u'https://www.wired.com/category/reviews/feed/'),
+    (u'Science', u'https://www.wired.com/category/science/feed/'),
+    (u'Science Blogs', u'https://www.wired.com/category/science/science-blogs/feed/'),
+    (u'Security', u'https://www.wired.com/category/security/feed/'),
+    (u'Transportation', u'https://www.wired.com/category/transportation/feed/'),
+    (u'Photo', u'https://www.wired.com/category/photo/feed/'),
+    ]
 
     def get_article_url(self, article):
-        url = article.get('guid',  None)
-        try:
-            return self.browser.open_novisit(url).geturl() # resolve redirect.
-        except:
-            return url 
-        
+        return article.get('link',  None)

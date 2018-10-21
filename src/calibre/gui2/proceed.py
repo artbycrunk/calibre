@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python2
 # vim:fileencoding=UTF-8:ts=4:sw=4:sta:et:sts=4:ai
 from __future__ import (unicode_literals, division, absolute_import,
                         print_function)
@@ -10,9 +10,9 @@ __docformat__ = 'restructuredtext en'
 from collections import namedtuple
 
 from PyQt5.Qt import (
-    QWidget, Qt, QLabel, QVBoxLayout, QPixmap, QDialogButtonBox, QApplication, QTimer,
+    QWidget, Qt, QLabel, QVBoxLayout, QDialogButtonBox, QApplication, QTimer, QPixmap,
     QSize, pyqtSignal, QIcon, QPlainTextEdit, QCheckBox, QPainter, QHBoxLayout, QFontMetrics,
-    QPainterPath, QRectF, pyqtProperty, QPropertyAnimation, QEasingCurve, QSizePolicy)
+    QPainterPath, QRectF, pyqtProperty, QPropertyAnimation, QEasingCurve, QSizePolicy, QImage)
 
 from calibre.constants import __version__
 from calibre.gui2.dialogs.message_box import ViewLog
@@ -20,7 +20,9 @@ from calibre.gui2.dialogs.message_box import ViewLog
 Question = namedtuple('Question', 'payload callback cancel_callback '
         'title msg html_log log_viewer_title log_is_file det_msg '
         'show_copy_button checkbox_msg checkbox_checked action_callback '
-        'action_label action_icon focus_action show_det show_ok icon')
+        'action_label action_icon focus_action show_det show_ok icon '
+        'log_viewer_unique_name')
+
 
 class Icon(QWidget):
 
@@ -47,7 +49,7 @@ class Icon(QWidget):
         self.set_icon('dialog_question.png')
         self.default_icon = self.icon
         self._fraction = 0.0
-        self.animation = a = QPropertyAnimation(self, "fraction", self)
+        self.animation = a = QPropertyAnimation(self, b"fraction", self)
         a.setDuration(2000), a.setEasingCurve(QEasingCurve.Linear)
         a.setStartValue(0.0), a.setEndValue(2.0), a.setLoopCount(10)
 
@@ -57,7 +59,7 @@ class Icon(QWidget):
         elif icon is None:
             self.icon = self.default_icon
         else:
-            self.icon = QPixmap(I(icon)).scaled(self.sizeHint(), transformMode=Qt.SmoothTransformation)
+            self.icon = QIcon(I(icon)).pixmap(self.sizeHint())
         self.update()
 
     def sizeHint(self):
@@ -69,6 +71,7 @@ class Icon(QWidget):
         p.drawPixmap(self.rect(), self.icon)
         p.end()
 
+
 class PlainTextEdit(QPlainTextEdit):
 
     def sizeHint(self):
@@ -76,6 +79,7 @@ class PlainTextEdit(QPlainTextEdit):
         ans = QPlainTextEdit.sizeHint(self)
         ans.setWidth(fm.averageCharWidth() * 50)
         return ans
+
 
 class ProceedQuestion(QWidget):
 
@@ -96,7 +100,7 @@ class ProceedQuestion(QWidget):
         parent.installEventFilter(self)
 
         self._show_fraction = 0.0
-        self.show_animation = a = QPropertyAnimation(self, "show_fraction", self)
+        self.show_animation = a = QPropertyAnimation(self, b"show_fraction", self)
         a.setDuration(1000), a.setEasingCurve(QEasingCurve.OutQuad)
         a.setStartValue(0.0), a.setEndValue(1.0)
         a.finished.connect(self.stop_show_animation)
@@ -262,9 +266,11 @@ class ProceedQuestion(QWidget):
         if self.rendered_pixmap is not None:
             return
 
-        p = QPixmap(self.size())
+        dpr = getattr(self, 'devicePixelRatioF', self.devicePixelRatio)()
+        p = QImage(dpr * self.size(), QImage.Format_ARGB32_Premultiplied)
+        p.setDevicePixelRatio(dpr)
         self.render(p)
-        self.rendered_pixmap = p
+        self.rendered_pixmap = QPixmap.fromImage(p)
         self.original_visibility = v = []
         for child in self.findChildren(QWidget):
             if child.isVisible():
@@ -306,7 +312,7 @@ class ProceedQuestion(QWidget):
             msg, det_msg='', show_copy_button=False, cancel_callback=None,
             log_is_file=False, checkbox_msg=None, checkbox_checked=False,
             action_callback=None, action_label=None, action_icon=None, focus_action=False,
-            show_det=False, show_ok=False, icon=None, **kw):
+            show_det=False, show_ok=False, icon=None, log_viewer_unique_name=None, **kw):
         '''
         A non modal popup that notifies the user that a background task has
         been completed. This class guarantees that only a single popup is
@@ -341,12 +347,13 @@ class ProceedQuestion(QWidget):
         :param show_det: If True, the Detailed message will be shown initially
         :param show_ok: If True, OK will be shown instead of YES/NO
         :param icon: The icon to be used for this popop (defaults to question mark). Can be either a QIcon or a string to be used with I()
+        :log_viewer_unique_name: If set, ViewLog will remember/reuse its size for this name in calibre.gui2.gprefs
         '''
         question = Question(
             payload, callback, cancel_callback, title, msg, html_log,
             log_viewer_title, log_is_file, det_msg, show_copy_button,
             checkbox_msg, checkbox_checked, action_callback, action_label,
-            action_icon, focus_action, show_det, show_ok, icon)
+            action_icon, focus_action, show_det, show_ok, icon, log_viewer_unique_name)
         self.questions.append(question)
         self.show_question()
 
@@ -358,7 +365,7 @@ class ProceedQuestion(QWidget):
                 with open(log, 'rb') as f:
                     log = f.read().decode('utf-8')
             self.log_viewer = ViewLog(q.log_viewer_title, log,
-                        parent=self)
+                        parent=self, unique_name=q.log_viewer_unique_name)
 
     def paintEvent(self, ev):
         painter = QPainter(self)
@@ -388,6 +395,7 @@ class ProceedQuestion(QWidget):
         p.addRoundedRect(QRectF(self.rect()).adjusted(bw, bw, -bw, -bw), br, br)
         painter.fillPath(p, pal.color(pal.WindowText))
 
+
 def main():
     from calibre.gui2 import Application
     from PyQt5.Qt import QMainWindow, QStatusBar, QTimer
@@ -398,6 +406,7 @@ def main():
     s.showMessage('Testing ProceedQuestion')
     w.show()
     p = ProceedQuestion(w)
+
     def doit():
         p.dummy_question()
         p.dummy_question(action_label='A very long button for testing relayout (indeed)')
@@ -410,4 +419,3 @@ def main():
 
 if __name__ == '__main__':
     main()
-

@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python2
 # vim:fileencoding=UTF-8:ts=4:sw=4:sta:et:sts=4:ai
 from __future__ import with_statement
 
@@ -8,6 +8,7 @@ __docformat__ = 'restructuredtext en'
 
 from calibre.customize.conversion import (OutputFormatPlugin,
         OptionRecommendation)
+
 
 def remove_html_cover(oeb, log):
     from calibre.ebooks.oeb.base import OEB_DOCS
@@ -27,19 +28,23 @@ def remove_html_cover(oeb, log):
         if item.media_type in OEB_DOCS:
             oeb.manifest.remove(item)
 
+
 def extract_mobi(output_path, opts):
     if opts.extract_to is not None:
         from calibre.ebooks.mobi.debug.main import inspect_mobi
         ddir = opts.extract_to
         inspect_mobi(output_path, ddir=ddir)
 
+
 class MOBIOutput(OutputFormatPlugin):
 
     name = 'MOBI Output'
     author = 'Kovid Goyal'
     file_type = 'mobi'
+    commit_name = 'mobi_output'
+    ui_data = {'file_types': ['old', 'both', 'new']}
 
-    options = set([
+    options = {
         OptionRecommendation(name='prefer_author_sort',
             recommended_value=False, level=OptionRecommendation.LOW,
             help=_('When present, use author sort field as author.')
@@ -73,10 +78,10 @@ class MOBIOutput(OutputFormatPlugin):
             help=_('When adding the Table of Contents to the book, add it at the start of the '
                 'book instead of the end. Not recommended.')
         ),
-        OptionRecommendation(name='extract_to', recommended_value=None,
-            help=_('Extract the contents of the MOBI file to the'
-                ' specified directory. If the directory already '
-                'exists, it will be deleted.')
+        OptionRecommendation(name='extract_to',
+            help=_('Extract the contents of the generated %s file to the '
+                'specified directory. The contents of the directory are first '
+                'deleted, so be careful.') % 'MOBI'
         ),
         OptionRecommendation(name='share_not_sync', recommended_value=False,
             help=_('Enable sharing of book content via Facebook etc. '
@@ -92,16 +97,16 @@ class MOBIOutput(OutputFormatPlugin):
                 'formats. This option tells calibre not to do this. '
                 'Useful if your document contains lots of GIF/PNG images that '
                 'become very large when converted to JPEG.')),
-        OptionRecommendation(name='mobi_file_type', choices=['old', 'both',
-            'new'], recommended_value='old',
+        OptionRecommendation(name='mobi_file_type', choices=ui_data['file_types'], recommended_value='old',
             help=_('By default calibre generates MOBI files that contain the '
                 'old MOBI 6 format. This format is compatible with all '
                 'devices. However, by changing this setting, you can tell '
                 'calibre to generate MOBI files that contain both MOBI 6 and '
                 'the new KF8 format, or only the new KF8 format. KF8 has '
-                'more features than MOBI 6, but only works with newer Kindles.')),
+                'more features than MOBI 6, but only works with newer Kindles. '
+                'Allowed values: {}').format('old, both, new')),
 
-    ])
+    }
 
     def check_for_periodical(self):
         if self.is_periodical:
@@ -191,6 +196,8 @@ class MOBIOutput(OutputFormatPlugin):
         self.check_for_periodical()
 
         if create_kf8:
+            from calibre.ebooks.mobi.writer8.cleanup import remove_duplicate_anchors
+            remove_duplicate_anchors(self.oeb)
             # Split on pagebreaks so that the resulting KF8 is faster to load
             from calibre.ebooks.oeb.transforms.split import Split
             Split()(self.oeb, self.opts)
@@ -259,13 +266,15 @@ class MOBIOutput(OutputFormatPlugin):
                 for td in cols:
                     td.tag = XHTML('span' if cols else 'div')
 
+
 class AZW3Output(OutputFormatPlugin):
 
     name = 'AZW3 Output'
     author = 'Kovid Goyal'
     file_type = 'azw3'
+    commit_name = 'azw3_output'
 
-    options = set([
+    options = {
         OptionRecommendation(name='prefer_author_sort',
             recommended_value=False, level=OptionRecommendation.LOW,
             help=_('When present, use author sort field as author.')
@@ -286,26 +295,27 @@ class AZW3Output(OutputFormatPlugin):
             help=_('When adding the Table of Contents to the book, add it at the start of the '
                 'book instead of the end. Not recommended.')
         ),
-        OptionRecommendation(name='extract_to', recommended_value=None,
-            help=_('Extract the contents of the MOBI file to the'
-                ' specified directory. If the directory already '
-                'exists, it will be deleted.')
-        ),
+        OptionRecommendation(name='extract_to',
+            help=_('Extract the contents of the generated %s file to the '
+                'specified directory. The contents of the directory are first '
+                'deleted, so be careful.') % 'AZW3'),
         OptionRecommendation(name='share_not_sync', recommended_value=False,
             help=_('Enable sharing of book content via Facebook etc. '
                 ' on the Kindle. WARNING: Using this feature means that '
                 ' the book will not auto sync its last read position '
                 ' on multiple devices. Complain to Amazon.')
         ),
-    ])
+    }
 
     def convert(self, oeb, output_path, input_plugin, opts, log):
         from calibre.ebooks.mobi.writer2.resources import Resources
         from calibre.ebooks.mobi.writer8.main import create_kf8_book
+        from calibre.ebooks.mobi.writer8.cleanup import remove_duplicate_anchors
 
         self.oeb, self.opts, self.log = oeb, opts, log
         opts.mobi_periodical = self.is_periodical
         passthrough = getattr(opts, 'mobi_passthrough', False)
+        remove_duplicate_anchors(oeb)
 
         resources = Resources(self.oeb, self.opts, self.is_periodical,
                 add_fonts=True, process_images=False)
@@ -324,5 +334,3 @@ class AZW3Output(OutputFormatPlugin):
     def specialize_css_for_output(self, log, opts, item, stylizer):
         from calibre.ebooks.mobi.writer8.cleanup import CSSCleanup
         CSSCleanup(log, opts)(item, stylizer)
-
-

@@ -2,8 +2,8 @@
 #  jisyo.py
 #
 # Copyright 2011 Hiroshi Miura <miurahr@linux.com>
-import cPickle, marshal
 from zlib import decompress
+
 
 class jisyo (object):
     kanwadict = None
@@ -20,28 +20,29 @@ class jisyo (object):
         return self
 
     def __init__(self):
+        from calibre.utils.serialize import msgpack_loads
         if self.kanwadict is None:
-            self.kanwadict = cPickle.loads(
-                P('localization/pykakasi/kanwadict2.pickle', data=True))
+            self.kanwadict = msgpack_loads(
+                P('localization/pykakasi/kanwadict2.calibre_msgpack', data=True))
         if self.itaijidict is None:
-            self.itaijidict = cPickle.loads(
-                P('localization/pykakasi/itaijidict2.pickle', data=True))
+            self.itaijidict = msgpack_loads(
+                P('localization/pykakasi/itaijidict2.calibre_msgpack', data=True))
         if self.kanadict is None:
-            self.kanadict = cPickle.loads(
-                P('localization/pykakasi/kanadict2.pickle', data=True))
+            self.kanadict = msgpack_loads(
+                P('localization/pykakasi/kanadict2.calibre_msgpack', data=True))
 
     def load_jisyo(self, char):
-        try:#python2
+        try:  # python2
             key = "%04x"%ord(unicode(char))
-        except:#python3
+        except:  # python3
             key = "%04x"%ord(char)
 
-        try: #already exist?
+        try:  # already exist?
             table = self.jisyo_table[key]
         except:
+            from calibre.utils.serialize import msgpack_loads
             try:
-                table = self.jisyo_table[key]  = marshal.loads(decompress(self.kanwadict[key]))
+                table = self.jisyo_table[key]  = msgpack_loads(decompress(self.kanwadict[key]))
             except:
                 return None
         return table
-

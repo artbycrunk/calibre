@@ -9,18 +9,19 @@ import os
 from calibre.customize.conversion import OutputFormatPlugin, \
     OptionRecommendation
 
+
 class TCROutput(OutputFormatPlugin):
 
     name = 'TCR Output'
     author = 'John Schember'
     file_type = 'tcr'
+    commit_name = 'tcr_output'
 
-    options = set([
+    options = {
         OptionRecommendation(name='tcr_output_encoding', recommended_value='utf-8',
             level=OptionRecommendation.LOW,
-            help=_('Specify the character encoding of the output document. ' \
-            'The default is utf-8.')),
-    ])
+            help=_('Specify the character encoding of the output document. '
+            'The default is utf-8.'))}
 
     def convert(self, oeb_book, output_path, input_plugin, opts, log):
         from calibre.ebooks.txt.txtml import TXTMLizer

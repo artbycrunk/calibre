@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python2
 # vim:fileencoding=utf-8
 from __future__ import (unicode_literals, division, absolute_import,
                         print_function)
@@ -13,7 +13,7 @@ from Queue import Empty
 
 from PyQt5.Qt import QObject, Qt, pyqtSignal
 
-from calibre import prints
+from calibre import prints, force_unicode
 from calibre.constants import DEBUG
 from calibre.customize.ui import can_set_metadata
 from calibre.db.errors import NoSuchFormat
@@ -28,21 +28,22 @@ from calibre.library.save_to_disk import sanitize_args, get_path_components, fin
 
 BookId = namedtuple('BookId', 'title authors')
 
+
 def ensure_unique_components(data):  # {{{
-    cmap = {}
+    cmap = defaultdict(set)
+    bid_map = {}
     for book_id, (mi, components, fmts) in data.iteritems():
-        c = tuple(components)
-        if c in cmap:
-            cmap[c].add(book_id)
-        else:
-            cmap[c] = {book_id}
+        cmap[tuple(components)].add(book_id)
+        bid_map[book_id] = components
 
     for book_ids in cmap.itervalues():
         if len(book_ids) > 1:
             for i, book_id in enumerate(sorted(book_ids)[1:]):
                 suffix = ' (%d)' % (i + 1)
+                components = bid_map[book_id]
                 components[-1] = components[-1] + suffix
 # }}}
+
 
 class SpooledFile(SpooledTemporaryFile):  # {{{
 
@@ -67,6 +68,7 @@ class SpooledFile(SpooledTemporaryFile):  # {{{
         # allow specifying a size.
         self._file.truncate(*args)
 # }}}
+
 
 class Saver(QObject):
 
@@ -202,7 +204,7 @@ class Saver(QObject):
     def write_book(self, book_id, mi, components, fmts):
         base_path = os.path.join(self.root, *components)
         base_dir = os.path.dirname(base_path)
-        if self.opts.formats != 'all':
+        if self.opts.formats and self.opts.formats != 'all':
             asked_formats = {x.lower().strip() for x in self.opts.formats.split(',')}
             fmts = asked_formats.intersection(fmts)
             if not fmts:
@@ -328,6 +330,7 @@ class Saver(QObject):
         a = report.append
 
         def indent(text):
+            text = force_unicode(text)
             return '\xa0\xa0\xa0\xa0' + '\n\xa0\xa0\xa0\xa0'.join(text.splitlines())
 
         for book_id, errors in self.errors.iteritems():

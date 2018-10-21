@@ -10,7 +10,7 @@ SQLITE_EXTENSION_INIT1
 #ifdef _MSC_VER
 #define MYEXPORT __declspec(dllexport)
 #else
-#define MYEXPORT
+#define MYEXPORT __attribute__ ((visibility ("default")))
 #endif
 
 // sortconcat {{{
@@ -86,7 +86,7 @@ static int sort_concat_cmp(const void *a_, const void *b_) {
 
 static unsigned char* sort_concat_do_finalize(SortConcatList *list, const unsigned char join) {
     unsigned char *ans, *pos;
-    int sz = 0, i;
+    unsigned int sz = 0, i;
 
     for (i = 0; i < list->count; i++) { 
         sz += list->vals[i]->length;
@@ -271,7 +271,7 @@ static PyMethodDef sqlite_custom_methods[] = {
     {NULL, NULL, 0, NULL}
 };
 
-PyMODINIT_FUNC
+CALIBRE_MODINIT_FUNC
 initsqlite_custom(void) {
     PyObject *m;
     m = Py_InitModule3("sqlite_custom", sqlite_custom_methods,

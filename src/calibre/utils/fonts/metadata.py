@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python2
 # vim:fileencoding=UTF-8:ts=4:sw=4:sta:et:sts=4:fdm=marker:ai
 from __future__ import (unicode_literals, division, absolute_import,
                         print_function)
@@ -13,6 +13,7 @@ from collections import namedtuple
 
 from calibre.utils.fonts.utils import get_font_names2, get_font_characteristics
 
+
 class UnsupportedFont(ValueError):
     pass
 
@@ -20,6 +21,7 @@ FontCharacteristics = namedtuple('FontCharacteristics',
     'weight, is_italic, is_bold, is_regular, fs_type, panose, width, is_oblique, is_wws, os2_version')
 FontNames = namedtuple('FontNames',
     'family_name, subfamily_name, full_name, preferred_family_name, preferred_subfamily_name, wws_family_name, wws_subfamily_name')
+
 
 class FontMetadata(object):
 
@@ -38,8 +40,7 @@ class FontMetadata(object):
         self.read_characteristics(f)
 
         f.seek(0)
-        self.font_family = (self.names.wws_family_name or
-                self.names.preferred_family_name or self.names.family_name)
+        self.font_family = self.names.family_name
         wt = self.characteristics.weight
         if wt == 400:
             wt = 'normal'

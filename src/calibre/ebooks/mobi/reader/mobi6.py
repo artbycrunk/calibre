@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python2
 # vim:fileencoding=UTF-8:ts=4:sw=4:sta:et:sts=4:ai
 from __future__ import (absolute_import, print_function)
 
@@ -21,11 +21,22 @@ from calibre.ebooks.metadata import MetaInformation
 from calibre.ebooks.metadata.opf2 import OPFCreator, OPF
 from calibre.ebooks.metadata.toc import TOC
 from calibre.ebooks.mobi.reader.headers import BookHeader
-from calibre.utils.magick.draw import save_cover_data_to
+from calibre.utils.img import save_cover_data_to
 from calibre.utils.imghdr import what
+
 
 class TopazError(ValueError):
     pass
+
+
+class KFXError(ValueError):
+
+    def __init__(self):
+        ValueError.__init__(self, _(
+            'This is an Amazon KFX book. It cannot be processed.'
+            ' See {} for information on how to handle KFX books.'
+        ).format('https://www.mobileread.com/forums/showthread.php?t=283371'))
+
 
 class MobiReader(object):
     PAGE_BREAK_PAT = re.compile(
@@ -38,6 +49,7 @@ class MobiReader(object):
         self.log = log
         self.debug = debug
         self.embedded_mi = None
+        self.warned_about_trailing_entry_corruption = False
         self.base_css_rules = textwrap.dedent('''
                 body { text-align: justify }
 
@@ -68,6 +80,8 @@ class MobiReader(object):
         raw = stream.read()
         if raw.startswith('TPZ'):
             raise TopazError(_('This is an Amazon Topaz book. It cannot be processed.'))
+        if raw.startswith(b'\xeaDRMION\xee'):
+            raise KFXError()
 
         self.header   = raw[0:72]
         self.name     = self.header[:32].replace('\x00', '')
@@ -336,15 +350,15 @@ class MobiReader(object):
         # Swap inline and block level elements, and order block level elements according to priority
         # - lxml and beautifulsoup expect/assume a specific order based on xhtml spec
         self.processed_html = re.sub(
-            r'(?i)(?P<styletags>(<(h\d+|i|b|u|em|small|big|strong|tt)>\s*){1,})(?P<para><p[^>]*>)', '\g<para>'+'\g<styletags>', self.processed_html)
+            r'(?i)(?P<styletags>(<(h\d+|i|b|u|em|small|big|strong|tt)>\s*){1,})(?P<para><p[^>]*>)', '\\g<para>'+'\\g<styletags>', self.processed_html)
         self.processed_html = re.sub(
-            r'(?i)(?P<para></p[^>]*>)\s*(?P<styletags>(</(h\d+|i|b|u|em|small|big|strong|tt)>\s*){1,})', '\g<styletags>'+'\g<para>', self.processed_html)
+            r'(?i)(?P<para></p[^>]*>)\s*(?P<styletags>(</(h\d+|i|b|u|em|small|big|strong|tt)>\s*){1,})', '\\g<styletags>'+'\\g<para>', self.processed_html)
         self.processed_html = re.sub(
-            r'(?i)(?P<blockquote>(</(blockquote|div)[^>]*>\s*){1,})(?P<para></p[^>]*>)', '\g<para>'+'\g<blockquote>', self.processed_html)
+            r'(?i)(?P<blockquote>(</(blockquote|div)[^>]*>\s*){1,})(?P<para></p[^>]*>)', '\\g<para>'+'\\g<blockquote>', self.processed_html)
         self.processed_html = re.sub(
-            r'(?i)(?P<para><p[^>]*>)\s*(?P<blockquote>(<(blockquote|div)[^>]*>\s*){1,})', '\g<blockquote>'+'\g<para>', self.processed_html)
+            r'(?i)(?P<para><p[^>]*>)\s*(?P<blockquote>(<(blockquote|div)[^>]*>\s*){1,})', '\\g<blockquote>'+'\\g<para>', self.processed_html)
         bods = htmls = 0
-        for x in re.finditer(ur'</body>|</html>', self.processed_html):
+        for x in re.finditer(u'</body>|</html>', self.processed_html):
             if x == '</body>':
                 bods +=1
             else:
@@ -376,6 +390,7 @@ class MobiReader(object):
             'x-large': '5',
             'xx-large': '6',
             }
+
         def barename(x):
             return x.rpartition(':')[-1]
 
@@ -385,8 +400,7 @@ class MobiReader(object):
         svg_tags = []
         forwardable_anchors = []
         pagebreak_anchors = []
-        BLOCK_TAGS = {'h1', 'h2', 'h3', 'h4', 'h5', 'h6',
-                                'div', 'p'}
+        BLOCK_TAGS = {'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'div', 'p'}
         for i, tag in enumerate(root.iter(etree.Element)):
             tag.attrib.pop('xmlns', '')
             for x in tag.attrib:
@@ -524,8 +538,8 @@ class MobiReader(object):
                     attrib['href'] = "#filepos%d" % int(filepos)
                 except ValueError:
                     pass
-            if (tag.tag == 'a' and attrib.get('id', '').startswith('filepos')
-                    and not tag.text and len(tag) == 0 and (tag.tail is None or not
+            if (tag.tag == 'a' and attrib.get('id', '').startswith('filepos') and
+                    not tag.text and len(tag) == 0 and (tag.tail is None or not
                         tag.tail.strip()) and getattr(tag.getnext(), 'tag',
                             None) in BLOCK_TAGS):
                 # This is an empty anchor immediately before a block tag, move
@@ -582,6 +596,10 @@ class MobiReader(object):
                 block.insert(0, tag)
             else:
                 block.attrib['id'] = tag.attrib['id']
+
+        # WebKit fails to navigate to anchors located on <br> tags
+        for br in root.xpath('/body/br[@id]'):
+            br.tag = 'div'
 
     def get_left_whitespace(self, tag):
 
@@ -674,7 +692,7 @@ class MobiReader(object):
                         continue
                     if reached and x.tag == 'a':
                         href = x.get('href', '')
-                        if href and re.match('\w+://', href) is None:
+                        if href and re.match('\\w+://', href) is None:
                             try:
                                 text = u' '.join([t.strip() for t in
                                     x.xpath('descendant::text()')])
@@ -737,11 +755,20 @@ class MobiReader(object):
         flags = self.book_header.extra_flags >> 1
         while flags:
             if flags & 1:
-                num += sizeof_trailing_entry(data, size - num)
+                try:
+                    num += sizeof_trailing_entry(data, size - num)
+                except IndexError:
+                    self.warn_about_trailing_entry_corruption()
+                    return 0
             flags >>= 1
         if self.book_header.extra_flags & 1:
             num += (ord(data[size - num - 1]) & 0x3) + 1
         return num
+
+    def warn_about_trailing_entry_corruption(self):
+        if not self.warned_about_trailing_entry_corruption:
+            self.warned_about_trailing_entry_corruption = True
+            self.log.warn('The trailing data entries in this MOBI file are corrupted, you might see corrupted text in the output')
 
     def text_section(self, index):
         data = self.sections[index][0]
@@ -850,12 +877,13 @@ class MobiReader(object):
 
             path = os.path.join(output_dir, '%05d.jpg' % image_index)
             try:
-                if what(None, data) not in {'jpg', 'jpeg', 'gif', 'png', 'bmp', 'webp'}:
+                if what(None, data) not in {'jpg', 'jpeg', 'gif', 'png', 'bmp'}:
                     continue
                 save_cover_data_to(data, path, minify_to=(10000, 10000))
             except Exception:
                 continue
             self.image_names.append(os.path.basename(path))
+
 
 def test_mbp_regex():
     for raw, m in {
@@ -873,5 +901,3 @@ def test_mbp_regex():
         ans = MobiReader.PAGE_BREAK_PAT.sub(r'\1', raw)
         if ans != m:
             raise Exception('%r != %r for %r'%(ans, m, raw))
-
-

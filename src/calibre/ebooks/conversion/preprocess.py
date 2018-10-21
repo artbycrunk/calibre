@@ -1,5 +1,6 @@
-#!/usr/bin/env python
+#!/usr/bin/env python2
 # vim:fileencoding=UTF-8:ts=4:sw=4:sta:et:sts=4:ai
+# flake8: noqa
 
 __license__   = 'GPL v3'
 __copyright__ = '2009, Kovid Goyal <kovid@kovidgoyal.net>'
@@ -42,10 +43,12 @@ LIGATURES = {
 
 _ligpat = re.compile(u'|'.join(LIGATURES))
 
+
 def sanitize_head(match):
     x = match.group(1)
     x = _span_pat.sub('', x)
     return '<head>\n%s\n</head>' % x
+
 
 def chap_head(match):
     chap = match.group('chap')
@@ -55,6 +58,7 @@ def chap_head(match):
     else:
         return '<h1>'+chap+'</h1>\n<h3>'+title+'</h3>\n'
 
+
 def wrap_lines(match):
     ital = match.group('ital')
     if not ital:
@@ -62,7 +66,8 @@ def wrap_lines(match):
     else:
         return ital+' '
 
-def smarten_punctuation(html, log):
+
+def smarten_punctuation(html, log=None):
     from calibre.utils.smartypants import smartyPants
     from calibre.ebooks.chardet import substitute_entites
     from calibre.ebooks.conversion.utils import HeuristicProcessor
@@ -76,11 +81,8 @@ def smarten_punctuation(html, log):
     html = smartyPants(html)
     html = html.replace(start, '<!--')
     html = html.replace(stop, '-->')
-    # convert ellipsis to entities to prevent wrapping
-    html = re.sub(r'(?u)(?<=\w)\s?(\.\s?){2}\.', '&hellip;', html)
-    # convert double dashes to em-dash
-    html = re.sub(r'\s--\s', u'\u2014', html)
     return substitute_entites(html)
+
 
 class DocAnalysis(object):
     '''
@@ -186,6 +188,7 @@ class DocAnalysis(object):
             # print str(maxValue)+" of the lines were in one bucket"
             return True
 
+
 class Dehyphenator(object):
     '''
     Analyzes words to determine whether hyphens should be retained/removed.  Uses the document
@@ -280,6 +283,7 @@ class Dehyphenator(object):
         html = intextmatch.sub(self.dehyphenate, html)
         return html
 
+
 class CSSPreProcessor(object):
 
     # Remove some of the broken CSS Microsoft products
@@ -311,7 +315,7 @@ class CSSPreProcessor(object):
         # are commented lines before the first @import or @charset rule. Since
         # the conversion will remove all stylesheets anyway, we don't lose
         # anything
-        data = re.sub(ur'/\*.*?\*/', u'', data, flags=re.DOTALL)
+        data = re.sub(unicode(r'/\*.*?\*/'), u'', data, flags=re.DOTALL)
 
         ans, namespaced = [], False
         for line in data.splitlines():
@@ -323,6 +327,7 @@ class CSSPreProcessor(object):
             ans.append(line)
 
         return u'\n'.join(ans)
+
 
 class HTMLPreProcessor(object):
 
@@ -460,8 +465,6 @@ class HTMLPreProcessor(object):
                   # Center separator lines
                   (re.compile(u'<br>\s*(?P<break>([*#•✦=] *){3,})\s*<br>'), lambda match: '<p>\n<p style="text-align:center">' + match.group('break') + '</p>'),
 
-                  # Remove page links
-                  (re.compile(r'<a name=\d+></a>', re.IGNORECASE), lambda match: ''),
                   # Remove <hr> tags
                   (re.compile(r'<hr.*?>', re.IGNORECASE), lambda match: ''),
 
@@ -495,6 +498,7 @@ class HTMLPreProcessor(object):
                      (re.compile('<span[^><]*?id=subtitle[^><]*?>(.*?)</span>', re.IGNORECASE|re.DOTALL),
                       lambda match : '<h3 class="subtitle">%s</h3>'%(match.group(1),)),
                      ]
+
     def __init__(self, log=None, extra_opts=None, regex_wizard_callback=None):
         self.log = log
         self.extra_opts = extra_opts
@@ -529,16 +533,18 @@ class HTMLPreProcessor(object):
         start_rules = []
         if is_pdftohtml:
             # Remove non breaking spaces
-            start_rules.append((re.compile(ur'\u00a0'), lambda match : ' '))
+            start_rules.append((re.compile(unicode(r'\u00a0')), lambda match : ' '))
 
         if not getattr(self.extra_opts, 'keep_ligatures', False):
             html = _ligpat.sub(lambda m:LIGATURES[m.group()], html)
 
         user_sr_rules = {}
         # Function for processing search and replace
+
         def do_search_replace(search_pattern, replace_txt):
+            from calibre.ebooks.conversion.search_replace import compile_regular_expression
             try:
-                search_re = re.compile(search_pattern)
+                search_re = compile_regular_expression(search_pattern)
                 if not replace_txt:
                     replace_txt = ''
                 rules.insert(0, (search_re, replace_txt))
@@ -613,7 +619,7 @@ class HTMLPreProcessor(object):
         for rule in rules + end_rules:
             try:
                 html = rule[0].sub(rule[1], html)
-            except re.error as e:
+            except Exception as e:
                 if rule in user_sr_rules:
                     self.log.error(
                         'User supplied search & replace rule: %s -> %s '
@@ -659,6 +665,9 @@ class HTMLPreProcessor(object):
             preprocessor = HeuristicProcessor(self.extra_opts, self.log)
             html = preprocessor(html)
 
+        if is_pdftohtml:
+            html = html.replace('<!-- created by calibre\'s pdftohtml -->', '')
+
         if getattr(self.extra_opts, 'smarten_punctuation', False):
             html = smarten_punctuation(html, self.log)
 
@@ -674,5 +683,3 @@ class HTMLPreProcessor(object):
                 html = html.replace(char, asciichar)
 
         return html
-
-

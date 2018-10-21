@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python2
 # vim:fileencoding=UTF-8:ts=4:sw=4:sta:et:sts=4:ai
 from __future__ import (unicode_literals, division, absolute_import,
                         print_function)
@@ -10,6 +10,7 @@ __docformat__ = 'restructuredtext en'
 from collections import Counter
 
 from calibre.ebooks.oeb.base import barename, XPath
+
 
 class RemoveAdobeMargins(object):
     '''
@@ -33,8 +34,10 @@ class RemoveAdobeMargins(object):
                         attr = 'margin-'+margin
                         elem.attrib.pop(attr, None)
 
+
 class NegativeTextIndent(Exception):
     pass
+
 
 class RemoveFakeMargins(object):
 

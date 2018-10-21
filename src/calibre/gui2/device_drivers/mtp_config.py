@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python2
 # vim:fileencoding=UTF-8:ts=4:sw=4:sta:et:sts=4:fdm=marker:ai
 from __future__ import (unicode_literals, division, absolute_import,
                         print_function)
@@ -21,7 +21,8 @@ from calibre.gui2.dialogs.template_dialog import TemplateDialog
 from calibre.utils.date import parse_date
 from calibre.gui2.device_drivers.mtp_folder_browser import Browser, IgnoredFolders
 
-class FormatsConfig(QWidget): # {{{
+
+class FormatsConfig(QWidget):  # {{{
 
     def __init__(self, all_formats, format_map):
         QWidget.__init__(self)
@@ -73,7 +74,8 @@ class FormatsConfig(QWidget): # {{{
             self.f.setCurrentRow(idx+1)
 # }}}
 
-class TemplateConfig(QWidget): # {{{
+
+class TemplateConfig(QWidget):  # {{{
 
     def __init__(self, val):
         QWidget.__init__(self)
@@ -111,13 +113,14 @@ class TemplateConfig(QWidget): # {{{
             return True
         except Exception as err:
             error_dialog(self, _('Invalid template'),
-                    '<p>'+_('The template %s is invalid:')%tmpl + \
+                    '<p>'+_('The template %s is invalid:')%tmpl +
                     '<br>'+unicode(err), show=True)
 
             return False
 # }}}
 
-class SendToConfig(QWidget): # {{{
+
+class SendToConfig(QWidget):  # {{{
 
     def __init__(self, val, device):
         QWidget.__init__(self)
@@ -127,7 +130,7 @@ class SendToConfig(QWidget): # {{{
         self.l = l = QGridLayout(self)
         self.setLayout(l)
         self.m = m = QLabel('<p>'+_('''A <b>list of &folders</b> on the device to
-        which to send ebooks. The first one that exists will be used:'''))
+        which to send e-books. The first one that exists will be used:'''))
         m.setWordWrap(True)
         m.setBuddy(t)
         l.addWidget(m, 0, 0, 1, 2)
@@ -157,7 +160,8 @@ class SendToConfig(QWidget): # {{{
 
 # }}}
 
-class IgnoredDevices(QWidget): # {{{
+
+class IgnoredDevices(QWidget):  # {{{
 
     def __init__(self, devs, blacklist):
         QWidget.__init__(self)
@@ -197,6 +201,7 @@ class IgnoredDevices(QWidget): # {{{
 # }}}
 
 # Rules {{{
+
 
 class Rule(QWidget):
 
@@ -267,6 +272,7 @@ class Rule(QWidget):
                 )
         return None
 
+
 class FormatRules(QGroupBox):
 
     def __init__(self, device, rules):
@@ -275,7 +281,7 @@ class FormatRules(QGroupBox):
         self.l = l = QVBoxLayout()
         self.setLayout(l)
         self.la = la = QLabel('<p>'+_(
-            '''You can create rules that control where ebooks of a specific
+            '''You can create rules that control where e-books of a specific
             format are sent to on the device. These will take precedence over
             the folders specified above.'''))
         la.setWordWrap(True)
@@ -325,6 +331,7 @@ class FormatRules(QGroupBox):
                 if r is not None:
                     yield r
 # }}}
+
 
 class MTPConfig(QTabWidget):
 
@@ -485,6 +492,7 @@ class MTPConfig(QTabWidget):
 
             self.device.prefs[self.current_device_key] = p
 
+
 class SendError(QDialog):
 
     def __init__(self, gui, error):
@@ -494,9 +502,9 @@ class SendError(QDialog):
         self.la = la = QLabel('<p>'+
             _('You are trying to send books into the <b>%s</b> folder. This '
               'folder is currently ignored by calibre when scanning the '
-              'device. You have tell calibre you want this folder scanned '
+              'device. You have to tell calibre you want this folder scanned '
               'in order to be able to send books to it. Click the '
-              '<b>configure</b> button below to send books to it.')%error.folder)
+              '<b>Configure</b> button below to send books to it.')%error.folder)
         la.setWordWrap(True)
         la.setMinimumWidth(500)
         l.addWidget(la)
@@ -516,6 +524,7 @@ class SendError(QDialog):
         dev.highlight_ignored_folders = True
         self.parent().configure_connected_device()
         dev.highlight_ignored_folders = False
+
 
 if __name__ == '__main__':
     from calibre.gui2 import Application
@@ -540,5 +549,3 @@ if __name__ == '__main__':
     if d.exec_() == d.Accepted:
         cw.commit()
     dev.shutdown()
-
-

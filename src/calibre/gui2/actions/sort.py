@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python2
 # vim:fileencoding=utf-8
 from __future__ import (unicode_literals, division, absolute_import,
                         print_function)
@@ -10,6 +10,7 @@ from PyQt5.Qt import QToolButton, QAction, pyqtSignal, QIcon
 
 from calibre.gui2.actions import InterfaceAction
 from calibre.utils.icu import sort_key
+
 
 class SortAction(QAction):
 
@@ -23,25 +24,32 @@ class SortAction(QAction):
     def __call__(self):
         self.sort_requested.emit(self.key, self.ascending)
 
+
 class SortByAction(InterfaceAction):
 
     name = 'Sort By'
-    action_spec = (_('Sort By'), 'arrow-up.png', _('Sort the list of books'), None)
+    action_spec = (_('Sort by'), 'sort.png', _('Sort the list of books'), None)
     action_type = 'current'
     popup_type = QToolButton.InstantPopup
     action_add_menu = True
     dont_add_to = frozenset([
-        'toolbar', 'toolbar-device', 'context-menu-device', 'toolbar-child',
-        'menubar', 'menubar-device', 'context-menu-cover-browser'])
+        'toolbar-device', 'context-menu-device', 'menubar', 'menubar-device',
+        'context-menu-cover-browser'])
 
     def genesis(self):
         self.sorted_icon = QIcon(I('ok.png'))
+        self.qaction.menu().aboutToShow.connect(self.about_to_show)
 
     def location_selected(self, loc):
-        self.qaction.setEnabled(loc == 'library')
+        enabled = loc == 'library'
+        self.qaction.setEnabled(enabled)
+        self.menuless_qaction.setEnabled(enabled)
 
-    def update_menu(self):
-        menu = self.qaction.menu()
+    def about_to_show(self):
+        self.update_menu()
+
+    def update_menu(self, menu=None):
+        menu = self.qaction.menu() if menu is None else menu
         for action in menu.actions():
             action.sort_requested.disconnect()
         menu.clear()
@@ -53,20 +61,11 @@ class SortByAction(InterfaceAction):
         except TypeError:
             sort_col, order = 'date', True
         fm = db.field_metadata
-        def get_name(k):
-            ans = fm[k]['name']
-            if k == 'cover':
-                ans = _('Has cover')
-            return ans
-
-        name_map = {get_name(k):k for k in fm.sortable_field_keys() if fm[k]['name']}
-        self._sactions = []
+        name_map = {v:k for k, v in fm.ui_sortable_field_keys().iteritems()}
         for name in sorted(name_map, key=sort_key):
             key = name_map[name]
-            if key in {'sort', 'series_sort', 'formats', 'path'}:
-                continue
             if key == 'ondevice' and self.gui.device_connected is None:
-                    continue
+                continue
             ascending = None
             if key == sort_col:
                 name = _('%s [reverse current sort]') % name
@@ -82,5 +81,3 @@ class SortByAction(InterfaceAction):
             self.gui.library_view.intelligent_sort(key, True)
         else:
             self.gui.library_view.sort_by_named_field(key, ascending)
-
-

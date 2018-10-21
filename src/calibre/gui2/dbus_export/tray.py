@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python2
 # vim:fileencoding=utf-8
 from __future__ import (unicode_literals, division, absolute_import,
                         print_function)
@@ -16,7 +16,8 @@ import os
 
 import dbus
 from PyQt5.Qt import (
-    QApplication, QObject, pyqtSignal, Qt, QPoint, QRect, QMenu, QSystemTrayIcon)
+    QApplication, QObject, pyqtSignal, Qt, QPoint, QRect, QMenu,
+    QSystemTrayIcon, QIcon)
 
 from calibre.gui2.dbus_export.menu import DBusMenu
 from calibre.gui2.dbus_export.utils import icon_cache
@@ -24,6 +25,7 @@ from calibre.utils.dbus_service import (
     Object, method as dbus_method, BusName, dbus_property, signal as dbus_signal)
 
 _sni_count = 0
+
 
 class StatusNotifierItem(QObject):
 
@@ -37,7 +39,11 @@ class StatusNotifierItem(QObject):
         self.context_menu = None
         self.is_visible = True
         self.tool_tip = ''
-        self._icon = QApplication.instance().windowIcon()
+        path = I('calibre-tray.png')
+        if path and os.path.exists(path):
+            self._icon = QIcon(path)
+        else:
+            self._icon = QApplication.instance().windowIcon()
         self.show_menu.connect(self._show_menu, type=Qt.QueuedConnection)
         _sni_count += 1
         kw['num'] = _sni_count
@@ -96,7 +102,9 @@ class StatusNotifierItem(QObject):
     def emit_activated(self):
         self.activated.emit(QSystemTrayIcon.Trigger)
 
+
 _status_item_menu_count = 0
+
 
 class StatusNotifierItemAPI(Object):
 
@@ -184,7 +192,7 @@ class StatusNotifierItemAPI(Object):
     def Menu(self):
         return dbus.ObjectPath(self.dbus_menu.object_path)
 
-    @dbus_property(IFACE, signature='i')
+    @dbus_property(IFACE, signature='u')
     def WindowId(self):
         return 0
 
@@ -232,5 +240,3 @@ class StatusNotifierItemAPI(Object):
     @dbus_signal(IFACE, 's')
     def NewStatus(self, status):
         pass
-
-

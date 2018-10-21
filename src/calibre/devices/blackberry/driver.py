@@ -6,6 +6,7 @@ __docformat__ = 'restructuredtext en'
 
 from calibre.devices.usbms.driver import USBMS
 
+
 class BLACKBERRY(USBMS):
 
     name           = 'Blackberry Device Interface'
@@ -29,11 +30,12 @@ class BLACKBERRY(USBMS):
     EBOOK_DIR_MAIN = 'eBooks'
     SUPPORTS_SUB_DIRS = True
 
+
 class PLAYBOOK(USBMS):
 
     name           = 'Blackberry Playbook Interface'
     gui_name       = 'Playbook'
-    description    = _('Communicate with the Blackberry playbook.')
+    description    = _('Communicate with the Blackberry Playbook.')
     author         = _('Kovid Goyal')
     supported_platforms = ['windows', 'linux', 'osx']
 

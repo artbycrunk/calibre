@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python2
 # vim:fileencoding=UTF-8:ts=4:sw=4:sta:et:sts=4:ai
 from __future__ import (unicode_literals, division, absolute_import,
                         print_function)
@@ -17,11 +17,14 @@ from calibre.constants import iswindows
 from calibre.utils.ipc import eintr_retry_call
 from calibre.utils.ipc.launch import Worker
 
+
 class WorkerError(Exception):
 
-    def __init__(self, msg, orig_tb=''):
+    def __init__(self, msg, orig_tb='', log_path=None):
         Exception.__init__(self, msg)
         self.orig_tb = orig_tb
+        self.log_path = log_path
+
 
 class ConnectedWorker(Thread):
 
@@ -36,13 +39,11 @@ class ConnectedWorker(Thread):
         self.res = None
 
     def run(self):
-        conn = tb = None
+        conn = None
         try:
             conn = eintr_retry_call(self.listener.accept)
-        except:
-            tb = traceback.format_exc()
-        if conn is None:
-            self.tb = tb
+        except BaseException:
+            self.tb = traceback.format_exc()
             return
         self.accepted = True
         with closing(conn):
@@ -51,6 +52,7 @@ class ConnectedWorker(Thread):
                 self.res = eintr_retry_call(conn.recv)
             except BaseException:
                 self.tb = traceback.format_exc()
+
 
 class OffloadWorker(object):
 
@@ -70,6 +72,8 @@ class OffloadWorker(object):
     def shutdown(self):
         try:
             eintr_retry_call(self.conn.send, None)
+        except IOError:
+            pass
         except:
             import traceback
             traceback.print_exc()
@@ -83,6 +87,7 @@ class OffloadWorker(object):
 
     def is_alive(self):
         return self.worker.is_alive or self.kill_thread.is_alive()
+
 
 def communicate(ans, worker, listener, args, timeout=300, heartbeat=None,
         abort=None):
@@ -116,6 +121,7 @@ def communicate(ans, worker, listener, args, timeout=300, heartbeat=None,
         raise WorkerError('Worker failed', cw.res['tb'])
     ans['result'] = cw.res['result']
 
+
 def create_worker(env, priority='normal', cwd=None, func='main'):
     from calibre.utils.ipc.server import create_listener
     auth_key = os.urandom(32)
@@ -123,16 +129,15 @@ def create_worker(env, priority='normal', cwd=None, func='main'):
 
     env = dict(env)
     env.update({
-                'CALIBRE_WORKER_ADDRESS' :
-                    hexlify(cPickle.dumps(listener.address, -1)),
-                'CALIBRE_WORKER_KEY' : hexlify(auth_key),
-                'CALIBRE_SIMPLE_WORKER':
-                            'calibre.utils.ipc.simple_worker:%s' % func,
-            })
+        'CALIBRE_WORKER_ADDRESS': hexlify(cPickle.dumps(listener.address, -1)),
+        'CALIBRE_WORKER_KEY': hexlify(auth_key),
+        'CALIBRE_SIMPLE_WORKER': 'calibre.utils.ipc.simple_worker:%s' % func,
+    })
 
     w = Worker(env)
     w(cwd=cwd, priority=priority)
     return listener, w
+
 
 def start_pipe_worker(command, env=None, priority='normal', **process_args):
     import subprocess
@@ -157,8 +162,11 @@ def start_pipe_worker(command, env=None, priority='normal', **process_args):
         args['preexec_fn'] = partial(renice, niceness)
         args['close_fds'] = True
 
-    p = subprocess.Popen([w.executable, '--pipe-worker', command], **args)
+    exe = w.executable
+    cmd = [exe] if isinstance(exe, basestring) else exe
+    p = subprocess.Popen(cmd + ['--pipe-worker', command], **args)
     return p
+
 
 def fork_job(mod_name, func_name, args=(), kwargs={}, timeout=300,  # seconds
         cwd=None, priority='normal', env={}, no_output=False, heartbeat=None,
@@ -218,6 +226,10 @@ def fork_job(mod_name, func_name, args=(), kwargs={}, timeout=300,  # seconds
         communicate(ans, w, listener, (mod_name, func_name, args, kwargs,
             module_is_source_code), timeout=timeout, heartbeat=heartbeat,
             abort=abort)
+    except WorkerError as e:
+        if not no_output:
+            e.log_path = w.log_path
+        raise
     finally:
         t = Thread(target=w.kill)
         t.daemon=True
@@ -231,9 +243,11 @@ def fork_job(mod_name, func_name, args=(), kwargs={}, timeout=300,  # seconds
         ans['stdout_stderr'] = w.log_path
     return ans
 
+
 def offload_worker(env={}, priority='normal', cwd=None):
     listener, w = create_worker(env=env, priority=priority, cwd=cwd, func='offload')
     return OffloadWorker(listener, w)
+
 
 def compile_code(src):
     import re, io
@@ -249,8 +263,9 @@ def compile_code(src):
     namespace = {
             'time':time, 're':re, 'os':os, 'io':io,
     }
-    exec src in namespace
+    exec(src, namespace)
     return namespace
+
 
 def main():
     # The entry point for the simple worker process
@@ -280,6 +295,7 @@ def main():
         except:
             # Maybe EINTR
             conn.send(res)
+
 
 def offload():
     # The entry point for the offload worker process
@@ -311,4 +327,3 @@ def offload():
                 res['tb'] = traceback.format_exc()
 
             eintr_retry_call(conn.send, res)
-

@@ -14,19 +14,22 @@ from collections import OrderedDict
 
 from lxml.etree import XPath as _XPath
 from lxml import etree
-from cssselect import HTMLTranslator
 
+from calibre import as_unicode
 from calibre.ebooks.epub import rules
 from calibre.ebooks.oeb.base import (OEB_STYLES, XPNSMAP as NAMESPACES,
         urldefrag, rewrite_links, urlunquote, XHTML, urlnormalize)
 from calibre.ebooks.oeb.polish.split import do_split
+from css_selectors import Select, SelectorError
 
 XPath = functools.partial(_XPath, namespaces=NAMESPACES)
 
 SPLIT_POINT_ATTR = 'csp'
 
+
 def tostring(root):
     return etree.tostring(root, encoding='utf-8')
+
 
 class SplitError(ValueError):
 
@@ -36,6 +39,7 @@ class SplitError(ValueError):
             _('Could not find reasonable point at which to split: '
                 '%(path)s Sub-tree size: %(size)d KB')%dict(
                             path=path, size=size))
+
 
 class Split(object):
 
@@ -75,9 +79,7 @@ class Split(object):
 
     def find_page_breaks(self, item):
         if self.page_break_selectors is None:
-            from calibre.ebooks.oeb.stylizer import fix_namespace
-            css_to_xpath = HTMLTranslator().css_to_xpath
-            self.page_break_selectors = set([])
+            self.page_break_selectors = set()
             stylesheets = [x.data for x in self.oeb.manifest if x.media_type in
                     OEB_STYLES]
             for rule in rules(stylesheets):
@@ -87,31 +89,37 @@ class Split(object):
                     'page-break-after'), 'cssText', '').strip().lower()
                 try:
                     if before and before not in {'avoid', 'auto', 'inherit'}:
-                        self.page_break_selectors.add((XPath(fix_namespace(css_to_xpath(rule.selectorText))),
-                            True))
+                        self.page_break_selectors.add((rule.selectorText, True))
                         if self.remove_css_pagebreaks:
                             rule.style.removeProperty('page-break-before')
                 except:
                     pass
                 try:
                     if after and after not in {'avoid', 'auto', 'inherit'}:
-                        self.page_break_selectors.add((XPath(fix_namespace(css_to_xpath(rule.selectorText))),
-                            False))
+                        self.page_break_selectors.add((rule.selectorText, False))
                         if self.remove_css_pagebreaks:
                             rule.style.removeProperty('page-break-after')
                 except:
                     pass
-        page_breaks = set([])
-        for selector, before in self.page_break_selectors:
-            body = item.data.xpath('//h:body', namespaces=NAMESPACES)
-            if not body:
-                continue
-            for elem in selector(body[0]):
-                if elem not in body:
-                    elem.set('pb_before', '1' if before else '0')
-                    page_breaks.add(elem)
+        page_breaks = set()
+        select = Select(item.data)
+        if not self.page_break_selectors:
+            return [], []
+        body = item.data.xpath('//h:body', namespaces=NAMESPACES)
+        if not body:
+            return [], []
+        descendants = frozenset(body[0].iterdescendants('*'))
 
-        for i, elem in enumerate(item.data.iter()):
+        for selector, before in self.page_break_selectors:
+            try:
+                for elem in select(selector):
+                    if elem in descendants and elem.tag.rpartition('}')[2].lower() not in {'html', 'body', 'head', 'style', 'script', 'meta', 'link'}:
+                        elem.set('pb_before', '1' if before else '0')
+                        page_breaks.add(elem)
+            except SelectorError as err:
+                self.log.warn('Ignoring page breaks specified with invalid CSS selector: %r (%s)' % (selector, as_unicode(err)))
+
+        for i, elem in enumerate(item.data.iter('*')):
             try:
                 elem.set('pb_order', str(i))
             except TypeError:  # Cant set attributes on comment nodes etc.
@@ -246,7 +254,7 @@ class FlowSplitter(object):
                     self.trees[i:i+1] = [before_tree, after_tree]
                     break
 
-        trees, ids = [], set([])
+        trees, ids = [], set()
         for tree in self.trees:
             root = tree.getroot()
             if self.is_page_empty(root):
@@ -259,10 +267,10 @@ class FlowSplitter(object):
                 if ids:
                     body = self.get_body(root)
                     if body is not None:
-                        for x in ids:
-                            body.insert(0, body.makeelement(XHTML('div'),
-                                id=x, style='height:0pt'))
-                ids = set([])
+                        existing_ids = frozenset(body.xpath('//*/@id'))
+                        for x in ids - existing_ids:
+                            body.insert(0, body.makeelement(XHTML('div'), id=x, style='height:0pt'))
+                ids = set()
                 trees.append(tree)
         self.trees = trees
 
@@ -285,7 +293,7 @@ class FlowSplitter(object):
         body = self.get_body(root)
         if body is None:
             return False
-        txt = re.sub(ur'\s+|\xa0', '',
+        txt = re.sub(u'\\s+|\\xa0', '',
                 etree.tostring(body, method='text', encoding=unicode))
         if len(txt) > 1:
             return False
@@ -358,8 +366,7 @@ class FlowSplitter(object):
                                len(self.split_trees), size/1024.))
             else:
                 self.log.debug(
-                        '\t\t\tSplit tree still too large: %d KB' %
-                                (size/1024.))
+                        '\t\t\tSplit tree still too large: %d KB' % (size/1024.))
                 self.split_to_size(t)
 
     def find_split_point(self, root):

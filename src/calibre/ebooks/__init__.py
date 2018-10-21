@@ -10,27 +10,33 @@ from various formats.
 import traceback, os, re
 from calibre import CurrentDir, prints
 
+
 class ConversionError(Exception):
 
     def __init__(self, msg, only_msg=False):
         Exception.__init__(self, msg)
         self.only_msg = only_msg
 
+
 class UnknownFormatError(Exception):
     pass
+
 
 class DRMError(ValueError):
     pass
 
+
 class ParserError(ValueError):
     pass
 
+
 BOOK_EXTENSIONS = ['lrf', 'rar', 'zip', 'rtf', 'lit', 'txt', 'txtz', 'text', 'htm', 'xhtm',
                    'html', 'htmlz', 'xhtml', 'pdf', 'pdb', 'updb', 'pdr', 'prc', 'mobi', 'azw', 'doc',
-                   'epub', 'fb2', 'djv', 'djvu', 'lrx', 'cbr', 'cbz', 'cbc', 'oebzip',
+                   'epub', 'fb2', 'fbz', 'djv', 'djvu', 'lrx', 'cbr', 'cbz', 'cbc', 'oebzip',
                    'rb', 'imp', 'odt', 'chm', 'tpz', 'azw1', 'pml', 'pmlz', 'mbp', 'tan', 'snb',
                    'xps', 'oxps', 'azw4', 'book', 'zbf', 'pobi', 'docx', 'docm', 'md',
-                   'textile', 'markdown', 'ibook', 'ibooks', 'iba', 'azw3', 'ps', 'kepub']
+                   'textile', 'markdown', 'ibook', 'ibooks', 'iba', 'azw3', 'ps', 'kepub', 'kfx']
+
 
 class HTMLRenderer(object):
 
@@ -74,6 +80,7 @@ def return_raster_image(path):
         if what(None, raw) not in (None, 'svg'):
             return raw
 
+
 def extract_cover_from_embedded_svg(html, base, log):
     from lxml import etree
     from calibre.ebooks.oeb.base import XPath, SVG, XLINK
@@ -87,6 +94,7 @@ def extract_cover_from_embedded_svg(html, base, log):
             path = os.path.join(base, *href.split('/'))
             return return_raster_image(path)
 
+
 def extract_calibre_cover(raw, base, log):
     from calibre.ebooks.BeautifulSoup import BeautifulSoup
     soup = BeautifulSoup(raw)
@@ -94,10 +102,12 @@ def extract_calibre_cover(raw, base, log):
         'font', 'br'])
     images = soup.findAll('img')
     if matches is None and len(images) == 1 and \
-            images[0].get('alt', '')=='cover':
+            images[0].get('alt', '').lower()=='cover':
         img = images[0]
         img = os.path.join(base, *img['src'].split('/'))
-        return_raster_image(img)
+        q = return_raster_image(img)
+        if q is not None:
+            return q
 
     # Look for a simple cover, i.e. a body with no text and only one <img> tag
     if matches is None:
@@ -110,7 +120,8 @@ def extract_calibre_cover(raw, base, log):
             images = body.findAll('img', src=True)
             if 0 < len(images) < 2:
                 img = os.path.join(base, *images[0]['src'].split('/'))
-                return_raster_image(img)
+                return return_raster_image(img)
+
 
 def render_html_svg_workaround(path_to_html, log, width=590, height=750):
     from calibre.ebooks.oeb.base import SVG_NS
@@ -146,21 +157,23 @@ def render_html_svg_workaround(path_to_html, log, width=590, height=750):
                 traceback.print_exc()
     return data
 
+
 def render_html_data(path_to_html, width, height):
     renderer = render_html(path_to_html, width, height)
     return getattr(renderer, 'data', None)
 
+
 def render_html(path_to_html, width=590, height=750, as_xhtml=True):
     from PyQt5.QtWebKitWidgets import QWebPage
     from PyQt5.Qt import QEventLoop, QPalette, Qt, QUrl, QSize
-    from calibre.gui2 import is_ok_to_use_qt
+    from calibre.gui2 import is_ok_to_use_qt, secure_web_page
     if not is_ok_to_use_qt():
         return None
     path_to_html = os.path.abspath(path_to_html)
     with CurrentDir(os.path.dirname(path_to_html)):
         page = QWebPage()
         settings = page.settings()
-        settings.setAttribute(settings.PluginsEnabled, False)
+        secure_web_page(settings)
         pal = page.palette()
         pal.setBrush(QPalette.Background, Qt.white)
         page.setPalette(pal)
@@ -185,6 +198,7 @@ def render_html(path_to_html, width=590, height=750, as_xhtml=True):
                 as_xhtml=False)
     return renderer
 
+
 def check_ebook_format(stream, current_guess):
     ans = current_guess
     if current_guess.lower() in ('prc', 'mobi', 'azw', 'azw1', 'azw3'):
@@ -194,50 +208,27 @@ def check_ebook_format(stream, current_guess):
         stream.seek(0)
     return ans
 
+
 def normalize(x):
     if isinstance(x, unicode):
         import unicodedata
         x = unicodedata.normalize('NFC', x)
     return x
 
+
 def calibre_cover(title, author_string, series_string=None,
         output_format='jpg', title_size=46, author_size=36, logo_path=None):
     title = normalize(title)
     author_string = normalize(author_string)
     series_string = normalize(series_string)
-    from calibre.utils.magick.draw import create_cover_page, TextLine
-    import regex
-    pat = regex.compile(ur'\p{Cf}+', flags=regex.VERSION1)  # remove non-printing chars like the soft hyphen
-    text = pat.sub(u'', title + author_string + (series_string or u''))
-    font_path = P('fonts/liberation/LiberationSerif-Bold.ttf')
+    from calibre.ebooks.covers import calibre_cover2
+    from calibre.utils.img import image_to_data
+    ans = calibre_cover2(title, author_string or '', series_string or '', logo_path=logo_path, as_qimage=True)
+    return image_to_data(ans, fmt=output_format)
 
-    from calibre.utils.fonts.utils import get_font_for_text
-    font = open(font_path, 'rb').read()
-    c = get_font_for_text(text, font)
-    cleanup = False
-    if c is not None and c != font:
-        from calibre.ptempfile import PersistentTemporaryFile
-        pt = PersistentTemporaryFile('.ttf')
-        pt.write(c)
-        pt.close()
-        font_path = pt.name
-        cleanup = True
 
-    lines = [TextLine(pat.sub(u'', title), title_size, font_path=font_path),
-            TextLine(pat.sub(u'', author_string), author_size, font_path=font_path)]
-    if series_string:
-        lines.append(TextLine(pat.sub(u'', series_string), author_size, font_path=font_path))
-    if logo_path is None:
-        logo_path = I('library.png')
-    try:
-        return create_cover_page(lines, logo_path, output_format='jpg',
-            texture_opacity=0.3, texture_data=I('cover_texture.png',
-                data=True))
-    finally:
-        if cleanup:
-            os.remove(font_path)
+UNIT_RE = re.compile(r'^(-*[0-9]*[.]?[0-9]*)\s*(%|em|ex|en|px|mm|cm|in|pt|pc|rem|q)$')
 
-UNIT_RE = re.compile(r'^(-*[0-9]*[.]?[0-9]*)\s*(%|em|ex|en|px|mm|cm|in|pt|pc|rem)$')
 
 def unit_convert(value, base, font, dpi, body_font_size=12):
     ' Return value in pts'
@@ -275,7 +266,22 @@ def unit_convert(value, base, font, dpi, body_font_size=12):
             result = value * 28.346456693
         elif unit == 'rem':
             result = value * body_font_size
+        elif unit == 'q':
+            result = value * 0.708661417325
     return result
+
+
+def parse_css_length(value):
+    try:
+        m = UNIT_RE.match(value)
+    except TypeError:
+        return None, None
+    if m is not None and m.group(1):
+        value = float(m.group(1))
+        unit = m.group(2)
+        return value, unit.lower()
+    return None, None
+
 
 def generate_masthead(title, output_path=None, width=600, height=60):
     from calibre.ebooks.conversion.config import load_defaults
@@ -284,3 +290,17 @@ def generate_masthead(title, output_path=None, width=600, height=60):
     from calibre.ebooks.covers import generate_masthead
     return generate_masthead(title, output_path=output_path, width=width, height=height, font_family=masthead_font_family)
 
+
+def escape_xpath_attr(value):
+    if '"' in value:
+        if "'" in value:
+            parts = re.split('("+)', value)
+            ans = []
+            for x in parts:
+                if x:
+                    q = "'" if '"' in x else '"'
+                    ans.append(q + x + q)
+            return 'concat(%s)' % ', '.join(ans)
+        else:
+            return "'%s'" % value
+    return '"%s"' % value

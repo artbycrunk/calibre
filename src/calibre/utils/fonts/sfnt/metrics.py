@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python2
 # vim:fileencoding=UTF-8:ts=4:sw=4:sta:et:sts=4:fdm=marker:ai
 from __future__ import (unicode_literals, division, absolute_import,
                         print_function)
@@ -7,9 +7,10 @@ __license__   = 'GPL v3'
 __copyright__ = '2012, Kovid Goyal <kovid at kovidgoyal.net>'
 __docformat__ = 'restructuredtext en'
 
-from future_builtins import map
+from polyglot.builtins import map
 from calibre.utils.fonts.utils import get_all_font_names
 from calibre.utils.fonts.sfnt.container import UnsupportedFont
+
 
 class FontMetrics(object):
 
@@ -61,7 +62,10 @@ class FontMetrics(object):
     def postscript_name(self):
         if 'postscript_name' in self.names:
             return self.names['postscript_name'].replace(' ', '-')
-        return self.names['full_name'].replace(' ', '-')
+        try:
+            return self.names['full_name'].replace(' ', '-')
+        except KeyError:
+            return self.names['family_name'].replace(' ', '-')
 
     def underline_thickness(self, pixel_size=12.0):
         'Thickness for lines (in pixels) at the specified size'
@@ -109,6 +113,7 @@ class FontMetrics(object):
         'The width of the string at the specified pixel size and stretch, in pixels'
         return sum(self.advance_widths(string, pixel_size, stretch))
 
+
 if __name__ == '__main__':
     import sys
     from calibre.utils.fonts.sfnt.container import Sfnt
@@ -116,11 +121,10 @@ if __name__ == '__main__':
         raw = f.read()
     sfnt = Sfnt(raw)
     m = FontMetrics(sfnt)
-    print ('Ascent:', m.pdf_ascent)
-    print ('Descent:', m.pdf_descent)
-    print ('PDF BBox:', m.pdf_bbox)
-    print ('CapHeight:', m.pdf_capheight)
-    print ('AvgWidth:', m.pdf_avg_width)
-    print ('ItalicAngle', m.post.italic_angle)
-    print ('StemV', m.pdf_stemv)
-
+    print('Ascent:', m.pdf_ascent)
+    print('Descent:', m.pdf_descent)
+    print('PDF BBox:', m.pdf_bbox)
+    print('CapHeight:', m.pdf_capheight)
+    print('AvgWidth:', m.pdf_avg_width)
+    print('ItalicAngle', m.post.italic_angle)
+    print('StemV', m.pdf_stemv)

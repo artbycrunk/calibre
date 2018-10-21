@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python2
 # vim:fileencoding=utf-8
 from __future__ import (unicode_literals, division, absolute_import,
                         print_function)
@@ -12,9 +12,9 @@ from collections import namedtuple, OrderedDict
 from PyQt5.Qt import QObject, pyqtSignal, Qt
 
 from calibre import prepare_string_for_xml
-from calibre.ebooks.oeb.base import xml2text
 from calibre.ebooks.oeb.polish.container import OEB_STYLES, OEB_FONTS, name_to_href
 from calibre.ebooks.oeb.polish.parsing import parse
+from calibre.ebooks.oeb.polish.report import description_for_anchor
 from calibre.gui2 import is_gui_thread
 from calibre.gui2.tweak_book import current_container, editors
 from calibre.gui2.tweak_book.completion.utils import control, data, DataError
@@ -25,6 +25,7 @@ Request = namedtuple('Request', 'id type data query')
 
 names_cache = {}
 file_cache = {}
+
 
 @control
 def clear_caches(cache_type, data_conn):
@@ -41,10 +42,12 @@ def clear_caches(cache_type, data_conn):
         if name.lower().endswith('.opf'):
             names_cache.clear()
 
+
 @data
 def names_data(request_data):
     c = current_container()
     return c.mime_map, {n for n, is_linear in c.spine_names}
+
 
 @data
 def file_data(name):
@@ -53,12 +56,14 @@ def file_data(name):
         return editors[name].get_raw_data()
     return current_container().raw_data(name)
 
+
 def get_data(data_conn, data_type, data=None):
     eintr_retry_call(data_conn.send, Request(None, data_type, data, None))
     result, tb = eintr_retry_call(data_conn.recv)
     if tb:
         raise DataError(tb)
     return result
+
 
 class Name(unicode):
 
@@ -67,6 +72,7 @@ class Name(unicode):
         ans.mime_type = mime_type
         ans.in_spine = name in spine_names
         return ans
+
 
 @control
 def complete_names(names_data, data_conn):
@@ -92,32 +98,6 @@ def complete_names(names_data, data_conn):
     return items, descriptions, {}
 
 
-def description_for_anchor(elem):
-    def check(x, min_len=4):
-        if x:
-            x = x.strip()
-            if len(x) >= min_len:
-                return x[:30]
-
-    desc = check(elem.get('title'))
-    if desc is not None:
-        return desc
-    desc = check(elem.text)
-    if desc is not None:
-        return desc
-    if len(elem) > 0:
-        desc = check(elem[0].text)
-        if desc is not None:
-            return desc
-    # Get full text for tags that have only a few descendants
-    for i, x in enumerate(elem.iterdescendants('*')):
-        if i > 5:
-            break
-    else:
-        desc = check(xml2text(elem), min_len=1)
-        if desc is not None:
-            return desc
-
 def create_anchor_map(root):
     ans = {}
     for elem in root.xpath('//*[@id or @name]'):
@@ -125,6 +105,7 @@ def create_anchor_map(root):
         if anchor and anchor not in ans:
             ans[anchor] = description_for_anchor(elem)
     return ans
+
 
 @control
 def complete_anchor(name, data_conn):
@@ -144,6 +125,7 @@ def complete_anchor(name, data_conn):
 
 _current_matcher = (None, None, None)
 
+
 def handle_control_request(request, data_conn):
     global _current_matcher
     ans = control_funcs[request.type](request.data, data_conn)
@@ -158,6 +140,7 @@ def handle_control_request(request, data_conn):
             items = OrderedDict((i, ()) for i in _current_matcher[-1].items)
         ans = items, descriptions
     return ans
+
 
 class HandleDataRequest(QObject):
 

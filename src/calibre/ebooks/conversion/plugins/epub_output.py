@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python2
 # vim:fileencoding=UTF-8:ts=4:sw=4:sta:et:sts=4:ai
 from __future__ import with_statement
 
@@ -48,18 +48,20 @@ class EPUBOutput(OutputFormatPlugin):
     name = 'EPUB Output'
     author = 'Kovid Goyal'
     file_type = 'epub'
+    commit_name = 'epub_output'
+    ui_data = {'versions': ('2', '3')}
 
-    options = set([
+    options = {
         OptionRecommendation(name='extract_to',
-            help=_('Extract the contents of the generated EPUB file to the '
+            help=_('Extract the contents of the generated %s file to the '
                 'specified directory. The contents of the directory are first '
-                'deleted, so be careful.')),
+                'deleted, so be careful.') % 'EPUB'),
 
         OptionRecommendation(name='dont_split_on_page_breaks',
             recommended_value=False, level=OptionRecommendation.LOW,
             help=_('Turn off splitting at page breaks. Normally, input '
                     'files are automatically split at every page break into '
-                    'two files. This gives an output ebook that can be '
+                    'two files. This gives an output e-book that can be '
                     'parsed faster and with less resources. However, '
                     'splitting is slow and if your source file contains a '
                     'very large number of page breaks, you should turn off '
@@ -71,7 +73,7 @@ class EPUBOutput(OutputFormatPlugin):
             help=_('Split all HTML files larger than this size (in KB). '
                 'This is necessary as most EPUB readers cannot handle large '
                 'file sizes. The default of %defaultKB is the size required '
-                'for Adobe Digital Editions.')
+                'for Adobe Digital Editions. Set to 0 to disable size based splitting.')
         ),
 
         OptionRecommendation(name='no_default_epub_cover', recommended_value=False,
@@ -117,9 +119,15 @@ class EPUBOutput(OutputFormatPlugin):
             help=_('Title for any generated in-line table of contents.')
         ),
 
-        ])
+        OptionRecommendation(name='epub_version', recommended_value='2', choices=ui_data['versions'],
+            help=_('The version of the EPUB file to generate. EPUB 2 is the'
+                ' most widely compatible, only use EPUB 3 if you know you'
+                ' actually need it.')
+        ),
 
-    recommendations = set([('pretty_print', True, OptionRecommendation.HIGH)])
+        }
+
+    recommendations = {('pretty_print', True, OptionRecommendation.HIGH)}
 
     def workaround_webkit_quirks(self):  # {{{
         from calibre.ebooks.oeb.base import XPath
@@ -168,6 +176,7 @@ class EPUBOutput(OutputFormatPlugin):
                         seen_names.add(name)
 
     # }}}
+
     def convert(self, oeb, output_path, input_plugin, opts, log):
         self.log, self.opts, self.oeb = log, opts, oeb
 
@@ -249,6 +258,8 @@ class EPUBOutput(OutputFormatPlugin):
             opf = [x for x in os.listdir(tdir) if x.endswith('.opf')][0]
             self.condense_ncx([os.path.join(tdir, x) for x in os.listdir(tdir)
                     if x.endswith('.ncx')][0])
+            if self.opts.epub_version == '3':
+                self.upgrade_to_epub3(tdir, opf)
             encryption = None
             if encrypted_fonts:
                 encryption = self.encrypt_fonts(encrypted_fonts, tdir, uuid)
@@ -273,6 +284,31 @@ class EPUBOutput(OutputFormatPlugin):
                 with ZipFile(output_path) as zf:
                     zf.extractall(path=opts.extract_to)
                 self.log.info('EPUB extracted to', opts.extract_to)
+
+    def upgrade_to_epub3(self, tdir, opf):
+        self.log.info('Upgrading to EPUB 3...')
+        from calibre.ebooks.epub import simple_container_xml
+        from calibre.ebooks.oeb.polish.cover import fix_conversion_titlepage_links_in_nav
+        try:
+            os.mkdir(os.path.join(tdir, 'META-INF'))
+        except EnvironmentError:
+            pass
+        with open(os.path.join(tdir, 'META-INF', 'container.xml'), 'wb') as f:
+            f.write(simple_container_xml(os.path.basename(opf)).encode('utf-8'))
+        from calibre.ebooks.oeb.polish.container import EpubContainer
+        container = EpubContainer(tdir, self.log)
+        from calibre.ebooks.oeb.polish.upgrade import epub_2_to_3
+        existing_nav = getattr(self.opts, 'epub3_nav_parsed', None)
+        nav_href = getattr(self.opts, 'epub3_nav_href', None)
+        previous_nav = (nav_href, existing_nav) if existing_nav and nav_href else None
+        epub_2_to_3(container, self.log.info, previous_nav=previous_nav)
+        fix_conversion_titlepage_links_in_nav(container)
+        container.commit()
+        os.remove(f.name)
+        try:
+            os.rmdir(os.path.join(tdir, 'META-INF'))
+        except EnvironmentError:
+            pass
 
     def encrypt_fonts(self, uris, tdir, uuid):  # {{{
         from binascii import unhexlify
@@ -324,7 +360,7 @@ class EPUBOutput(OutputFormatPlugin):
                 return ans
     # }}}
 
-    def condense_ncx(self, ncx_path):
+    def condense_ncx(self, ncx_path):  # {{{
         from lxml import etree
         if not self.opts.pretty_print:
             tree = etree.parse(ncx_path)
@@ -335,6 +371,7 @@ class EPUBOutput(OutputFormatPlugin):
                     tag.tail = tag.tail.strip()
             compressed = etree.tostring(tree.getroot(), encoding='utf-8')
             open(ncx_path, 'wb').write(compressed)
+    # }}}
 
     def workaround_ade_quirks(self):  # {{{
         '''
@@ -355,7 +392,7 @@ class EPUBOutput(OutputFormatPlugin):
                 frag = urlunquote(frag)
                 if frag and frag_pat.match(frag) is None:
                     self.log.warn(
-                            'Removing invalid fragment identifier %r from TOC'%frag)
+                            'Removing fragment identifier %r from TOC as Adobe Digital Editions cannot handle it'%frag)
                     node.href = base
 
         for x in self.oeb.spine:
@@ -420,8 +457,7 @@ class EPUBOutput(OutputFormatPlugin):
                 if not tag.text:
                     tag.getparent().remove(tag)
             for tag in XPath('//h:script')(root):
-                if (not tag.text and not tag.get('src', False) and
-                        tag.get('type', None) != 'text/x-mathjax-config'):
+                if (not tag.text and not tag.get('src', False) and tag.get('type', None) != 'text/x-mathjax-config'):
                     tag.getparent().remove(tag)
             for tag in XPath('//h:body/descendant::h:script')(root):
                 tag.getparent().remove(tag)
@@ -512,4 +548,3 @@ class EPUBOutput(OutputFormatPlugin):
             simplify_toc_entry(self.oeb.toc)
 
     # }}}
-

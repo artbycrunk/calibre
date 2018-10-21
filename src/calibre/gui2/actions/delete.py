@@ -1,16 +1,17 @@
-#!/usr/bin/env python
+#!/usr/bin/env python2
 # vim:fileencoding=UTF-8:ts=4:sw=4:sta:et:sts=4:ai
 
 __license__   = 'GPL v3'
 __copyright__ = '2010, Kovid Goyal <kovid@kovidgoyal.net>'
 __docformat__ = 'restructuredtext en'
 
-import errno
+import errno, os
 from functools import partial
 from collections import Counter
 
 from PyQt5.Qt import QObject, QTimer, QModelIndex
 
+from calibre.constants import isosx
 from calibre.gui2 import error_dialog, question_dialog
 from calibre.gui2.dialogs.delete_matching_from_device import DeleteMatchingFromDeviceDialog
 from calibre.gui2.dialogs.confirm_delete import confirm
@@ -19,6 +20,7 @@ from calibre.gui2.actions import InterfaceAction
 from calibre.utils.recycle_bin import can_recycle
 
 single_shot = partial(QTimer.singleShot, 10)
+
 
 class MultiDeleter(QObject):  # {{{
 
@@ -71,20 +73,20 @@ class MultiDeleter(QObject):  # {{{
         self.pd = None
         self.model.db.commit()
         self.model.db.clean()
-        self.model.books_deleted()
-        self.gui.tags_view.recount()
+        self.model.books_deleted()  # calls recount on the tag browser
         self.callback(self.deleted_ids)
         if self.failures:
             msg = ['==> '+x[1]+'\n'+x[2] for x in self.failures]
             error_dialog(self.gui, _('Failed to delete'),
-                    _('Failed to delete some books, click the Show Details button'
+                    _('Failed to delete some books, click the "Show details" button'
                     ' for details.'), det_msg='\n\n'.join(msg), show=True)
 # }}}
+
 
 class DeleteAction(InterfaceAction):
 
     name = 'Remove Books'
-    action_spec = (_('Remove books'), 'trash.png', _('Delete books'), 'Del')
+    action_spec = (_('Remove books'), 'remove_books.png', _('Delete books'), 'Backspace' if isosx else 'Del')
     action_type = 'current'
     action_add_menu = True
     action_menu_clone_qaction = _('Remove selected books')
@@ -120,7 +122,7 @@ class DeleteAction(InterfaceAction):
         self.delete_menu = self.qaction.menu()
         m = partial(self.create_menu_action, self.delete_menu)
         m('delete-specific',
-                _('Remove files of a specific format from selected books..'),
+                _('Remove files of a specific format from selected books...'),
                 triggered=self.delete_selected_formats)
         m('delete-except',
                 _('Remove all formats from selected books, except...'),
@@ -170,8 +172,8 @@ class DeleteAction(InterfaceAction):
         title = self.gui.current_db.title(book_id, index_is_id=True)
         if not confirm('<p>'+(_(
             'The %(fmt)s format will be <b>permanently deleted</b> from '
-            '%(title)s. Are you sure?')%dict(fmt=fmt, title=title))
-                            +'</p>', 'library_delete_specific_format', self.gui):
+            '%(title)s. Are you sure?')%dict(fmt=fmt, title=title)) +
+                       '</p>', 'library_delete_specific_format', self.gui):
             return
 
         self.gui.library_view.model().db.remove_format(book_id, fmt,
@@ -179,14 +181,14 @@ class DeleteAction(InterfaceAction):
         self.gui.library_view.model().refresh_ids([book_id])
         self.gui.library_view.model().current_changed(self.gui.library_view.currentIndex(),
                 self.gui.library_view.currentIndex())
-        self.gui.tags_view.recount()
+        self.gui.tags_view.recount_with_position_based_index()
 
     def restore_format(self, book_id, original_fmt):
         self.gui.current_db.restore_original_format(book_id, original_fmt)
         self.gui.library_view.model().refresh_ids([book_id])
         self.gui.library_view.model().current_changed(self.gui.library_view.currentIndex(),
                 self.gui.library_view.currentIndex())
-        self.gui.tags_view.recount()
+        self.gui.tags_view.recount_with_position_based_index()
 
     def delete_selected_formats(self, *args):
         ids = self._get_selected_ids()
@@ -202,7 +204,7 @@ class DeleteAction(InterfaceAction):
         m.current_changed(self.gui.library_view.currentIndex(),
                 self.gui.library_view.currentIndex())
         if ids:
-            self.gui.tags_view.recount()
+            self.gui.tags_view.recount_with_position_based_index()
 
     def delete_all_but_selected_formats(self, *args):
         ids = self._get_selected_ids()
@@ -220,7 +222,7 @@ class DeleteAction(InterfaceAction):
             bfmts = m.db.formats(id, index_is_id=True)
             if bfmts is None:
                 continue
-            bfmts = set([x.lower() for x in bfmts.split(',')])
+            bfmts = {x.lower() for x in bfmts.split(',')}
             rfmts = bfmts - set(fmts)
             if bfmts - rfmts:
                 # Do not delete if it will leave the book with no
@@ -232,7 +234,7 @@ class DeleteAction(InterfaceAction):
             m.current_changed(self.gui.library_view.currentIndex(),
                     self.gui.library_view.currentIndex())
             if ids:
-                self.gui.tags_view.recount()
+                self.gui.tags_view.recount_with_position_based_index()
 
     def delete_all_formats(self, *args):
         ids = self._get_selected_ids()
@@ -240,8 +242,8 @@ class DeleteAction(InterfaceAction):
             return
         if not confirm('<p>'+_('<b>All formats</b> for the selected books will '
                                'be <b>deleted</b> from your library.<br>'
-                               'The book metadata will be kept. Are you sure?')
-                            +'</p>', 'delete_all_formats', self.gui):
+                               'The book metadata will be kept. Are you sure?') +
+                       '</p>', 'delete_all_formats', self.gui):
             return
         db = self.gui.library_view.model().db
         removals = {}
@@ -255,7 +257,7 @@ class DeleteAction(InterfaceAction):
             self.gui.library_view.model().current_changed(self.gui.library_view.currentIndex(),
                     self.gui.library_view.currentIndex())
             if ids:
-                self.gui.tags_view.recount()
+                self.gui.tags_view.recount_with_position_based_index()
 
     def remove_matching_books_from_device(self, *args):
         if not self.gui.device_manager.is_device_present:
@@ -265,7 +267,7 @@ class DeleteAction(InterfaceAction):
             return
         ids = self._get_selected_ids()
         if not ids:
-            #_get_selected_ids shows a dialog box if nothing is selected, so we
+            # _get_selected_ids shows a dialog box if nothing is selected, so we
             # do not need to show one here
             return
         to_delete = {}
@@ -291,11 +293,18 @@ class DeleteAction(InterfaceAction):
                     ids[model] = []
                 paths[model].append(path)
                 ids[model].append(id)
+            cv, row = self.gui.current_view(), -1
+            if cv is not self.gui.library_view:
+                row = cv.currentIndex().row()
             for model in paths:
                 job = self.gui.remove_paths(paths[model])
                 self.delete_memory[job] = (paths[model], model)
+
                 model.mark_for_deletion(job, ids[model], rows_are_ids=True)
             self.gui.status_bar.show_message(_('Deleting books from device.'), 1000)
+            if row > -1:
+                nrow = row - 1 if row > 0 else row + 1
+                cv.set_current_row(min(cv.model().rowCount(None), max(0, nrow)))
 
     def delete_covers(self, *args):
         ids = self._get_selected_ids()
@@ -356,10 +365,12 @@ class DeleteAction(InterfaceAction):
                     self.remove_matching_books_from_device()
         # The following will run if the selected books are not on a connected device.
         # The user has selected to delete from the library or the device and library.
-        if not confirm('<p>'+_('The %d selected book(s) will be '
-                                '<b>permanently deleted</b> and the files '
-                                'removed from your calibre library. Are you sure?')%len(to_delete_ids)
-                            +'</p>', 'library_delete_books', self.gui):
+        if not confirm('<p>'+ngettext(
+                'The selected book will be <b>permanently deleted</b> and the files '
+                'removed from your calibre library. Are you sure?',
+                'The {} selected books will be <b>permanently deleted</b> and the files '
+                'removed from your calibre library. Are you sure?', len(to_delete_ids)).format(len(to_delete_ids)),
+                'library_delete_books', self.gui):
             return
         if len(to_delete_ids) < 5:
             try:
@@ -367,12 +378,12 @@ class DeleteAction(InterfaceAction):
             except IOError as err:
                 if err.errno == errno.EACCES:
                     import traceback
-                    fname = getattr(err, 'filename', 'file') or 'file'
+                    fname = os.path.basename(getattr(err, 'filename', 'file') or 'file')
                     return error_dialog(self.gui, _('Permission denied'),
                             _('Could not access %s. Is it being used by another'
                             ' program? Click "Show details" for more information.')%fname, det_msg=traceback.format_exc(),
                             show=True)
-
+                raise
             self.library_ids_deleted2(to_delete_ids, next_id=next_id)
         else:
             self.__md = MultiDeleter(self.gui, to_delete_ids,
@@ -392,6 +403,9 @@ class DeleteAction(InterfaceAction):
             self.do_library_delete(to_delete_ids)
         # Device view is visible.
         else:
+            cv, row = self.gui.current_view(), -1
+            if cv is not self.gui.library_view:
+                row = cv.currentIndex().row()
             if self.gui.stack.currentIndex() == 1:
                 view = self.gui.memory_view
             elif self.gui.stack.currentIndex() == 2:
@@ -400,13 +414,15 @@ class DeleteAction(InterfaceAction):
                 view = self.gui.card_b_view
             paths = view.model().paths(rows)
             ids = view.model().indices(rows)
-            if not confirm('<p>'+_('The %d selected book(s) will be '
-                                   '<b>permanently deleted</b> '
-                                   'from your device. Are you sure?')%len(paths)
-                                +'</p>', 'device_delete_books', self.gui):
+            if not confirm('<p>'+ngettext(
+                    'The selected book will be <b>permanently deleted</b> from your device. Are you sure?',
+                    'The {} selected books will be <b>permanently deleted</b> from your device. Are you sure?', len(paths)).format(len(paths)),
+                    'device_delete_books', self.gui):
                 return
             job = self.gui.remove_paths(paths)
             self.delete_memory[job] = (paths, view.model())
             view.model().mark_for_deletion(job, ids, rows_are_ids=True)
             self.gui.status_bar.show_message(_('Deleting books from device.'), 1000)
-
+            if row > -1:
+                nrow = row - 1 if row > 0 else row + 1
+                cv.set_current_row(min(cv.model().rowCount(None), max(0, nrow)))

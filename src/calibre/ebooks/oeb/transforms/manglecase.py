@@ -19,9 +19,11 @@ CASE_MANGLER_CSS = """
 }
 """
 
-TEXT_TRANSFORMS = set(['capitalize', 'uppercase', 'lowercase'])
+TEXT_TRANSFORMS = {'capitalize', 'uppercase', 'lowercase'}
+
 
 class CaseMangler(object):
+
     @classmethod
     def config(cls, cfg):
         return cfg
@@ -80,7 +82,7 @@ class CaseMangler(object):
                 else:
                     last.tail = text
             else:
-                child = etree.Element(XHTML('span'), attrib=attrib)
+                child = elem.makeelement(XHTML('span'), attrib=attrib)
                 child.text = text.upper()
                 if last is None:
                     elem.insert(0, child)

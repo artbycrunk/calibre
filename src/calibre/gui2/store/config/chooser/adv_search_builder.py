@@ -14,6 +14,7 @@ from calibre.gui2.store.config.chooser.adv_search_builder_ui import Ui_Dialog
 from calibre.library.caches import CONTAINS_MATCH, EQUALS_MATCH
 from calibre.utils.localization import localize_user_manual_link
 
+
 class AdvSearchBuilderDialog(QDialog, Ui_Dialog):
 
     def __init__(self, parent):
@@ -21,7 +22,7 @@ class AdvSearchBuilderDialog(QDialog, Ui_Dialog):
         self.setupUi(self)
         try:
             self.sh_label.setText(self.sh_label.text() % localize_user_manual_link(
-                'http://manual.calibre-ebook.com/gui.html#the-search-interface'))
+                'https://manual.calibre-ebook.com/gui.html#the-search-interface'))
         except TypeError:
             pass  # link already localized
 

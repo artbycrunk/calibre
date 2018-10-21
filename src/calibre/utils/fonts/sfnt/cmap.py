@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python2
 # vim:fileencoding=UTF-8:ts=4:sw=4:sta:et:sts=4:fdm=marker:ai
 from __future__ import (unicode_literals, division, absolute_import,
                         print_function)
@@ -16,6 +16,7 @@ from collections import OrderedDict
 from calibre.utils.fonts.utils import read_bmp_prefix
 from calibre.utils.fonts.sfnt import UnknownTable, max_power_of_two
 from calibre.utils.fonts.sfnt.errors import UnsupportedFont
+
 
 def split_range(start_code, end_code, cmap):  # {{{
     # Try to split a range of character codes into subranges with consecutive
@@ -95,6 +96,7 @@ def split_range(start_code, end_code, cmap):  # {{{
     return start, end
 # }}}
 
+
 def set_id_delta(id_delta):  # {{{
     # The lowest gid in glyphIndexArray, after subtracting id_delta, must be 1.
     # id_delta is a short, and must be between -32K and 32K
@@ -116,6 +118,7 @@ def set_id_delta(id_delta):  # {{{
 
     return id_delta
 # }}}
+
 
 class BMPTable(object):
 
@@ -163,6 +166,7 @@ class BMPTable(object):
                 if glyph_id in glyph_ids and code not in ans:
                     ans[code] = glyph_id
         return ans
+
 
 class CmapTable(UnknownTable):
 

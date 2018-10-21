@@ -18,6 +18,7 @@ from calibre.ebooks.pdb.header import PdbHeaderReader
 from calibre.ebooks.pdb.plucker.reader import SectionHeader, DATATYPE_METADATA, \
     MIBNUM_TO_NAME
 
+
 def get_metadata(stream, extract_cover=True):
     '''
     Return metadata as a L{MetaInfo} object
@@ -44,8 +45,10 @@ def get_metadata(stream, extract_cover=True):
     author = None
     pubdate = 0
     for i in xrange(record_count):
-        type, = struct.unpack('>H', section_data[2+adv:4+adv])
-        length, = struct.unpack('>H', section_data[4+adv:6+adv])
+        try:
+            type, length = struct.unpack_from('>HH', section_data, 2 + adv)
+        except struct.error:
+            break
 
         # CharSet
         if type == 1:

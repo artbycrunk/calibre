@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python2
 # vim:fileencoding=UTF-8:ts=4:sw=4:sta:et:sts=4:ai
 
 __license__   = 'GPL v3'
@@ -22,6 +22,7 @@ NON_EBOOK_EXTENSIONS = frozenset([
         'opf', 'swp', 'swo'
         ])
 
+
 class RestoreDatabase(LibraryDatabase2):
 
     PATH_LIMIT = 10
@@ -32,6 +33,7 @@ class RestoreDatabase(LibraryDatabase2):
 
     def dirtied(self, *args, **kwargs):
         pass
+
 
 class Restore(Thread):
 
@@ -93,9 +95,7 @@ class Restore(Thread):
             for x in self.mismatched_dirs:
                 ans += '\t'+x+'\n'
 
-
         return ans
-
 
     def run(self):
         try:

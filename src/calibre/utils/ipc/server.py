@@ -1,12 +1,13 @@
-#!/usr/bin/env python
+#!/usr/bin/env python2
 # vim:fileencoding=UTF-8:ts=4:sw=4:sta:et:sts=4:ai
 from __future__ import with_statement
+from __future__ import print_function
 
 __license__   = 'GPL v3'
 __copyright__ = '2009, Kovid Goyal <kovid@kovidgoyal.net>'
 __docformat__ = 'restructuredtext en'
 
-import sys, os, cPickle, time, tempfile, errno
+import sys, os, cPickle, time, tempfile, errno, itertools
 from math import ceil
 from threading import Thread, RLock
 from Queue import Queue, Empty
@@ -22,6 +23,7 @@ from calibre.constants import iswindows, DEBUG, islinux
 from calibre.ptempfile import base_dir
 
 _counter = 0
+
 
 class ConnectedWorker(Thread):
 
@@ -81,13 +83,16 @@ class ConnectedWorker(Thread):
             self._returncode = r
         return r
 
+
 class CriticalError(Exception):
     pass
 
-_name_counter = 0
+
+_name_counter = itertools.count()
 
 if islinux:
     import fcntl
+
     class LinuxListener(Listener):
 
         def __init__(self, *args, **kwargs):
@@ -121,11 +126,9 @@ if islinux:
 
     def create_listener(authkey, backlog=4):
         # Use abstract named sockets on linux to avoid creating unnecessary temp files
-        global _name_counter
         prefix = u'\0calibre-ipc-listener-%d-%%d' % os.getpid()
         while True:
-            _name_counter += 1
-            address = (prefix % _name_counter).encode('ascii')
+            address = (prefix % next(_name_counter)).encode('ascii')
             try:
                 l = LinuxListener(address=address, authkey=authkey, backlog=backlog)
                 return address, l
@@ -133,13 +136,43 @@ if islinux:
                 if err.errno == errno.EADDRINUSE:
                     continue
                 raise
-else:
+elif iswindows:
+
     def create_listener(authkey, backlog=4):
-        address = arbitrary_address('AF_PIPE' if iswindows else 'AF_UNIX')
-        if iswindows and address[1] == ':':
+        address = arbitrary_address('AF_PIPE')
+        if address[1] == ':':
             address = address[2:]
-        listener = Listener(address=address, authkey=authkey, backlog=backlog)
-        return address, listener
+        return address, Listener(address=address, authkey=authkey, backlog=backlog)
+else:
+
+    def create_listener(authkey, backlog=4):
+        prefix = os.path.join(base_dir(), 'ipc-socket-%d-%%d' % os.getpid())
+        max_tries = 20
+        while max_tries > 0:
+            max_tries -= 1
+            address = prefix % next(_name_counter)
+            if not isinstance(address, bytes):
+                address = address.encode('utf-8')  # multiprocessing needs bytes in python 2
+            try:
+                return address, Listener(address=address, authkey=authkey, backlog=backlog)
+            except EnvironmentError as err:
+                if max_tries < 1:
+                    raise
+
+                if err.errno == errno.ENOENT:
+                    # Some OS X machines have software that deletes temp
+                    # files/dirs after prolonged inactivity. See for
+                    # example, https://bugs.launchpad.net/bugs/1541356
+                    try:
+                        os.makedirs(os.path.dirname(prefix))
+                    except EnvironmentError as e:
+                        if e.errno != errno.EEXIST:
+                            raise
+                    continue
+
+                if err.errno != errno.EADDRINUSE:
+                    raise
+
 
 class Server(Thread):
 
@@ -186,7 +219,7 @@ class Server(Thread):
         if isinstance(cw, basestring):
             raise CriticalError('Failed to launch worker process:\n'+cw)
         if DEBUG:
-            print 'Worker Launch took:', time.time() - start
+            print('Worker Launch took:', time.time() - start)
         return cw
 
     def do_launch(self, env, gui, redirect_output, rfile, job_name=None):
@@ -352,4 +385,3 @@ class Server(Thread):
 
     def __exit__(self, *args):
         self.close()
-

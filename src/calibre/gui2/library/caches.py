@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python2
 # vim:fileencoding=utf-8
 from __future__ import (unicode_literals, division, absolute_import,
                         print_function)
@@ -13,12 +13,15 @@ from PyQt5.Qt import QImage, QPixmap
 
 from calibre.db.utils import ThumbnailCache as TC
 
+
 class ThumbnailCache(TC):
+
     def __init__(self, max_size=1024, thumbnail_size=(100, 100)):
         TC.__init__(self, name='gui-thumbnail-cache', min_disk_cache=100, max_size=max_size, thumbnail_size=thumbnail_size)
 
     def set_database(self, db):
         TC.set_group_id(self, db.library_id)
+
 
 class CoverCache(dict):
 

@@ -10,10 +10,11 @@ Device driver for IRex Iliad
 
 from calibre.devices.usbms.driver import USBMS
 
+
 class ILIAD(USBMS):
 
     name           = 'IRex Iliad Device Interface'
-    description    = _('Communicate with the IRex Iliad eBook reader.')
+    description    = _('Communicate with the IRex Iliad e-book reader.')
     author         = 'John Schember'
     supported_platforms = ['windows', 'osx', 'linux']
 
@@ -28,7 +29,7 @@ class ILIAD(USBMS):
     VENDOR_NAME = 'IREX'
     WINDOWS_MAIN_MEM = 'ILIAD'
 
-    #OSX_MAIN_MEM = ''
+    # OSX_MAIN_MEM = ''
 
     MAIN_MEMORY_VOLUME_LABEL  = 'IRex Iliad Main Memory'
 

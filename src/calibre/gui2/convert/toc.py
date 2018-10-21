@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python2
 # vim:fileencoding=UTF-8:ts=4:sw=4:sta:et:sts=4:ai
 from __future__ import with_statement
 
@@ -11,21 +11,18 @@ from calibre.gui2.convert.toc_ui import Ui_Form
 from calibre.gui2.convert import Widget
 from calibre.gui2 import error_dialog
 from calibre.utils.localization import localize_user_manual_link
+from calibre.ebooks.conversion.config import OPTIONS
+
 
 class TOCWidget(Widget, Ui_Form):
 
     TITLE = _('Table of\nContents')
-    ICON  = I('series.png')
+    ICON  = I('toc.png')
     HELP  = _('Control the creation/conversion of the Table of Contents.')
     COMMIT_NAME = 'toc'
 
     def __init__(self, parent, get_option, get_help, db=None, book_id=None):
-        Widget.__init__(self, parent,
-                ['level1_toc', 'level2_toc', 'level3_toc',
-                'toc_threshold', 'max_toc_links', 'no_chapters_in_toc',
-                'use_auto_toc', 'toc_filter', 'duplicate_links_in_toc',
-                ]
-                )
+        Widget.__init__(self, parent, OPTIONS['pipe']['toc'])
         self.db, self.book_id = db, book_id
         self.initialize_options(get_option, get_help, db, book_id)
         self.opt_level1_toc.set_msg(_('Level &1 TOC (XPath expression):'))
@@ -33,10 +30,9 @@ class TOCWidget(Widget, Ui_Form):
         self.opt_level3_toc.set_msg(_('Level &3 TOC (XPath expression):'))
         try:
             self.help_label.setText(self.help_label.text() % localize_user_manual_link(
-                'http://manual.calibre-ebook.com/conversion.html#table-of-contents'))
+                'https://manual.calibre-ebook.com/conversion.html#table-of-contents'))
         except TypeError:
             pass  # link already localized
-
 
     def pre_commit_check(self):
         for x in ('level1', 'level2', 'level3'):

@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python2
 # vim:fileencoding=UTF-8:ts=4:sw=4:sta:et:sts=4:ai
 
 __license__   = 'GPL v3'
@@ -6,6 +6,7 @@ __copyright__ = '2010, Kovid Goyal <kovid@kovidgoyal.net>'
 __docformat__ = 'restructuredtext en'
 
 from calibre.gui2.actions import InterfaceAction
+
 
 class AddToLibraryAction(InterfaceAction):
 
@@ -22,6 +23,7 @@ class AddToLibraryAction(InterfaceAction):
     def location_selected(self, loc):
         enabled = loc != 'library'
         self.qaction.setEnabled(enabled)
+        self.menuless_qaction.setEnabled(enabled)
 
     def add_books_to_library(self, *args):
         self.gui.iactions['Add Books'].add_books_from_device(

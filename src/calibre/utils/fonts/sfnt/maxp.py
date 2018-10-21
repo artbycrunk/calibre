@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python2
 # vim:fileencoding=UTF-8:ts=4:sw=4:sta:et:sts=4:fdm=marker:ai
 from __future__ import (unicode_literals, division, absolute_import,
                         print_function)
@@ -12,6 +12,7 @@ from struct import unpack_from, pack
 
 from calibre.utils.fonts.sfnt import UnknownTable, FixedProperty
 from calibre.utils.fonts.sfnt.errors import UnsupportedFont
+
 
 class MaxpTable(UnknownTable):
 

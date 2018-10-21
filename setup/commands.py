@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python2
 # vim:fileencoding=UTF-8:ts=4:sw=4:sta:et:sts=4:ai
 from __future__ import with_statement
 
@@ -8,22 +8,24 @@ __docformat__ = 'restructuredtext en'
 
 __all__ = [
         'pot', 'translations', 'get_translations', 'iso639', 'iso3166',
-        'build', 'server', 'mathjax',
+        'build', 'mathjax', 'man_pages',
         'gui',
         'develop', 'install',
-        'kakasi', 'coffee', 'resources',
-        'check',
-        'sdist',
+        'kakasi', 'coffee', 'rapydscript', 'cacerts', 'recent_uas', 'resources',
+        'check', 'test',
+        'sdist', 'bootstrap',
         'manual', 'tag_release',
-        'pypi_register', 'pypi_upload', 'upload_to_server',
+        'upload_to_server',
         'upload_installers',
         'upload_user_manual', 'upload_demo', 'reupload',
-        'linux32', 'linux64', 'linux', 'linux_freeze',
-        'osx32_freeze', 'osx', 'rsync', 'push',
-        'win32_freeze', 'win32', 'win64', 'win',
         'stage1', 'stage2', 'stage3', 'stage4', 'stage5', 'publish', 'publish_betas',
+        'linux', 'linux32', 'linux64', 'win', 'win32', 'win64', 'osx',
         ]
 
+from setup.installers import Linux, Win, OSX, Linux32, Linux64, Win32, Win64
+linux, linux32, linux64 = Linux(), Linux32(), Linux64()
+win, win32, win64 = Win(), Win32(), Win64()
+osx = OSX()
 
 from setup.translations import POT, GetTranslations, Translations, ISO639, ISO3166
 pot = POT()
@@ -32,19 +34,17 @@ get_translations = GetTranslations()
 iso639 = ISO639()
 iso3166 = ISO3166()
 
-from setup.extensions import Build
+from setup.build import Build
 build = Build()
-
-from setup.server import Server
-server = Server()
 
 from setup.mathjax import MathJax
 mathjax = MathJax()
 
-from setup.install import Develop, Install, Sdist
+from setup.install import Develop, Install, Sdist, Bootstrap
 develop = Develop()
 install = Install()
 sdist = Sdist()
+bootstrap = Bootstrap()
 
 from setup.gui import GUI
 gui = GUI()
@@ -52,13 +52,19 @@ gui = GUI()
 from setup.check import Check
 check = Check()
 
-from setup.resources import Resources, Kakasi, Coffee
+from setup.test import Test
+test = Test()
+
+from setup.resources import Resources, Kakasi, Coffee, CACerts, RapydScript, RecentUAs
 resources = Resources()
 kakasi = Kakasi()
 coffee = Coffee()
+cacerts = CACerts()
+recent_uas = RecentUAs()
+rapydscript = RapydScript()
 
 from setup.publish import Manual, TagRelease, Stage1, Stage2, \
-        Stage3, Stage4, Stage5, Publish, PublishBetas
+        Stage3, Stage4, Stage5, Publish, PublishBetas, ManPages
 manual = Manual()
 tag_release = TagRelease()
 stage1 = Stage1()
@@ -68,6 +74,7 @@ stage4 = Stage4()
 stage5 = Stage5()
 publish = Publish()
 publish_betas = PublishBetas()
+man_pages = ManPages()
 
 from setup.upload import (UploadUserManual, UploadDemo, UploadInstallers,
         UploadToServer, ReUpload)
@@ -76,34 +83,6 @@ upload_demo = UploadDemo()
 upload_to_server = UploadToServer()
 upload_installers = UploadInstallers()
 reupload = ReUpload()
-
-from setup.installer import Rsync, Push
-rsync = Rsync()
-push = Push()
-
-from setup.installer.linux import Linux, Linux32, Linux64
-linux = Linux()
-linux32 = Linux32()
-linux64 = Linux64()
-from setup.installer.linux.freeze2 import LinuxFreeze
-linux_freeze = LinuxFreeze()
-
-from setup.installer.osx import OSX
-osx = OSX()
-from setup.installer.osx.app.main import OSX32_Freeze
-osx32_freeze = OSX32_Freeze()
-
-from setup.installer.windows import Win, Win32, Win64
-win = Win()
-win32 = Win32()
-win64 = Win64()
-from setup.installer.windows.freeze import Win32Freeze
-win32_freeze = Win32Freeze()
-
-from setup.pypi import PyPIRegister, PyPIUpload
-pypi_register = PyPIRegister()
-pypi_upload   = PyPIUpload()
-
 
 commands = {}
 for x in __all__:

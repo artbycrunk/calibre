@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python2
 # vim:fileencoding=UTF-8:ts=4:sw=4:sta:et:sts=4:fdm=marker:ai
 from __future__ import (unicode_literals, division, absolute_import,
                         print_function)
@@ -14,6 +14,7 @@ from PyQt5.Qt import (QTabWidget, QTreeWidget, QTreeWidgetItem, Qt, QDialog,
 
 from calibre.gui2 import file_icon_provider
 
+
 def browser_item(f, parent):
     name = f.name
     if not f.is_folder:
@@ -27,6 +28,7 @@ def browser_item(f, parent):
     ans.setData(0, Qt.DecorationRole, file_icon_provider().icon_from_ext(ext))
 
     return ans
+
 
 class Storage(QTreeWidget):
 
@@ -56,6 +58,7 @@ class Storage(QTreeWidget):
             return (self.object_id, item.data(0, Qt.UserRole))
         return None
 
+
 class Folders(QTabWidget):
 
     selected = pyqtSignal()
@@ -75,6 +78,7 @@ class Folders(QTabWidget):
         w = self.currentWidget()
         if w is not None:
             return w.current_item
+
 
 class Browser(QDialog):
 
@@ -96,6 +100,7 @@ class Browser(QDialog):
     @property
     def current_item(self):
         return self.folders.current_item
+
 
 class IgnoredFolders(QDialog):
 
@@ -130,9 +135,9 @@ class IgnoredFolders(QDialog):
                                    QDialogButtonBox.Cancel)
         self.bb.accepted.connect(self.accept)
         self.bb.rejected.connect(self.reject)
-        self.sab = self.bb.addButton(_('Select &All'), self.bb.ActionRole)
+        self.sab = self.bb.addButton(_('Select &all'), self.bb.ActionRole)
         self.sab.clicked.connect(self.select_all)
-        self.snb = self.bb.addButton(_('Select &None'), self.bb.ActionRole)
+        self.snb = self.bb.addButton(_('Select &none'), self.bb.ActionRole)
         self.snb.clicked.connect(self.select_none)
         l.addWidget(self.bb)
         self.setWindowTitle(_('Choose folders to scan'))
@@ -202,6 +207,7 @@ class IgnoredFolders(QDialog):
             ans[unicode(w.storage.storage_id)] = list(folders)
         return ans
 
+
 def setup_device():
     from calibre.devices.mtp.driver import MTP_DEVICE
     from calibre.devices.scanner import DeviceScanner
@@ -215,6 +221,7 @@ def setup_device():
     dev.open(cd, 'test')
     return dev
 
+
 def browse():
     from calibre.gui2 import Application
     app = Application([])
@@ -224,6 +231,7 @@ def browse():
     d.exec_()
     dev.shutdown()
     return d.current_item
+
 
 def ignored_folders():
     from calibre.gui2 import Application
@@ -235,7 +243,7 @@ def ignored_folders():
     dev.shutdown()
     return d.ignored_folders
 
+
 if __name__ == '__main__':
     print (browse())
     # print ('Ignored:', ignored_folders())
-

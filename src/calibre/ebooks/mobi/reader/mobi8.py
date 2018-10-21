@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python2
 # vim:fileencoding=UTF-8:ts=4:sw=4:sta:et:sts=4:ai
 from __future__ import (unicode_literals, division, absolute_import,
                         print_function)
@@ -11,6 +11,7 @@ import struct, re, os
 from collections import namedtuple
 from itertools import repeat, izip
 from urlparse import urldefrag
+from uuid import uuid4
 
 from lxml import etree
 
@@ -36,6 +37,8 @@ FlowInfo = namedtuple('FlowInfo',
         'type format dir fname')
 
 # locate beginning and ending positions of tag with specific aid attribute
+
+
 def locate_beg_end_of_tag(ml, aid):
     pattern = br'''<[^>]*\said\s*=\s*['"]%s['"][^>]*>''' % aid
     aid_pattern = re.compile(pattern, re.IGNORECASE)
@@ -44,6 +47,7 @@ def locate_beg_end_of_tag(ml, aid):
         pgt = ml.find(b'>', plt+1)
         return plt, pgt
     return 0, 0
+
 
 def reverse_tag_iter(block):
     ''' Iterate over all tags in block in reverse order, i.e. last tag
@@ -59,11 +63,13 @@ def reverse_tag_iter(block):
         yield block[plt:pgt+1]
         end = plt
 
+
 def get_first_resource_index(first_image_index, num_of_text_records, first_text_record_number):
     first_resource_index = first_image_index
     if first_resource_index in {-1, NULL_INDEX}:
         first_resource_index = num_of_text_records + first_text_record_number
     return first_resource_index
+
 
 class Mobi8Reader(object):
 
@@ -72,9 +78,13 @@ class Mobi8Reader(object):
         self.mobi6_reader, self.log = mobi6_reader, log
         self.header = mobi6_reader.book_header
         self.encrypted_fonts = []
+        self.id_re = re.compile(br'''<[^>]+\s(?:id|ID)\s*=\s*['"]([^'"]+)['"]''')
+        self.name_re = re.compile(br'''<\s*a\s*\s(?:name|NAME)\s*=\s*['"]([^'"]+)['"]''')
+        self.aid_re = re.compile(br'''<[^>]+\s(?:aid|AID)\s*=\s*['"]([^'"]+)['"]''')
 
     def __call__(self):
         self.mobi6_reader.check_for_drm()
+        self.aid_anchor_suffix = bytes(uuid4().hex)
         bh = self.mobi6_reader.book_header
         if self.mobi6_reader.kf8_type == 'joint':
             offset = self.mobi6_reader.kf8_boundary + 2
@@ -94,6 +104,7 @@ class Mobi8Reader(object):
         self.kf8_sections = self.mobi6_reader.sections[offset-1:]
 
         self.cover_offset = getattr(self.header.exth, 'cover_offset', None)
+        self.linked_aids = set()
 
         self.read_indices()
         self.build_parts()
@@ -222,7 +233,7 @@ class Mobi8Reader(object):
         # The primary css style sheet is typically stored next followed by any
         # snippets of code that were previously inlined in the
         # original xhtml but have been stripped out and placed here.
-        # This can include local CDATA snippets and and svg sections.
+        # This can include local CDATA snippets and svg sections.
 
         # The problem is that for most browsers and ereaders, you can not
         # use <img src="imageXXXX.svg" /> to import any svg image that itself
@@ -317,12 +328,17 @@ class Mobi8Reader(object):
         if plt == npos or pgt < plt:
             npos = pgt + 1
         textblock = textblock[0:npos]
-        id_re = re.compile(br'''<[^>]+\s(?:id|ID)\s*=\s*['"]([^'"]+)['"]''')
-        name_re = re.compile(br'''<\s*a\s*\s(?:name|NAME)\s*=\s*['"]([^'"]+)['"]''')
         for tag in reverse_tag_iter(textblock):
-            m = id_re.match(tag) or name_re.match(tag)
+            m = self.id_re.match(tag) or self.name_re.match(tag)
             if m is not None:
                 return m.group(1)
+            # For some files, kindlegen apparently creates links to tags
+            # without HTML anchors, using the AID instead. See
+            # See https://www.mobileread.com/forums/showthread.php?t=259557
+            m = self.aid_re.match(tag)
+            if m is not None:
+                self.linked_aids.add(m.group(1))
+                return m.group(1) + b'-' + self.aid_anchor_suffix
 
         # No tag found, link to start of file
         return b''
@@ -496,6 +512,9 @@ class Mobi8Reader(object):
         ppd = getattr(self.header.exth, 'page_progression_direction', None)
         if ppd in {'ltr', 'rtl', 'default'}:
             opf.page_progression_direction = ppd
+        pwm = getattr(self.header.exth, 'primary_writing_mode', None)
+        if pwm is not None:
+            opf.primary_writing_mode = pwm
 
         with open('metadata.opf', 'wb') as of, open('toc.ncx', 'wb') as ncx:
             opf.render(of, ncx, 'toc.ncx')

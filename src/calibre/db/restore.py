@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python2
 # vim:fileencoding=UTF-8:ts=4:sw=4:sta:et:sts=4:ai
 
 __license__   = 'GPL v3'
@@ -15,12 +15,13 @@ from calibre.db.backend import DB, DBPrefs
 from calibre.db.cache import Cache
 from calibre.constants import filesystem_encoding
 from calibre.utils.date import utcfromtimestamp
-from calibre import isbytestring
+from calibre import isbytestring, force_unicode
 
 NON_EBOOK_EXTENSIONS = frozenset([
         'jpg', 'jpeg', 'gif', 'png', 'bmp',
         'opf', 'swp', 'swo'
         ])
+
 
 class Restorer(Cache):
 
@@ -34,6 +35,7 @@ class Restorer(Cache):
 
     def no_op(self, *args, **kwargs):
         pass
+
 
 class Restore(Thread):
 
@@ -71,8 +73,8 @@ class Restore(Thread):
         if failures:
             ans += 'Failed to restore the books in the following folders:\n'
             for dirpath, tb in failures:
-                ans += '\t' + dirpath + ' with error:\n'
-                ans += '\n'.join('\t\t'+x for x in tb.splitlines())
+                ans += '\t' + force_unicode(dirpath, filesystem_encoding) + ' with error:\n'
+                ans += '\n'.join('\t\t'+force_unicode(x, filesystem_encoding) for x in tb.splitlines())
                 ans += '\n\n'
 
         if self.conflicting_custom_cols:
@@ -93,7 +95,7 @@ class Restore(Thread):
             ans += '\n\n'
             ans += 'The following folders were ignored:\n'
             for x in self.mismatched_dirs:
-                ans += '\t'+x+'\n'
+                ans += '\t' + force_unicode(x, filesystem_encoding) + '\n'
 
         return ans
 
@@ -269,14 +271,11 @@ class Restore(Thread):
         save_path = self.olddb = os.path.splitext(dbpath)[0]+'_pre_restore.db'
         if os.path.exists(save_path):
             os.remove(save_path)
-        try:
-            os.rename(dbpath, save_path)
-        except OSError as err:
-            if getattr(err, 'winerror', None) == 32:  # ERROR_SHARING_VIOLATION
-                time.sleep(30)  # Wait a little for dropbox or the antivirus or whatever to release the file
+        if os.path.exists(dbpath):
+            try:
                 os.rename(dbpath, save_path)
-            else:
-                raise
+            except EnvironmentError:
+                time.sleep(30)  # Wait a little for dropbox or the antivirus or whatever to release the file
+                shutil.copyfile(dbpath, save_path)
+                os.remove(dbpath)
         shutil.copyfile(ndbpath, dbpath)
-
-

@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python2
 # vim:fileencoding=UTF-8:ts=4:sw=4:sta:et:sts=4:fdm=marker:ai
 from __future__ import (unicode_literals, division, absolute_import,
                         print_function)
@@ -9,7 +9,7 @@ __docformat__ = 'restructuredtext en'
 
 import time, threading, traceback
 from functools import wraps, partial
-from future_builtins import zip
+from polyglot.builtins import zip
 from itertools import chain
 
 from calibre import as_unicode, prints, force_unicode
@@ -20,12 +20,14 @@ from calibre.devices.mtp.base import MTPDeviceBase, debug
 
 null = object()
 
+
 class ThreadingViolation(Exception):
 
     def __init__(self):
         Exception.__init__(self,
                 'You cannot use the MTP driver from a thread other than the '
                 ' thread in which startup() was called')
+
 
 def same_thread(func):
     @wraps(func)

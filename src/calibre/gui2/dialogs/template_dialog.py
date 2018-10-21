@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python2
 __copyright__ = '2008, Kovid Goyal kovid@kovidgoyal.net'
 __docformat__ = 'restructuredtext en'
 __license__   = 'GPL v3'
@@ -21,6 +21,7 @@ from calibre.library.coloring import (displayable_columns, color_row_key)
 from calibre.gui2 import error_dialog, choose_files, pixmap_to_data
 from calibre.utils.localization import localize_user_manual_link
 
+
 class ParenPosition:
 
     def __init__(self, block, pos, paren):
@@ -31,6 +32,7 @@ class ParenPosition:
 
     def set_highlight(self, to_what):
         self.highlight = to_what
+
 
 class TemplateHighlighter(QSyntaxHighlighter):
 
@@ -200,6 +202,7 @@ class TemplateHighlighter(QSyntaxHighlighter):
         self.rehighlight()
         self.generate_paren_positions = False
 
+
 class TemplateDialog(QDialog, Ui_TemplateDialog):
 
     def __init__(self, parent, text, mi=None, fm=None, color_field=None,
@@ -216,7 +219,7 @@ class TemplateDialog(QDialog, Ui_TemplateDialog):
         cols = []
         if fm is not None:
             for key in sorted(displayable_columns(fm),
-                              key=lambda(k): sort_key(fm[k]['name']) if k != color_row_key else 0):
+                              key=lambda k: sort_key(fm[k]['name']) if k != color_row_key else 0):
                 if key == color_row_key and not self.coloring:
                     continue
                 from calibre.gui2.preferences.coloring import all_columns_string
@@ -274,6 +277,7 @@ class TemplateDialog(QDialog, Ui_TemplateDialog):
             self.mi.rating = 4.0
             self.mi.tags = [_('Tag 1'), _('Tag 2')]
             self.mi.languages = ['eng']
+            self.mi.id = 1
             if fm is not None:
                 self.mi.set_all_user_metadata(fm.custom_field_metadata())
             else:
@@ -332,11 +336,11 @@ class TemplateDialog(QDialog, Ui_TemplateDialog):
         tt = _('Template language tutorial')
         self.template_tutorial.setText(
             '<a href="%s">%s</a>' % (
-                localize_user_manual_link('http://manual.calibre-ebook.com/template_lang.html'), tt))
+                localize_user_manual_link('https://manual.calibre-ebook.com/template_lang.html'), tt))
         tt = _('Template function reference')
         self.template_func_reference.setText(
             '<a href="%s">%s</a>' % (
-                localize_user_manual_link('http://manual.calibre-ebook.com/template_ref.html'), tt))
+                localize_user_manual_link('https://manual.calibre-ebook.com/generated/en/template_ref.html'), tt))
 
         self.font_size_box.setValue(gprefs['gpm_template_editor_font_size'])
         self.font_size_box.valueChanged.connect(self.font_size_changed)
@@ -451,6 +455,7 @@ class TemplateDialog(QDialog, Ui_TemplateDialog):
         else:
             self.rule = ('', txt)
         QDialog.accept(self)
+
 
 if __name__ == '__main__':
     app = QApplication([])

@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python2
 # vim:fileencoding=UTF-8:ts=4:sw=4:sta:et:sts=4:fdm=marker:ai
 from __future__ import (unicode_literals, division, absolute_import,
                         print_function)
@@ -12,6 +12,7 @@ from PyQt5.Qt import (QDialog, QDialogButtonBox, QVBoxLayout, QApplication,
 from PyQt5.QtWebKitWidgets import QWebView
 
 from calibre.gui2 import gprefs, error_dialog
+
 
 class TableView(QDialog):
 
@@ -42,8 +43,7 @@ class TableView(QDialog):
                                 self.font_magnification_step)
 
     def zoom_out(self):
-        self.view.setZoomFactor(max(0.1, self.view.zoomFactor()
-                                    -self.font_magnification_step))
+        self.view.setZoomFactor(max(0.1, self.view.zoomFactor() - self.font_magnification_step))
 
     def __call__(self, html, baseurl):
         self.view.setHtml(
@@ -54,12 +54,13 @@ class TableView(QDialog):
         geom = gprefs.get('viewer_table_popup_geometry', None)
         if geom is not None:
             self.restoreGeometry(geom)
-        self.setWindowTitle(_('View Table'))
+        self.setWindowTitle(_('View table'))
         self.show()
 
     def done(self, e):
         gprefs['viewer_table_popup_geometry'] = bytearray(self.saveGeometry())
         return QDialog.done(self, e)
+
 
 class TablePopup(object):
 
@@ -80,4 +81,3 @@ class TablePopup(object):
         for d in tuple(self.dialogs):
             if not d.isVisible():
                 self.dialogs.remove(d)
-

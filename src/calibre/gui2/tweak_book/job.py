@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python2
 # vim:fileencoding=utf-8
 from __future__ import (unicode_literals, division, absolute_import,
                         print_function)
@@ -14,6 +14,7 @@ from PyQt5.Qt import (QWidget, QVBoxLayout, QLabel, Qt, QPainter, QBrush, QRect,
 
 from calibre.gui2 import Dispatcher
 from calibre.gui2.progress_indicator import ProgressIndicator
+
 
 class LongJob(Thread):
 
@@ -40,6 +41,7 @@ class LongJob(Thread):
             self.callback(self)
         finally:
             pass
+
 
 class BlockingJob(QWidget):
 

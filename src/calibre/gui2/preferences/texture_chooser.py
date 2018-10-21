@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python2
 # vim:fileencoding=utf-8
 from __future__ import (unicode_literals, division, absolute_import,
                         print_function)
@@ -10,11 +10,12 @@ import glob, os, string, shutil
 from functools import partial
 from PyQt5.Qt import (
     QDialog, QVBoxLayout, QListWidget, QListWidgetItem, Qt, QIcon,
-    QApplication, QSize, QPixmap, QDialogButtonBox, QTimer, QLabel)
+    QApplication, QSize, QDialogButtonBox, QTimer, QLabel)
 
 from calibre.constants import config_dir
 from calibre.gui2 import choose_files, error_dialog
 from calibre.utils.icu import sort_key
+
 
 def texture_dir():
     ans = os.path.join(config_dir, 'textures')
@@ -22,12 +23,14 @@ def texture_dir():
         os.makedirs(ans)
     return ans
 
+
 def texture_path(fname):
     if not fname:
         return
     if fname.startswith(':'):
         return I('textures/%s' % fname[1:])
     return os.path.join(texture_dir(), fname)
+
 
 class TextureChooser(QDialog):
 
@@ -50,7 +53,7 @@ class TextureChooser(QDialog):
         il.itemSelectionChanged.connect(self.update_remove_state)
         l.addWidget(il)
 
-        self.ad = ad = QLabel(_('The builtin textures come from <a href="http://subtlepatterns.com">subtlepatterns.com</a>.'))
+        self.ad = ad = QLabel(_('The builtin textures come from <a href="https://subtlepatterns.com">subtlepatterns.com</a>.'))
         ad.setOpenExternalLinks(True)
         ad.setWordWrap(True)
         l.addWidget(ad)
@@ -91,7 +94,7 @@ class TextureChooser(QDialog):
 
     def create_item(self, data):
         x = data
-        i = QListWidgetItem(QIcon(QPixmap(x['path']).scaled(256, 256, transformMode=Qt.SmoothTransformation)), x['name'], self.images)
+        i = QListWidgetItem(QIcon(x['path']), x['name'], self.images)
         i.setData(Qt.UserRole, x['fname'])
         i.setData(Qt.UserRole+1, x['path'])
         return i
@@ -105,7 +108,7 @@ class TextureChooser(QDialog):
         return self.selected_fname
 
     def add_texture(self):
-        path = choose_files(self, 'choose-texture-image', _('Choose Image'),
+        path = choose_files(self, 'choose-texture-image', _('Choose image'),
                             filters=[(_('Images'), ['jpeg', 'jpg', 'png'])], all_files=False, select_only_single_file=True)
         if not path:
             return
@@ -140,9 +143,10 @@ class TextureChooser(QDialog):
             return
         if self.selected_fname.startswith(':'):
             return error_dialog(self, _('Cannot remove'),
-                                _('Cannot remover builtin textures'), show=True)
+                                _('Cannot remove builtin textures'), show=True)
         os.remove(unicode(self.selected_item.data(Qt.UserRole+1) or ''))
         self.images.takeItem(self.images.row(self.selected_item))
+
 
 if __name__ == '__main__':
     app = QApplication([])  # noqa

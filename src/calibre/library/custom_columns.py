@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python2
 # vim:fileencoding=UTF-8:ts=4:sw=4:sta:et:sts=4:ai
 from __future__ import with_statement
 
@@ -15,6 +15,7 @@ from calibre.library.field_metadata import FieldMetadata
 from calibre.utils.date import parse_date
 from calibre.utils.config import tweaks
 
+
 class CustomColumns(object):
 
     CUSTOM_DATA_TYPES = frozenset(['rating', 'text', 'comments', 'datetime',
@@ -25,9 +26,9 @@ class CustomColumns(object):
 
     @property
     def custom_tables(self):
-        return set([x[0] for x in self.conn.get(
+        return {x[0] for x in self.conn.get(
             'SELECT name FROM sqlite_master WHERE type="table" AND '
-            '(name GLOB "custom_column_*" OR name GLOB "books_custom_column_*")')])
+            '(name GLOB "custom_column_*" OR name GLOB "books_custom_column_*")')}
 
     def __init__(self):
         # Verify that CUSTOM_DATA_TYPES is a (possibly improper) subset of
@@ -360,7 +361,7 @@ class CustomColumns(object):
             ans = self.conn.get('SELECT value FROM %s'%table)
         else:
             ans = self.conn.get('SELECT DISTINCT value FROM %s'%table)
-        ans = set([x[0] for x in ans])
+        ans = {x[0] for x in ans}
         return ans
 
     def delete_custom_column(self, label=None, num=None):
@@ -446,8 +447,7 @@ class CustomColumns(object):
 
         # Populate the books temp cust_table
         self.conn.executemany(
-            'INSERT INTO temp_bulk_tag_edit_books VALUES (?)',
-                [(x,) for x in ids])
+            'INSERT INTO temp_bulk_tag_edit_books VALUES (?)', [(x,) for x in ids])
 
         # Populate the add/remove tags temp temp_tables
         for table, tags in enumerate([add, remove]):
@@ -509,7 +509,7 @@ class CustomColumns(object):
         rv = self._set_custom(id, val, label=label, num=num, append=append,
                          notify=notify, extra=extra,
                          allow_case_change=allow_case_change)
-        self.dirtied(set([id])|rv, commit=False)
+        self.dirtied({id}|rv, commit=False)
         if commit:
             self.conn.commit()
         return rv
@@ -576,8 +576,7 @@ class CustomColumns(object):
                     xid = self.conn.execute(
                         'INSERT INTO %s(value) VALUES(?)'%table, (x,)).lastrowid
                 if not self.conn.get(
-                    'SELECT book FROM %s WHERE book=? AND value=?'%lt,
-                                                        (id_, xid), all=False):
+                    'SELECT book FROM %s WHERE book=? AND value=?'%lt, (id_, xid), all=False):
                     if data['datatype'] == 'series':
                         self.conn.execute(
                             '''INSERT INTO %s(book, value, extra)
@@ -591,7 +590,7 @@ class CustomColumns(object):
                 if case_change:
                     bks = self.conn.get('SELECT book FROM %s WHERE value=?'%lt,
                                         (xid,))
-                    books_to_refresh |= set([bk[0] for bk in bks])
+                    books_to_refresh |= {bk[0] for bk in bks}
             nval = self.conn.get(
                     'SELECT custom_%s FROM meta2 WHERE id=?'%data['num'],
                     (id_,), all=False)
@@ -601,11 +600,9 @@ class CustomColumns(object):
             self.conn.execute('DELETE FROM %s WHERE book=?'%table, (id_,))
             if val is not None:
                 self.conn.execute(
-                        'INSERT INTO %s(book,value) VALUES (?,?)'%table,
-                    (id_, val))
+                        'INSERT INTO %s(book,value) VALUES (?,?)'%table, (id_, val))
             nval = self.conn.get(
-                    'SELECT custom_%s FROM meta2 WHERE id=?'%data['num'],
-                    (id_,), all=False)
+                    'SELECT custom_%s FROM meta2 WHERE id=?'%data['num'], (id_,), all=False)
             self.data.set(id_, self.FIELD_MAP[data['num']], nval,
                     row_is_id=True)
         if notify:
@@ -631,9 +628,9 @@ class CustomColumns(object):
             if data['normalized']:
                 query = '%s.value'
                 if data['is_multiple']:
-#                    query = 'group_concat(%s.value, "{0}")'.format(
-#                                        data['multiple_seps']['cache_to_list'])
-#                    if not display.get('sort_alpha', False):
+                    #                    query = 'group_concat(%s.value, "{0}")'.format(
+                    #                                        data['multiple_seps']['cache_to_list'])
+                    #                    if not display.get('sort_alpha', False):
                     if data['multiple_seps']['cache_to_list'] == '|':
                         query = 'sortconcat_bar(link.id, %s.value)'
                     elif data['multiple_seps']['cache_to_list'] == '&':
@@ -660,7 +657,7 @@ class CustomColumns(object):
             editable=True, display={}):
         if not label:
             raise ValueError(_('No label was provided'))
-        if re.match('^\w*$', label) is None or not label[0].isalpha() or label.lower() != label:
+        if re.match('^\\w*$', label) is None or not label[0].isalpha() or label.lower() != label:
             raise ValueError(_('The label must contain only lower case letters, digits and underscores, and start with a letter'))
         if datatype not in self.CUSTOM_DATA_TYPES:
             raise ValueError('%r is not a supported data type'%datatype)
@@ -812,5 +809,3 @@ class CustomColumns(object):
         self.conn.executescript(script)
         self.conn.commit()
         return num
-
-

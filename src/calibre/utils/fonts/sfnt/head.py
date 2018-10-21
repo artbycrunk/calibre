@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python2
 # vim:fileencoding=UTF-8:ts=4:sw=4:sta:et:sts=4:fdm=marker:ai
 from __future__ import (unicode_literals, division, absolute_import,
                         print_function)
@@ -12,6 +12,7 @@ from struct import unpack_from, pack, calcsize
 
 from calibre.utils.fonts.sfnt import UnknownTable, DateTimeProperty, FixedProperty
 from calibre.utils.fonts.sfnt.errors import UnsupportedFont
+
 
 class HeadTable(UnknownTable):
 
@@ -53,12 +54,14 @@ class HeadTable(UnknownTable):
         vals = [getattr(self, f) for f in self._fields]
         self.raw = pack(self._fmt, *vals)
 
+
 class HorizontalHeader(UnknownTable):
 
     version_number = FixedProperty('_version_number')
 
     def read_data(self, hmtx):
-        if hasattr(self, 'ascender'): return
+        if hasattr(self, 'ascender'):
+            return
         field_types = (
             '_version_number' , 'l',
             'ascender', 'h',
@@ -97,10 +100,12 @@ class HorizontalHeader(UnknownTable):
         entries = unpack_from(fmt.encode('ascii'), long_hor_metric)
         self.left_side_bearings = entries[1::2]
 
+
 class OS2Table(UnknownTable):
 
     def read_data(self):
-        if hasattr(self, 'char_width'): return
+        if hasattr(self, 'char_width'):
+            return
         ver, = unpack_from(b'>H', self.raw)
         field_types = [
             'version' , 'H',
@@ -152,13 +157,15 @@ class OS2Table(UnknownTable):
         self.raw = self.raw[:prefix] + b'\0\0' + self.raw[prefix+2:]
         self.fs_type = 0
 
+
 class PostTable(UnknownTable):
 
     version_number = FixedProperty('_version')
     italic_angle = FixedProperty('_italic_angle')
 
     def read_data(self):
-        if hasattr(self, 'underline_position'): return
+        if hasattr(self, 'underline_position'):
+            return
         (self._version, self._italic_angle, self.underline_position,
          self.underline_thickness) = unpack_from(b'>llhh', self.raw)
 

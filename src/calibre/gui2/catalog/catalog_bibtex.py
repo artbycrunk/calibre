@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python2
 # vim:fileencoding=UTF-8:ts=4:sw=4:sta:et:sts=4:ai
 from __future__ import with_statement
 
@@ -11,9 +11,10 @@ from calibre.gui2 import gprefs
 from calibre.gui2.catalog.catalog_bibtex_ui import Ui_Form
 from PyQt5.Qt import QWidget, QListWidgetItem
 
+
 class PluginWidget(QWidget, Ui_Form):
 
-    TITLE = _('BibTeX Options')
+    TITLE = _('BibTeX options')
     HELP  = _('Options specific to')+' BibTeX '+_('output')
     OPTION_FIELDS = [('bib_cit','{authors}{id}'),
                      ('bib_entry', 0),  # mixed
@@ -24,7 +25,7 @@ class PluginWidget(QWidget, Ui_Form):
                      ]
 
     sync_enabled = False
-    formats = set(['bib'])
+    formats = {'bib'}
 
     def __init__(self, parent=None):
         QWidget.__init__(self, parent)

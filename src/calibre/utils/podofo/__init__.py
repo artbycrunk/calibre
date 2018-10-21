@@ -1,6 +1,7 @@
-#!/usr/bin/env python
+#!/usr/bin/env python2
 # vim:fileencoding=UTF-8:ts=4:sw=4:sta:et:sts=4:ai
 from __future__ import with_statement
+from __future__ import print_function
 
 __license__   = 'GPL v3'
 __copyright__ = '2009, Kovid Goyal <kovid@kovidgoyal.net>'
@@ -13,11 +14,13 @@ from calibre.ebooks.metadata import authors_to_string
 from calibre.ptempfile import TemporaryDirectory
 from calibre.utils.ipc.simple_worker import fork_job, WorkerError
 
+
 def get_podofo():
     podofo, podofo_err = plugins['podofo']
     if podofo is None:
         raise RuntimeError('Failed to load podofo: %s'%podofo_err)
     return podofo
+
 
 def prep(val):
     if not val:
@@ -25,6 +28,7 @@ def prep(val):
     if not isinstance(val, unicode):
         val = val.decode(preferred_encoding, 'replace')
     return val.strip()
+
 
 def set_metadata(stream, mi):
     with TemporaryDirectory(u'_podofo_set_metadata') as tdir:
@@ -38,7 +42,7 @@ def set_metadata(stream, mi):
                 mi.title, mi.authors, mi.book_producer, mi.tags, xmp_packet))
             touched = result['result']
         except WorkerError as e:
-            raise Exception('Failed to set PDF metadata: %s'%e.orig_tb)
+            raise Exception('Failed to set PDF metadata in (%s): %s'%(mi.title, e.orig_tb))
         if touched:
             with open(os.path.join(tdir, u'output.pdf'), 'rb') as f:
                 f.seek(0, 2)
@@ -49,6 +53,7 @@ def set_metadata(stream, mi):
                     shutil.copyfileobj(f, stream)
                     stream.flush()
     stream.seek(0)
+
 
 def set_metadata_(tdir, title, authors, bkp, tags, xmp_packet):
     podofo = get_podofo()
@@ -94,6 +99,7 @@ def set_metadata_(tdir, title, authors, bkp, tags, xmp_packet):
 
     return touched
 
+
 def delete_all_but(path, pages):
     ''' Delete all the pages in the pdf except for the specified ones. Negative
     numbers are counted from the end of the PDF. '''
@@ -111,6 +117,7 @@ def delete_all_but(path, pages):
     with open(path, 'wb') as f:
         f.save_to_fileobj(path)
 
+
 def get_xmp_metadata(path):
     podofo = get_podofo()
     p = podofo.PDFDoc()
@@ -118,6 +125,16 @@ def get_xmp_metadata(path):
         raw = f.read()
     p.load(raw)
     return p.get_xmp_metadata()
+
+
+def get_image_count(path):
+    podofo = get_podofo()
+    p = podofo.PDFDoc()
+    with open(path, 'rb') as f:
+        raw = f.read()
+    p.load(raw)
+    return p.image_count()
+
 
 def test_outline(src):
     podofo = get_podofo()
@@ -133,7 +150,8 @@ def test_outline(src):
     out = '/tmp/outlined.pdf'
     with open(out, 'wb') as f:
         f.write(raw)
-    print 'Outlined PDF:', out
+    print('Outlined PDF:', out)
+
 
 def test_save_to(src, dest):
     podofo = get_podofo()
@@ -143,9 +161,11 @@ def test_save_to(src, dest):
     p.load(raw)
     with open(dest, 'wb') as out:
         p.save_to_fileobj(out)
-        print ('Wrote PDF of size:', out.tell())
+        print('Wrote PDF of size:', out.tell())
+
 
 def test_podofo():
+    import tempfile
     from io import BytesIO
     from calibre.ebooks.metadata.book.base import Metadata
     from calibre.ebooks.metadata.xmp import metadata_to_xmp_packet
@@ -161,12 +181,19 @@ def test_podofo():
     buf = BytesIO()
     p.save_to_fileobj(buf)
     raw = buf.getvalue()
-    p = podofo.PDFDoc()
-    p.load(raw)
-    if (p.title, p.author) != (mi.title, mi.authors[0]):
-        raise ValueError('podofo failed to set title and author in Info dict')
-    if not p.get_xmp_metadata():
-        raise ValueError('podofo failed to write XMP packet')
+    with tempfile.NamedTemporaryFile(delete=False) as f:
+        f.write(raw)
+    try:
+        p = podofo.PDFDoc()
+        p.open(f.name)
+        if (p.title, p.author) != (mi.title, mi.authors[0]):
+            raise ValueError('podofo failed to set title and author in Info dict')
+        if not p.get_xmp_metadata():
+            raise ValueError('podofo failed to write XMP packet')
+        del p
+    finally:
+        os.remove(f.name)
+
 
 if __name__ == '__main__':
     import sys

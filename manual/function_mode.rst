@@ -1,17 +1,17 @@
-Function Mode for Search & Replace in the Editor
-=======================================================================
+Function mode for Search & replace in the Editor
+================================================
 
-The Search & Replace tool in the editor support a *function mode*. In this
-mode, you can combine regular expressions (see :doc:`regexp`) with
-arbitrarily powerful python functions to do all sorts of advanced text
-processing. 
+The :guilabel:`Search & replace` tool in the editor support a *function mode*.
+In this mode, you can combine regular expressions (see :doc:`regexp`) with
+arbitrarily powerful Python functions to do all sorts of advanced text
+processing.
 
 In the standard *regexp* mode for search and replace, you specify both a
 regular expression to search for as well as a template that is used to replace
 all found matches. In function mode, instead of using a fixed template, you
-specify an arbitrary function, in the 
-`python programming language <https://docs.python.org/2.7/>`_. This allows
-you to do lots of things that are not possible with simple templates. 
+specify an arbitrary function, in the
+`Python programming language <https://docs.python.org/2.7/>`_. This allows
+you to do lots of things that are not possible with simple templates.
 
 Techniques for using function mode and the syntax will be described by means of
 examples, showing you how to create functions to perform progressively more
@@ -23,13 +23,13 @@ complex tasks.
     :align: center
 
 Automatically fixing the case of headings in the document
--------------------------------------------------------------
+---------------------------------------------------------
 
 Here, we will leverage one of the builtin functions in the editor to
 automatically change the case of all text inside heading tags to title case::
 
     Find expression: <([Hh][1-6])[^>]*>.+?</\1>
-    
+
 For the function, simply choose the :guilabel:`Title-case text (ignore tags)` builtin
 function. The will change titles that look like: ``<h1>some TITLE</h1>`` to
 ``<h1>Some Title</h1>``. It will work even if there are other HTML tags inside
@@ -37,23 +37,23 @@ the heading tags.
 
 
 Your first custom function - smartening hyphens
-------------------------------------------------------------------
+-----------------------------------------------
 
 The real power of function mode comes from being able to create your own
 functions to process text in arbitrary ways. The Smarten Punctuation tool in
 the editor leaves individual hyphens alone, so you can use the this function to
 replace them with em-dashes.
 
-To create a new function, simply click the Create/Edit button to create a new
-function and copy the python code from below.
+To create a new function, simply click the :guilabel:`Create/edit` button to create a new
+function and copy the Python code from below.
 
 .. code-block:: python
 
     def replace(match, number, file_name, metadata, dictionaries, data, functions, *args, **kwargs):
         return match.group().replace('--', '—').replace('-', '—')
 
-Every Search & Replace custom function must have a unique name and consist of a
-python function named replace, that accepts all the arguments shown above. 
+Every :guilabel:`Search & replace` custom function must have a unique name and consist of a
+Python function named replace, that accepts all the arguments shown above.
 For the moment, we wont worry about all the different arguments to
 ``replace()`` function. Just focus on the ``match`` argument. It represents a
 match when running a search and replace. Its full documentation in available
@@ -71,9 +71,9 @@ inside HTML tag definitions.
 
 
 The power of function mode - using a spelling dictionary to fix mis-hyphenated words
-----------------------------------------------------------------------------------------
+------------------------------------------------------------------------------------
 
-Often, ebooks created from scans of printed books contain mis-hyphenated words
+Often, e-books created from scans of printed books contain mis-hyphenated words
 -- words that were split at the end of the line on the printed page. We will
 write a simple function to automatically find and fix such words.
 
@@ -96,7 +96,7 @@ write a simple function to automatically find and fix such words.
         # Search for words split by a hyphen
         text = replace_entities(match.group()[1:-1])  # Handle HTML entities like &amp;
         corrected = regex.sub(r'(\w+)\s*-\s*(\w+)', replace_word, text, flags=regex.VERSION1 | regex.UNICODE)
-        return '>%s<' % prepare_string_for_xml(corrected)  # Put back required entities 
+        return '>%s<' % prepare_string_for_xml(corrected)  # Put back required entities
 
 Use this function with the same find expression as before, namely::
 
@@ -116,7 +116,7 @@ main language of the book.
 
 
 Auto numbering sections
----------------------------
+-----------------------
 
 Now we will see something a little different. Suppose your HTML file has many
 sections, each with a heading in an :code:`<h2>` tag that looks like
@@ -151,10 +151,10 @@ are processed in the order in which they appear in the book. See
 
 
 Auto create a Table of Contents
--------------------------------------
+-------------------------------
 
 Finally, lets try something a little more ambitious. Suppose your book has
-headings in ``h1`` and ``h2`` tags that look like 
+headings in ``h1`` and ``h2`` tags that look like
 ``<h1 id="someid">Some Text</h1>``. We will auto-generate an HTML Table of
 Contents based on these headings. Create the custom function below:
 
@@ -187,7 +187,7 @@ Contents based on these headings. Create the custom function below:
                 data['toc'] = []
             tag_name, anchor, text = match.group(1), replace_entities(match.group(2)), replace_entities(match.group(3))
             data['toc'].append((file_name, tag_name, anchor, text))
-            return match.group()  # We dont want to make any actual changes, so return the original matched text
+            return match.group()  # We don't want to make any actual changes, so return the original matched text
 
     # Ensure that we are called once after the last match is found so we can
     # output the ToC
@@ -201,12 +201,12 @@ And use it with the find expression::
     <(h[12]) [^<>]* id=['"]([^'"]+)['"][^<>]*>([^<>]+)
 
 Run the search on :guilabel:`All text files` and at the end of the search, a
-window will popup with "Debug Output from your function" which will have the
+window will popup with "Debug output from your function" which will have the
 HTML Table of Contents, ready to be pasted into :file:`toc.html`.
 
 The function above is heavily commented, so it should be easy to follow. The
 key new feature is the use of another useful extra argument to the
-``replace()`` function, the ``data`` object. The ``data`` object is a python
+``replace()`` function, the ``data`` object. The ``data`` object is a Python
 *dict* that persists between all successive invocations of ``replace()`` during
 a single :guilabel:`Replace All` operation.
 
@@ -221,11 +221,11 @@ you would be better off using the dedicated Table of Contents tool in
 :guilabel:`Tools->Table of Contents`.
 
 The API for the function mode
--------------------------------
+-----------------------------
 
-All function mode functions must be python functions named replace, with the
+All function mode functions must be Python functions named replace, with the
 following signature::
-    
+
     def replace(match, number, file_name, metadata, dictionaries, data, functions, *args, **kwargs):
         return a_string
 
@@ -236,23 +236,23 @@ the original string. The various arguments to the ``replace()`` function are
 documented below.
 
 The ``match`` argument
-^^^^^^^^^^^^^^^^^^^^^^^^^^
+^^^^^^^^^^^^^^^^^^^^^^
 
-The ``match`` argument represents the currently found match. It is a 
-`python Match object <https://docs.python.org/2.7/library/re.html#match-objects>`_.
-It's most useful method is ``group()`` which can be used to get the matched
+The ``match`` argument represents the currently found match. It is a
+`Python Match object <https://docs.python.org/2.7/library/re.html#match-objects>`_.
+Its most useful method is ``group()`` which can be used to get the matched
 text corresponding to individual capture groups in the search regular
 expression.
 
 The ``number`` argument
-^^^^^^^^^^^^^^^^^^^^^^^^^
+^^^^^^^^^^^^^^^^^^^^^^^
 
 The ``number`` argument is the number of the current match. When you run
 :guilabel:`Replace All`, every successive match will cause ``replace()`` to be
 called with an increasing number. The first match has number 1.
 
 The ``file_name`` argument
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 This is the filename of the file in which the current match was found. When
 searching inside marked text, the ``file_name`` is empty. The ``file_name`` is
@@ -260,7 +260,7 @@ in canonical form, a path relative to the root of the book, using ``/`` as the
 path separator.
 
 The ``metadata`` argument
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+^^^^^^^^^^^^^^^^^^^^^^^^^
 
 This represents the metadata of the current book, such as title, authors,
 language, etc. It is an object of class :class:`calibre.ebooks.metadata.book.base.Metadata`.
@@ -268,24 +268,24 @@ Useful attributes include, ``title``, ``authors`` (a list of authors) and
 ``language`` (the language code).
 
 The ``dictionaries`` argument
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 This represents the collection of dictionaries used for spell checking the
-current book. It's most useful method is ``dictionaries.recognized(word)``
+current book. Its most useful method is ``dictionaries.recognized(word)``
 which will return ``True`` if the passed in word is recognized by the dictionary
 for the current book's language.
 
 The ``data`` argument
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+^^^^^^^^^^^^^^^^^^^^^
 
-This a simple python ``dict``. When you run
-:guilabel:`Replace All`, every successive match will cause ``replace()`` to be
+This a simple Python ``dict``. When you run
+:guilabel:`Replace all`, every successive match will cause ``replace()`` to be
 called with the same ``dict`` as data. You can thus use it to store arbitrary
-data between invocations of ``replace()`` during a :guilabel:`Replace All`
+data between invocations of ``replace()`` during a :guilabel:`Replace all`
 operation.
 
 The ``functions`` argument
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 The ``functions`` argument gives you access to all other user defined
 functions. This is useful for code re-use. You can define utility functions in
@@ -328,19 +328,19 @@ uses it when it is run afterwards. Consider the following two functions:
         ...
 
 Debugging your functions
-^^^^^^^^^^^^^^^^^^^^^^^^^^
+^^^^^^^^^^^^^^^^^^^^^^^^
 
 You can debug the functions you create by using the standard ``print()``
-function from python. The output of print will be displayed in a popup window
+function from Python. The output of print will be displayed in a popup window
 after the Find/replace has completed. You saw an example of using ``print()``
 to output an entire table of contents above.
 
 .. _file_order_replace_all:
 
 Choose file order when running on multiple HTML files
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-When you run a :guilabel:`Replace All` on multiple HTML files, the order in
+When you run a :guilabel:`Replace all` on multiple HTML files, the order in
 which the files are processes depends on what files you have open for editing.
 You can force the search to process files in the order in which the appear by
 setting the ``file_order`` attribute on your function, like this:
@@ -357,7 +357,7 @@ the search to process multiple files in the order they appear in the book,
 either forwards or backwards, respectively.
 
 Having your function called an extra time after the last match is found
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 Sometimes, as in the auto generate table of contents example above, it is
 useful to have your function called an extra time after the last match is
@@ -370,3 +370,42 @@ function, like this:
         ...
 
     replace.call_after_last_match = True
+
+
+Appending the output from the function to marked text
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+When running search and replace on marked text, it is sometimes useful to
+append so text to the end of the marked text. You can do that by setting
+the ``append_final_output_to_marked`` attribute on your function (note that you
+also need to set ``call_after_last_match``), like this:
+
+.. code-block:: python
+
+    def replace(match, number, file_name, metadata, dictionaries, data, functions, *args, **kwargs):
+        ...
+        return 'some text to append'
+
+    replace.call_after_last_match = True
+    replace.append_final_output_to_marked = True
+
+Suppressing the result dialog when performing searches on marked text
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+You can also suppress the result dialog (which can slow down the repeated
+application of a search/replace on many blocks of text) by setting 
+the ``suppress_result_dialog`` attribute on your function, like this:
+
+.. code-block:: python
+
+    def replace(match, number, file_name, metadata, dictionaries, data, functions, *args, **kwargs):
+        ...
+
+    replace.suppress_result_dialog = True
+
+
+More examples
+----------------
+
+More useful examples, contributed by calibre users, can be found in the
+`calibre Editor forum <https://www.mobileread.com/forums/showthread.php?t=237181>`_.

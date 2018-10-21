@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python2
 # vim:fileencoding=utf-8
 from __future__ import (unicode_literals, division, absolute_import,
                         print_function)
@@ -19,8 +19,10 @@ from calibre.gui2.dbus_export.utils import (
 
 null = object()
 
+
 def PropDict(mapping=()):
     return dbus.Dictionary(mapping, signature='sv')
+
 
 def create_properties_for_action(ac, previous=None):
     ans = PropDict()
@@ -63,6 +65,7 @@ def create_properties_for_action(ac, previous=None):
                 ans['x-qt-icon-cache-key'] = icon.cacheKey()
     return ans
 
+
 def menu_actions(menu):
     try:
         return menu.actions()
@@ -70,6 +73,7 @@ def menu_actions(menu):
         if isinstance(menu, QMenu):
             return QMenu.actions(menu)
         raise
+
 
 class DBusMenu(QObject):
 
@@ -126,7 +130,7 @@ class DBusMenu(QObject):
     def publish_new_menu(self, qmenu=None):
         self.init_maps(qmenu)
         if qmenu is not None:
-            qmenu.destroyed.connect(lambda obj=None:self.publish_new_menu())
+            connect_lambda(qmenu.destroyed, self, lambda self:self.publish_new_menu())
             ac = qmenu.menuAction()
             self.add_action(ac)
         self.dbus_api.LayoutUpdated(self.dbus_api.revision, 0)
@@ -233,7 +237,7 @@ class DBusMenu(QObject):
         return parent_id, props, self.get_layout_children(parent_id, depth, property_names)
 
     def get_layout_children(self, parent_id, depth, property_names):
-        ans = dbus.Array(signature='(ia{sv}av)')
+        ans = dbus.Array(signature='v')
         ac = self.id_to_action(parent_id)
         if ac is not None and depth != 0 and ac.menu() is not None:
             for child in menu_actions(ac.menu()):
@@ -265,6 +269,7 @@ class DBusMenu(QObject):
         if ac_id in self.layout_changes or child_ids.intersection(self.action_changes):
             return True
         return False
+
 
 class DBusMenuAPI(Object):
 
@@ -369,6 +374,7 @@ class DBusMenuAPI(Object):
     def ItemActivationRequested(self, id, timestamp):
         pass
 
+
 def test():
     setup_for_cli_run()
     app = QApplication([])
@@ -381,6 +387,7 @@ def test():
     menu.publish_new_menu(m)
     app.exec_()
     del dbus_name
+
 
 if __name__ == '__main__':
     test()

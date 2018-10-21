@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python2
 # vim:fileencoding=UTF-8:ts=4:sw=4:sta:et:sts=4:fdm=marker:ai
 from __future__ import (unicode_literals, division, absolute_import,
                         print_function)
@@ -13,6 +13,7 @@ from PyQt5.Qt import (QPainter, Qt, QWidget, QPropertyAnimation, QRect, QPoint,
 
 from calibre.gui2 import config
 
+
 class Pointer(QWidget):
 
     def __init__(self, gui):
@@ -20,7 +21,7 @@ class Pointer(QWidget):
         self.setObjectName('jobs_pointer')
         self.setVisible(False)
         self.resize(100, 80)
-        self.animation = QPropertyAnimation(self, "geometry", self)
+        self.animation = QPropertyAnimation(self, b"geometry", self)
         self.animation.setDuration(750)
         self.animation.setLoopCount(2)
         self.animation.setEasingCurve(QEasingCurve.Linear)
@@ -69,7 +70,7 @@ class Pointer(QWidget):
         self.setVisible(True)
         self.raise_()
         end = self.abspos(self.gui.jobs_button)
-        end = QPointF( end.x() + self.gui.jobs_button.width()/3.0, end.y()+20)
+        end = QPointF(end.x() + self.gui.jobs_button.width()/3.0, end.y()+20)
         start = QPointF(end.x(), end.y() - 0.5*self.height())
         self.path = QPainterPath(QPointF(start))
         self.path.lineTo(end)

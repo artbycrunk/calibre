@@ -1,8 +1,8 @@
-#!/usr/bin/env python
+#!/usr/bin/env python2
 # vim:fileencoding=UTF-8:ts=4:sw=4:sta:et:sts=4:ai
 from __future__ import (unicode_literals, division, absolute_import,
                         print_function)
-from future_builtins import map
+from polyglot.builtins import map
 
 __license__   = 'GPL v3'
 __copyright__ = '2011, Kovid Goyal <kovid@kovidgoyal.net>'
@@ -19,6 +19,7 @@ from calibre.customize import (Plugin, numeric_version, platform,
 # PEP 302 based plugin loading mechanism, works around the bug in zipimport in
 # python 2.x that prevents importing from zip files in locations whose paths
 # have non ASCII characters
+
 
 def get_resources(zfp, name_or_list_of_names):
     '''
@@ -47,6 +48,7 @@ def get_resources(zfp, name_or_list_of_names):
         ans = ans.pop(names[0], None)
 
     return ans
+
 
 def get_icons(zfp, name_or_list_of_names):
     '''
@@ -81,7 +83,9 @@ def get_icons(zfp, name_or_list_of_names):
         ians = ians.pop(names[0])
     return ians
 
+
 _translations_cache = {}
+
 
 def load_translations(namespace, zfp):
     null = object()
@@ -108,6 +112,7 @@ def load_translations(namespace, zfp):
 
     namespace['_'] = trans.ugettext
     namespace['ngettext'] = trans.ungettext
+
 
 class PluginLoader(object):
 
@@ -176,7 +181,7 @@ class PluginLoader(object):
             mod.__dict__['get_resources'] = partial(get_resources, zfp)
             mod.__dict__['get_icons'] = partial(get_icons, zfp)
             mod.__dict__['load_translations'] = partial(load_translations, mod.__dict__, zfp)
-            exec compiled in mod.__dict__
+            exec(compiled, mod.__dict__)
 
         return mod
 
@@ -305,11 +310,10 @@ if __name__ == '__main__':
             with CurrentDir(path):
                 for x in os.listdir('.'):
                     if x[0] != '.':
-                        print ('Adding', x)
+                        print('Adding', x)
                     zf.write(x)
                     if os.path.isdir(x):
                         for y in os.listdir(x):
                             zf.write(os.path.join(x, y))
         add_plugin(f.name)
-        print ('Added plugin from', sys.argv[-1])
-
+        print('Added plugin from', sys.argv[-1])

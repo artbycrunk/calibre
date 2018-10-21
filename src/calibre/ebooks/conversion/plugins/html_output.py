@@ -10,33 +10,36 @@ from calibre.customize.conversion import OutputFormatPlugin, OptionRecommendatio
 from calibre import CurrentDir
 from calibre.ptempfile import PersistentTemporaryDirectory
 
+
 def relpath(*args):
     return _relpath(*args).replace(os.sep, '/')
+
 
 class HTMLOutput(OutputFormatPlugin):
 
     name = 'HTML Output'
     author = 'Fabian Grassl'
     file_type = 'zip'
+    commit_name = 'html_output'
 
-    options = set([
+    options = {
         OptionRecommendation(name='template_css',
             help=_('CSS file used for the output instead of the default file')),
 
         OptionRecommendation(name='template_html_index',
-            help=_('Template used for generation of the html index file instead of the default file')),
+            help=_('Template used for generation of the HTML index file instead of the default file')),
 
         OptionRecommendation(name='template_html',
-            help=_('Template used for the generation of the html contents of the book instead of the default file')),
+            help=_('Template used for the generation of the HTML contents of the book instead of the default file')),
 
         OptionRecommendation(name='extract_to',
             help=_('Extract the contents of the generated ZIP file to the '
                 'specified directory. WARNING: The contents of the directory '
                 'will be deleted.')
         ),
-    ])
+    }
 
-    recommendations = set([('pretty_print', True, OptionRecommendation.HIGH)])
+    recommendations = {('pretty_print', True, OptionRecommendation.HIGH)}
 
     def generate_toc(self, oeb_book, ref_url, output_dir):
         '''
@@ -127,6 +130,8 @@ class HTMLOutput(OutputFormatPlugin):
                     toc=html_toc, meta=meta, nextLink=nextLink,
                     tocUrl=tocUrl, cssLink=cssLink,
                     firstContentPageLink=nextLink)
+            if isinstance(t, unicode):
+                t = t.encode('utf-8')
             f.write(t)
 
         with CurrentDir(output_dir):

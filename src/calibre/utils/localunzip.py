@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python2
 # vim:fileencoding=UTF-8:ts=4:sw=4:sta:et:sts=4:fdm=marker:ai
 from __future__ import (unicode_literals, division, absolute_import,
                         print_function)
@@ -31,6 +31,7 @@ LocalHeader = namedtuple('LocalHeader',
         'crc32 compressed_size uncompressed_size filename_length extra_length '
         'filename extra')
 
+
 def decode_arcname(name):
     if isinstance(name, bytes):
         from calibre.ebooks.chardet import detect
@@ -44,6 +45,7 @@ def decode_arcname(name):
             except:
                 name = name.decode('utf-8', 'replace')
     return name
+
 
 def find_local_header(f):
     pos = f.tell()
@@ -61,6 +63,7 @@ def find_local_header(f):
     if header.signature == HEADER_SIG:
         return header
     f.seek(pos)
+
 
 def find_data_descriptor(f):
     pos = f.tell()
@@ -82,6 +85,7 @@ def find_data_descriptor(f):
                          'supported.')
     finally:
         f.seek(pos)
+
 
 def read_local_file_header(f):
     pos = f.tell()
@@ -132,9 +136,11 @@ def read_local_file_header(f):
         header[:-2] + (fname, extra)
         ))
 
+
 def read_compressed_data(f, header):
     cdata = f.read(header.compressed_size)
     return cdata
+
 
 def copy_stored_file(src, size, dest):
     read = 0
@@ -145,6 +151,7 @@ def copy_stored_file(src, size, dest):
             raise ValueError('Premature end of file')
         dest.write(raw)
         read += len(raw)
+
 
 def copy_compressed_file(src, size, dest):
     d = zlib.decompressobj(-15)
@@ -164,6 +171,7 @@ def copy_compressed_file(src, size, dest):
             if count > 100:
                 raise ValueError('This ZIP file contains a ZIP bomb in %s'%
                         os.path.basename(dest.name))
+
 
 def _extractall(f, path=None, file_info=None):
     found = False
@@ -276,21 +284,28 @@ class LocalZipFile(object):
         replacements = {name:datastream}
         replacements.update(extra_replacements)
         names = frozenset(replacements.keys())
-        found = set([])
+        found = set()
+
+        def rbytes(name):
+            r = replacements[name]
+            if not isinstance(r, bytes):
+                r = r.read()
+            return r
+
         with SpooledTemporaryFile(max_size=100*1024*1024) as temp:
             ztemp = ZipFile(temp, 'w')
             for offset, header in self.file_info.itervalues():
                 if header.filename in names:
                     zi = ZipInfo(header.filename)
                     zi.compress_type = header.compression_method
-                    ztemp.writestr(zi, replacements[header.filename].read())
+                    ztemp.writestr(zi, rbytes(header.filename))
                     found.add(header.filename)
                 else:
                     ztemp.writestr(header.filename, self.read(header.filename,
                         spool_size=0))
             if add_missing:
                 for name in names - found:
-                    ztemp.writestr(name, replacements[name].read())
+                    ztemp.writestr(name, rbytes(name))
             ztemp.close()
             zipstream = self.stream
             temp.seek(0)

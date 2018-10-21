@@ -21,17 +21,17 @@ from calibre.utils.localization import localize_user_manual_link
 USAGE = '%prog ' + _('''\
 input_file output_file [options]
 
-Convert an ebook from one format to another.
+Convert an e-book from one format to another.
 
 input_file is the input and output_file is the output. Both must be \
 specified as the first two arguments to the command.
 
-The output ebook format is guessed from the file extension of \
+The output e-book format is guessed from the file extension of \
 output_file. output_file can also be of the special format .EXT where \
 EXT is the output file extension. In this case, the name of the output \
 file is derived from the name of the input file. Note that the filenames must \
 not start with a hyphen. Finally, if output_file has no extension, then \
-it is treated as a directory and an "open ebook" (OEB) consisting of HTML \
+it is treated as a directory and an "open e-book" (OEB) consisting of HTML \
 files is written to that directory. These files are the files that would \
 normally have been passed to the output plugin.
 
@@ -42,7 +42,7 @@ To get help on them specify the input and output file and then use the -h \
 option.
 
 For full documentation of the conversion system see
-''') + localize_user_manual_link('http://manual.calibre-ebook.com/conversion.html')
+''') + localize_user_manual_link('https://manual.calibre-ebook.com/conversion.html')
 
 HEURISTIC_OPTIONS = ['markup_chapter_headings',
                       'italicize_common_cases', 'fix_indents',
@@ -53,8 +53,10 @@ HEURISTIC_OPTIONS = ['markup_chapter_headings',
 
 DEFAULT_TRUE_OPTIONS = HEURISTIC_OPTIONS + ['remove_fake_margins']
 
+
 def print_help(parser, log):
     parser.print_help()
+
 
 def check_command_line_options(parser, args, log):
     if len(args) < 3 or args[1].startswith('-') or args[2].startswith('-'):
@@ -78,6 +80,7 @@ def check_command_line_options(parser, args, log):
 
     return input, output
 
+
 def option_recommendation_to_cli_option(add_option, rec):
     opt = rec.option
     switches = ['-'+opt.short_switch] if opt.short_switch else []
@@ -98,12 +101,23 @@ def option_recommendation_to_cli_option(add_option, rec):
         attrs.pop('type', '')
     if opt.name == 'read_metadata_from_opf':
         switches.append('--from-opf')
+    if opt.name == 'transform_css_rules':
+        attrs['help'] = _(
+            'Path to a file containing rules to transform the CSS styles'
+            ' in this book. The easiest way to create such a file is to'
+            ' use the wizard for creating rules in the calibre GUI. Access'
+            ' it in the "Look & feel->Transform styles" section of the conversion'
+            ' dialog. Once you create the rules, you can use the "Export" button'
+            ' to save them to a file.'
+        )
     if opt.name in DEFAULT_TRUE_OPTIONS and rec.recommended_value is True:
         switches = ['--disable-'+opt.long_switch]
     add_option(Option(*switches, **attrs))
 
+
 def group_titles():
     return _('INPUT OPTIONS'), _('OUTPUT OPTIONS')
+
 
 def recipe_test(option, opt_str, value, parser):
     assert value is None
@@ -136,9 +150,11 @@ def recipe_test(option, opt_str, value, parser):
 
     setattr(parser.values, option.dest, tuple(value))
 
+
 def add_input_output_options(parser, plumber):
     input_options, output_options = \
                                 plumber.input_options, plumber.output_options
+
     def add_options(group, options):
         for opt in options:
             if plumber.input_fmt == 'recipe' and opt.option.long_switch == 'test':
@@ -160,6 +176,7 @@ def add_input_output_options(parser, plumber):
         add_options(oo.add_option, output_options)
         parser.add_option_group(oo)
 
+
 def add_pipeline_options(parser, plumber):
     groups = OrderedDict((
               ('' , ('',
@@ -176,7 +193,7 @@ def add_pipeline_options(parser, plumber):
                       'subset_embedded_fonts', 'embed_all_fonts',
                       'line_height', 'minimum_line_height',
                       'linearize_tables',
-                      'extra_css', 'filter_css', 'expand_css',
+                      'extra_css', 'filter_css', 'transform_css_rules', 'expand_css',
                       'smarten_punctuation', 'unsmarten_punctuation',
                       'margin_top', 'margin_left', 'margin_right',
                       'margin_bottom', 'change_justification',
@@ -252,10 +269,11 @@ def add_pipeline_options(parser, plumber):
 def option_parser():
     parser = OptionParser(usage=USAGE)
     parser.add_option('--list-recipes', default=False, action='store_true',
-            help=_('List builtin recipe names. You can create an ebook from '
+            help=_('List builtin recipe names. You can create an e-book from '
                 'a builtin recipe like this: ebook-convert "Recipe Name.recipe" '
                 'output.epub'))
     return parser
+
 
 class ProgressBar(object):
 
@@ -266,6 +284,7 @@ class ProgressBar(object):
         if msg:
             percent = int(frac*100)
             self.log('%d%% %s'%(percent, msg))
+
 
 def create_option_parser(args, log):
     if '--version' in args:
@@ -304,38 +323,39 @@ def create_option_parser(args, log):
 
     return parser, plumber
 
+
 def abspath(x):
     if x.startswith('http:') or x.startswith('https:'):
         return x
     return os.path.abspath(os.path.expanduser(x))
 
-def read_sr_patterns(path, log=None):
-    import json, re, codecs
-    pats = []
-    with codecs.open(path, 'r', 'utf-8') as f:
-        pat = None
-        for line in f.readlines():
-            if line.endswith(u'\n'):
-                line = line[:-1]
 
-            if pat is None:
-                if not line.strip():
-                    continue
-                try:
-                    re.compile(line)
-                except:
-                    msg = u'Invalid regular expression: %r from file: %r'%(
-                            line, path)
-                    if log is not None:
-                        log.error(msg)
-                        raise SystemExit(1)
-                    else:
-                        raise ValueError(msg)
-                pat = line
-            else:
-                pats.append((pat, line))
-                pat = None
+def read_sr_patterns(path, log=None):
+    import json, re
+    pats = []
+    with open(path, 'rb') as f:
+        lines = f.read().decode('utf-8').splitlines()
+    pat = None
+    for line in lines:
+        if pat is None:
+            if not line.strip():
+                continue
+            try:
+                re.compile(line)
+            except:
+                msg = u'Invalid regular expression: %r from file: %r'%(
+                        line, path)
+                if log is not None:
+                    log.error(msg)
+                    raise SystemExit(1)
+                else:
+                    raise ValueError(msg)
+            pat = line
+        else:
+            pats.append((pat, line))
+            pat = None
     return json.dumps(pats)
+
 
 def main(args=sys.argv):
     log = Log()
@@ -349,6 +369,17 @@ def main(args=sys.argv):
             setattr(opts, x, abspath(getattr(opts, x)))
     if opts.search_replace:
         opts.search_replace = read_sr_patterns(opts.search_replace, log)
+    if opts.transform_css_rules:
+        from calibre.ebooks.css_transform_rules import import_rules, validate_rule
+        with open(opts.transform_css_rules, 'rb') as tcr:
+            opts.transform_css_rules = rules = list(import_rules(tcr.read()))
+            for rule in rules:
+                title, msg = validate_rule(rule)
+                if title and msg:
+                    log.error('Failed to parse CSS transform rules')
+                    log.error(title)
+                    log.error(msg)
+                    return 1
 
     recommendations = [(n.dest, getattr(opts, n.dest),
                         OptionRecommendation.HIGH)
@@ -371,6 +402,7 @@ def main(args=sys.argv):
 
     return 0
 
+
 def manual_index_strings():
     return _('''\
 The options and default values for the options change depending on both the
@@ -384,4 +416,3 @@ options specific to every input and output format.''')
 
 if __name__ == '__main__':
     sys.exit(main())
-

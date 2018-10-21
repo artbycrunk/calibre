@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python2
 # vim:fileencoding=utf-8
 from __future__ import (unicode_literals, division, absolute_import,
                         print_function)
@@ -12,7 +12,7 @@ from math import ceil
 from functools import partial
 from collections import namedtuple, OrderedDict
 from difflib import SequenceMatcher
-from future_builtins import zip
+from polyglot.builtins import zip
 
 import regex
 from PyQt5.Qt import (
@@ -32,6 +32,7 @@ from calibre.gui2.tweak_book.diff.highlight import get_highlighter
 
 Change = namedtuple('Change', 'ltop lbot rtop rbot kind')
 
+
 class BusyCursor(object):
 
     def __enter__(self):
@@ -39,6 +40,7 @@ class BusyCursor(object):
 
     def __exit__(self, *args):
         QApplication.restoreOverrideCursor()
+
 
 def beautify_text(raw, syntax):
     from lxml import etree
@@ -85,6 +87,7 @@ class LineNumberMap(dict):  # {{{
         dict.clear(self)
         self.max_width = 1
 # }}}
+
 
 class TextBrowser(PlainTextEdit):  # {{{
 
@@ -331,6 +334,7 @@ class TextBrowser(PlainTextEdit):  # {{{
         w = self.viewport().rect().width()
         painter = QPainter(self.viewport())
         painter.setClipRect(event.rect())
+        painter.setRenderHint(QPainter.SmoothPixmapTransform, True)
         floor = event.rect().bottom()
         ceiling = event.rect().top()
         fv = self.firstVisibleBlock().blockNumber()
@@ -370,15 +374,14 @@ class TextBrowser(PlainTextEdit):  # {{{
                 if bot > top + 1 and not img.isNull():
                     y_top = self.blockBoundingGeometry(doc.findBlockByNumber(top+1)).translated(origin).y() + 3
                     y_bot -= 3
-                    scaled, imgw, imgh = fit_image(img.width(), img.height(), w - 3, y_bot - y_top)
-                    painter.setRenderHint(QPainter.SmoothPixmapTransform, True)
+                    scaled, imgw, imgh = fit_image(int(img.width()/img.devicePixelRatio()), int(img.height()/img.devicePixelRatio()), w - 3, y_bot - y_top)
                     painter.drawPixmap(QRect(3, y_top, imgw, imgh), img)
 
         painter.end()
         PlainTextEdit.paintEvent(self, event)
         painter = QPainter(self.viewport())
         painter.setClipRect(event.rect())
-        for top, bottom, kind in sorted(lines, key=lambda (t, b, k):{'replace':0}.get(k, 1)):
+        for top, bottom, kind in sorted(lines, key=lambda t_b_k:{'replace':0}.get(t_b_k[2], 1)):
             painter.setPen(QPen(self.diff_foregrounds[kind], 1))
             painter.drawLine(0, top, w, top)
             painter.drawLine(0, bottom - 1, w, bottom - 1)
@@ -390,6 +393,7 @@ class TextBrowser(PlainTextEdit):  # {{{
             return PlainTextEdit.wheelEvent(self, ev)
 
 # }}}
+
 
 class DiffSplitHandle(QSplitterHandle):  # {{{
 
@@ -497,6 +501,7 @@ class DiffSplitHandle(QSplitterHandle):  # {{{
             return QSplitterHandle.wheelEvent(self, ev)
 # }}}
 
+
 class DiffSplit(QSplitter):  # {{{
 
     def __init__(self, parent=None, show_open_in_editor=False):
@@ -559,7 +564,12 @@ class DiffSplit(QSplitter):  # {{{
     @property
     def failed_img(self):
         if self._failed_img is None:
+            try:
+                dpr = self.devicePixelRatioF()
+            except AttributeError:
+                dpr = self.devicePixelRatio()
             i = QImage(200, 150, QImage.Format_ARGB32)
+            i.setDevicePixelRatio(dpr)
             i.fill(Qt.white)
             p = QPainter(i)
             r = i.rect().adjusted(10, 10, -10, -10)
@@ -580,6 +590,11 @@ class DiffSplit(QSplitter):  # {{{
         def load(data):
             p = QPixmap()
             p.loadFromData(bytes(data))
+            try:
+                dpr = self.devicePixelRatioF()
+            except AttributeError:
+                dpr = self.devicePixelRatio()
+            p.setDevicePixelRatio(dpr)
             if data and p.isNull():
                 p = self.failed_img
             return p
@@ -632,6 +647,7 @@ class DiffSplit(QSplitter):  # {{{
                     c.removeSelectedText()
                 c.endEditBlock()
                 v.images[top] = (img, w, lines)
+
                 def mapnum(x):
                     return x if x <= top else x + delta
                 lnm = LineNumberMap()
@@ -647,7 +663,7 @@ class DiffSplit(QSplitter):  # {{{
     def get_lines_for_image(self, img, view):
         if img.isNull():
             return 0, 0
-        w, h = img.width(), img.height()
+        w, h = int(img.width()/img.devicePixelRatio()), int(img.height()/img.devicePixelRatio())
         scaled, w, h = fit_image(w, h, view.available_width() - 3, int(0.9 * view.height()))
         line_height = view.blockBoundingRect(view.document().begin()).height()
         return int(ceil(h / line_height)) + 1, w
@@ -885,6 +901,7 @@ class DiffSplit(QSplitter):  # {{{
 
 # }}}
 
+
 class DiffView(QWidget):  # {{{
 
     SYNC_POSITION = 0.4
@@ -908,16 +925,18 @@ class DiffView(QWidget):  # {{{
         self.resize_timer = QTimer(self)
         self.resize_timer.setSingleShot(True)
         self.resize_timer.timeout.connect(self.resize_debounced)
-        for i, bar in enumerate((self.scrollbar, self.view.left.verticalScrollBar(), self.view.right.verticalScrollBar())):
+        for bar in (self.scrollbar, self.view.left.verticalScrollBar(), self.view.right.verticalScrollBar()):
             self.bars.append(bar)
-            bar.valueChanged[int].connect(partial(self.scrolled, i))
+            bar.scroll_idx = len(self.bars) - 1
+            connect_lambda(bar.valueChanged[int], self, lambda self: self.scrolled(self.sender().scroll_idx))
         self.view.left.resized.connect(self.resized)
-        for i, v in enumerate((self.view.left, self.view.right, self.view.handle(1))):
+        for v in (self.view.left, self.view.right, self.view.handle(1)):
             v.wheel_event.connect(self.scrollbar.wheelEvent)
-            if i < 2:
+            if v is self.view.left or v is self.view.right:
                 v.next_change.connect(self.next_change)
                 v.line_activated.connect(self.line_activated)
-                v.scrolled.connect(partial(self.scrolled, i + 1))
+                connect_lambda(v.scrolled, self,
+                        lambda self: self.scrolled(1 if self.sender() is self.view.left else 2))
 
     def next_change(self, delta):
         assert delta in (1, -1)
@@ -1076,4 +1095,3 @@ class DiffView(QWidget):  # {{{
             return True
         return False
 # }}}
-

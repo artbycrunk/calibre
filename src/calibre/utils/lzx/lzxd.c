@@ -357,11 +357,12 @@ static unsigned char extra_bits[51];
 static void lzxd_static_init(void) {
   int i, j;
 
-  for (i = 0, j = 0; i < 51; i += 2) {
+  for (i = 0, j = 0; i < 50; i += 2) {
     extra_bits[i]   = j; /* 0,0,0,0,1,1,2,2,3,3,4,4,5,5,6,6,7,7... */
     extra_bits[i+1] = j;
     if ((i != 0) && (j < 17)) j++; /* 0,0,1,2,3,4...15,16,17,17,17,17... */
   }
+  extra_bits[50] = 17;
 
   for (i = 0, j = 0; i < 51; i++) {
     position_base[i] = j; /* 0,1,2,3,4,6,8,12,16,24,32,... */
@@ -402,8 +403,13 @@ struct lzxd_stream *lzxd_init(struct mspack_system *system,
   /* LZX supports window sizes of 2^15 (32Kb) through 2^21 (2Mb) */
   if (window_bits < 15 || window_bits > 21) return NULL;
 
+  if (reset_interval < 0 || output_length < 0) {
+      D(("reset interval or output length < 0"))
+      return NULL;
+  }
+
   input_buffer_size = (input_buffer_size + 1) & -2;
-  if (!input_buffer_size) return NULL;
+  if (input_buffer_size < 2) return NULL;
 
   /* initialise static data */
   lzxd_static_init();
@@ -457,7 +463,7 @@ struct lzxd_stream *lzxd_init(struct mspack_system *system,
 }
 
 void lzxd_set_output_length(struct lzxd_stream *lzx, off_t out_bytes) {
-  if (lzx) lzx->length = out_bytes;
+  if (lzx && out_bytes > 0) lzx->length = out_bytes;
 }
 
 int lzxd_decompress(struct lzxd_stream *lzx, off_t out_bytes) {

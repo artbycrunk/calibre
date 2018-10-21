@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python2
 # vim:fileencoding=utf-8
 from __future__ import (unicode_literals, division, absolute_import,
                         print_function)
@@ -14,12 +14,14 @@ from calibre.ptempfile import PersistentTemporaryDirectory
 from calibre.utils.logging import DevNull
 import calibre.ebooks.oeb.polish.container as pc
 
+
 def get_cache():
     from calibre.constants import cache_dir
     cache = os.path.join(cache_dir(), 'polish-test')
     if not os.path.exists(cache):
         os.mkdir(cache)
     return cache
+
 
 def needs_recompile(obj, srcs):
     if isinstance(srcs, type('')):
@@ -33,9 +35,11 @@ def needs_recompile(obj, srcs):
             return True
     return False
 
+
 def build_book(src, dest, args=()):
     from calibre.ebooks.conversion.cli import main
     main(['ebook-convert', src, dest] + list(args))
+
 
 def add_resources(raw, rmap):
     for placeholder, path in rmap.iteritems():
@@ -44,6 +48,7 @@ def add_resources(raw, rmap):
         raw = raw.replace(placeholder, fname)
     return raw
 
+
 def get_simple_book(fmt='epub'):
     cache = get_cache()
     ans = os.path.join(cache, 'simple.'+fmt)
@@ -51,7 +56,7 @@ def get_simple_book(fmt='epub'):
     if needs_recompile(ans, src):
         with TemporaryDirectory('bpt') as tdir:
             with CurrentDir(tdir):
-                raw = open(src, 'rb').read().decode('utf-8')
+                raw = lopen(src, 'rb').read().decode('utf-8')
                 raw = add_resources(raw, {
                     'LMONOI': P('fonts/liberation/LiberationMono-Italic.ttf'),
                     'LMONOR': P('fonts/liberation/LiberationMono-Regular.ttf'),
@@ -60,11 +65,12 @@ def get_simple_book(fmt='epub'):
                 })
                 shutil.copy2(I('lt.png'), '.')
                 x = 'index.html'
-                with open(x, 'wb') as f:
+                with lopen(x, 'wb') as f:
                     f.write(raw.encode('utf-8'))
                 build_book(x, ans, args=[
                     '--level1-toc=//h:h2', '--language=en', '--authors=Kovid Goyal', '--cover=lt.png'])
     return ans
+
 
 def get_split_book(fmt='epub'):
     cache = get_cache()
@@ -72,9 +78,9 @@ def get_split_book(fmt='epub'):
     src = os.path.join(os.path.dirname(__file__), 'split.html')
     if needs_recompile(ans, src):
         x = src.replace('split.html', 'index.html')
-        raw = open(src, 'rb').read().decode('utf-8')
+        raw = lopen(src, 'rb').read().decode('utf-8')
         try:
-            with open(x, 'wb') as f:
+            with lopen(x, 'wb') as f:
                 f.write(raw.encode('utf-8'))
             build_book(x, ans, args=['--level1-toc=//h:h2', '--language=en', '--authors=Kovid Goyal',
                                         '--cover=' + I('lt.png')])
@@ -83,6 +89,7 @@ def get_split_book(fmt='epub'):
     return ans
 
 devnull = DevNull()
+
 
 class BaseTest(unittest.TestCase):
 

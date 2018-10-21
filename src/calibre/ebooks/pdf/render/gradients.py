@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python2
 # vim:fileencoding=UTF-8:ts=4:sw=4:sta:et:sts=4:fdm=marker:ai
 from __future__ import (unicode_literals, division, absolute_import,
                         print_function)
@@ -8,15 +8,19 @@ __copyright__ = '2013, Kovid Goyal <kovid at kovidgoyal.net>'
 __docformat__ = 'restructuredtext en'
 
 import sys, copy
-from future_builtins import map
+from polyglot.builtins import map
 from collections import namedtuple
 
-import sip
 from PyQt5.Qt import QLinearGradient, QPointF
+try:
+    from PyQt5 import sip
+except ImportError:
+    import sip
 
 from calibre.ebooks.pdf.render.common import Name, Array, Dictionary
 
 Stop = namedtuple('Stop', 't color')
+
 
 class LinearGradientPattern(Dictionary):
 
@@ -150,4 +154,3 @@ class LinearGradientPattern(Dictionary):
                 stops[-1][0] = base_stops[-1][0]
 
         return start, stop, tuple(Stop(s[0], s[1]) for s in stops)
-

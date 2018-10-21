@@ -1,28 +1,83 @@
-#!/usr/bin/env  python
-from __future__ import (unicode_literals, division, absolute_import,
-                        print_function)
-__license__   = 'GPL v3'
-__copyright__ = '2008, Kovid Goyal kovid@kovidgoyal.net'
-__docformat__ = 'restructuredtext en'
-
+#!/usr/bin/env  python2
+# License: GPLv3 Copyright: 2008, Kovid Goyal <kovid at kovidgoyal.net>
+from __future__ import absolute_import, division, print_function, unicode_literals
 
 from PyQt5.Qt import (
-    QCoreApplication, QModelIndex, QTimer, Qt, pyqtSignal, QWidget,
-    QGridLayout, QDialog, QPixmap, QSize, QPalette, QShortcut, QKeySequence,
-    QSplitter, QVBoxLayout, QCheckBox, QPushButton, QIcon, QBrush, QUrl)
+    QBrush, QCheckBox, QCoreApplication, QDialog, QGridLayout, QHBoxLayout, QIcon,
+    QKeySequence, QLabel, QListView, QModelIndex, QPalette, QPixmap, QPushButton,
+    QShortcut, QSize, QSplitter, Qt, QTimer, QToolButton, QVBoxLayout, QWidget,
+    pyqtSignal
+)
 from PyQt5.QtWebKitWidgets import QWebView
 
-from calibre.gui2 import gprefs
 from calibre import fit_image
-from calibre.gui2.book_details import render_html
+from calibre.gui2 import NO_URL_FORMATTING, gprefs
+from calibre.gui2.book_details import css, details_context_menu_event, render_html, set_html
+from calibre.gui2.ui import get_gui
 from calibre.gui2.widgets import CoverView
+from calibre.gui2.widgets2 import Dialog
 
-_css = None
-def css():
-    global _css
-    if _css is None:
-        _css = P('templates/book_details.css', data=True).decode('utf-8')
-    return _css
+
+class Configure(Dialog):
+
+    def __init__(self, db, parent=None):
+        self.db = db
+        Dialog.__init__(self, _('Configure the Book details window'), 'book-details-popup-conf', parent)
+
+    def setup_ui(self):
+        from calibre.gui2.preferences.look_feel import DisplayedFields, move_field_up, move_field_down
+        self.l = QVBoxLayout(self)
+        self.field_display_order = fdo = QListView(self)
+        self.model = DisplayedFields(self.db, fdo, pref_name='popup_book_display_fields')
+        self.model.initialize()
+        fdo.setModel(self.model)
+        fdo.setAlternatingRowColors(True)
+        del self.db
+        self.l.addWidget(QLabel(_('Select displayed metadata')))
+        h = QHBoxLayout()
+        h.addWidget(fdo)
+        v = QVBoxLayout()
+        self.mub = b = QToolButton(self)
+        connect_lambda(b.clicked, self, lambda self: move_field_up(fdo, self.model))
+        b.setIcon(QIcon(I('arrow-up.png')))
+        b.setToolTip(_('Move the selected field up'))
+        v.addWidget(b), v.addStretch(10)
+        self.mud = b = QToolButton(self)
+        b.setIcon(QIcon(I('arrow-down.png')))
+        b.setToolTip(_('Move the selected field down'))
+        connect_lambda(b.clicked, self, lambda self: move_field_down(fdo, self.model))
+        v.addWidget(b)
+        h.addLayout(v)
+
+        self.l.addLayout(h)
+        self.l.addWidget(QLabel('<p>' + _(
+            'Note that <b>comments</b> will always be displayed at the end, regardless of the order you assign here')))
+
+        b = self.bb.addButton(_('Restore &defaults'), self.bb.ActionRole)
+        b.clicked.connect(self.restore_defaults)
+        self.l.addWidget(self.bb)
+        self.setMinimumHeight(500)
+
+    def restore_defaults(self):
+        self.model.initialize(use_defaults=True)
+
+    def accept(self):
+        self.model.commit()
+        return Dialog.accept(self)
+
+
+class Details(QWebView):
+
+    def __init__(self, book_info, parent=None):
+        QWebView.__init__(self, parent)
+        self.book_info = book_info
+
+    def sizeHint(self):
+        return QSize(350, 350)
+
+    def contextMenuEvent(self, ev):
+        details_context_menu_event(self, ev, self.book_info)
+
 
 class BookInfo(QDialog):
 
@@ -39,15 +94,14 @@ class BookInfo(QDialog):
         self.setLayout(l)
         l.addWidget(self.splitter)
 
-        self.cover = CoverView(self)
+        self.cover = CoverView(self, show_size=gprefs['bd_overlay_cover_size'])
         self.cover.resizeEvent = self.cover_view_resized
         self.cover.cover_changed.connect(self.cover_changed)
         self.cover_pixmap = None
         self.cover.sizeHint = self.details_size_hint
         self.splitter.addWidget(self.cover)
 
-        self.details = QWebView(self)
-        self.details.sizeHint = self.details_size_hint
+        self.details = Details(parent.book_details.book_info, self)
         self.details.page().setLinkDelegationPolicy(self.details.page().DelegateAllLinks)
         self.details.linkClicked.connect(self.link_clicked)
         s = self.details.page().settings()
@@ -68,7 +122,11 @@ class BookInfo(QDialog):
 
         self.fit_cover = QCheckBox(_('Fit &cover within view'), self)
         self.fit_cover.setChecked(gprefs.get('book_info_dialog_fit_cover', True))
-        l2.addWidget(self.fit_cover, l2.rowCount(), 0, 1, -1)
+        l2.addWidget(self.fit_cover, l2.rowCount(), 0, 1, 1)
+        self.clabel = QLabel('<div style="text-align: right"><a href="calibre:conf" title="{}" style="text-decoration: none">{}</a>'.format(
+            _('Configure this view'), _('Configure')))
+        self.clabel.linkActivated.connect(self.configure)
+        l2.addWidget(self.clabel, l2.rowCount() - 1, 1, 1, 1)
         self.previous_button = QPushButton(QIcon(I('previous.png')), _('&Previous'), self)
         self.previous_button.clicked.connect(self.previous)
         l2.addWidget(self.previous_button, l2.rowCount(), 0)
@@ -102,8 +160,16 @@ class BookInfo(QDialog):
             except Exception:
                 pass
 
+    def configure(self):
+        d = Configure(get_gui().current_db, self)
+        if d.exec_() == d.Accepted:
+            if self.current_row is not None:
+                mi = self.view.model().get_book_display_info(self.current_row)
+                if mi is not None:
+                    self.refresh(self.current_row, mi=mi)
+
     def link_clicked(self, qurl):
-        link = unicode(qurl.toString(QUrl.None))
+        link = unicode(qurl.toString(NO_URL_FORMATTING))
         self.link_delegate(link)
 
     def done(self, r):
@@ -119,8 +185,7 @@ class BookInfo(QDialog):
         if self.current_row is not None:
             id_ = self.view.model().id(self.current_row)
             self.view.model().db.set_cover(id_, data)
-        if self.gui.cover_flow:
-            self.gui.cover_flow.dataChanged()
+        self.gui.refresh_cover_browser()
         ci = self.view.currentIndex()
         if ci.isValid():
             self.view.model().current_changed(ci, ci)
@@ -163,8 +228,13 @@ class BookInfo(QDialog):
                     pixmap.height(), self.cover.size().width()-10,
                     self.cover.size().height()-10)
             if scaled:
-                pixmap = pixmap.scaled(new_width, new_height,
+                try:
+                    dpr = self.devicePixelRatioF()
+                except AttributeError:
+                    dpr = self.devicePixelRatio()
+                pixmap = pixmap.scaled(int(dpr * new_width), int(dpr * new_height),
                         Qt.KeepAspectRatio, Qt.SmoothTransformation)
+                pixmap.setDevicePixelRatio(dpr)
         self.cover.set_pixmap(pixmap)
         self.update_cover_tooltip()
 
@@ -176,8 +246,9 @@ class BookInfo(QDialog):
             tt += '\n\n'
         if self.cover_pixmap is not None:
             sz = self.cover_pixmap.size()
-            tt += _('Cover size: %(width)d x %(height)d')%dict(width=sz.width(), height=sz.height())
+            tt += _('Cover size: %(width)d x %(height)d pixels')%dict(width=sz.width(), height=sz.height())
         self.cover.setToolTip(tt)
+        self.cover.pixmap_size = sz.width(), sz.height()
 
     def refresh(self, row, mi=None):
         if isinstance(row, QModelIndex):
@@ -195,9 +266,26 @@ class BookInfo(QDialog):
         self.current_row = row
         self.setWindowTitle(mi.title)
         self.cover_pixmap = QPixmap.fromImage(mi.cover_data[1])
+        try:
+            dpr = self.devicePixelRatioF()
+        except AttributeError:
+            dpr = self.devicePixelRatio()
+        self.cover_pixmap.setDevicePixelRatio(dpr)
         self.resize_cover()
-        html = render_html(mi, self.css, True, self, all_fields=True)
-        self.details.setHtml(html)
+        html = render_html(mi, self.css, True, self, pref_name='popup_book_display_fields')
+        set_html(mi, html, self.details)
         self.marked = mi.marked
         self.cover.setBackgroundBrush(self.marked_brush if mi.marked else self.normal_brush)
         self.update_cover_tooltip()
+
+
+if __name__ == '__main__':
+    from calibre.gui2 import Application
+    from calibre.library import db
+    app = Application([])
+    app.current_db = db()
+    get_gui.ans = app
+    d = Configure(app.current_db)
+    d.exec_()
+    del d
+    del app

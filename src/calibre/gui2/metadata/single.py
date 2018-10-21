@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python2
 # vim:fileencoding=UTF-8:ts=4:sw=4:sta:et:sts=4:ai
 from __future__ import (unicode_literals, division, absolute_import,
                         print_function)
@@ -9,21 +9,23 @@ __docformat__ = 'restructuredtext en'
 
 import os, errno
 from datetime import datetime
+from functools import partial
 
 from PyQt5.Qt import (Qt, QVBoxLayout, QHBoxLayout, QWidget, QPushButton,
-        QGridLayout, pyqtSignal, QDialogButtonBox, QScrollArea, QFont,
-        QTabWidget, QIcon, QToolButton, QSplitter, QGroupBox, QSpacerItem,
-        QSizePolicy, QFrame, QSize, QKeySequence, QMenu, QShortcut)
+        QGridLayout, pyqtSignal, QDialogButtonBox, QScrollArea, QFont, QCoreApplication,
+        QTabWidget, QIcon, QToolButton, QSplitter, QGroupBox, QSpacerItem, QInputDialog,
+        QSizePolicy, QFrame, QSize, QKeySequence, QMenu, QShortcut, QDialog)
 
 from calibre.constants import isosx
+from calibre.gui2.dialogs.confirm_delete import confirm
 from calibre.ebooks.metadata import authors_to_string, string_to_authors
-from calibre.gui2 import ResizableDialog, error_dialog, gprefs, pixmap_to_data
+from calibre.gui2 import error_dialog, gprefs, pixmap_to_data
 from calibre.gui2.metadata.basic_widgets import (TitleEdit, AuthorsEdit,
     AuthorSortEdit, TitleSortEdit, SeriesEdit, SeriesIndexEdit, IdentifiersEdit,
     RatingEdit, PublisherEdit, TagsEdit, FormatsManager, Cover, CommentsEdit,
     BuddyLabel, DateEdit, PubdateEdit, LanguagesEdit, RightClickButton)
 from calibre.gui2.metadata.single_download import FullFetch
-from calibre.gui2.custom_column_widgets import populate_metadata_page
+from calibre.gui2.custom_column_widgets import populate_metadata_page, Comments
 from calibre.utils.config import tweaks
 from calibre.ebooks.metadata.book.base import Metadata
 from calibre.utils.localization import canonicalize_lang
@@ -35,25 +37,38 @@ fetched_fields = ('title', 'title_sort', 'authors', 'author_sort', 'series',
                   'series_index', 'languages', 'publisher', 'tags', 'rating',
                   'comments', 'pubdate')
 
-class MetadataSingleDialogBase(ResizableDialog):
+
+class ScrollArea(QScrollArea):
+
+    def __init__(self, widget=None, parent=None):
+        QScrollArea.__init__(self, parent)
+        self.setFrameShape(self.NoFrame)
+        self.setWidgetResizable(True)
+        if widget is not None:
+            self.setWidget(widget)
+
+
+class MetadataSingleDialogBase(QDialog):
 
     view_format = pyqtSignal(object, object)
+    edit_format = pyqtSignal(object, object)
     cc_two_column = tweaks['metadata_single_use_2_cols_for_custom_fields']
     one_line_comments_toolbar = False
     use_toolbutton_for_config_metadata = True
 
     def __init__(self, db, parent=None, editing_multiple=False):
         self.db = db
+        self.was_data_edited = False
         self.changed = set()
         self.books_to_refresh = set()
         self.rows_to_refresh = set()
         self.metadata_before_fetch = None
         self.editing_multiple = editing_multiple
-        ResizableDialog.__init__(self, parent)
+        self.comments_edit_state_at_apply = {}
+        QDialog.__init__(self, parent)
+        self.setupUi()
 
     def setupUi(self, *args):  # {{{
-        self.resize(990, 670)
-
         self.download_shortcut = QShortcut(self)
         self.download_shortcut.setKey(QKeySequence('Ctrl+D',
             QKeySequence.PortableText))
@@ -69,11 +84,11 @@ class MetadataSingleDialogBase(ResizableDialog):
         self.button_box = bb = QDialogButtonBox(self)
         self.button_box.accepted.connect(self.accept)
         self.button_box.rejected.connect(self.reject)
-        self.next_button = QPushButton(QIcon(I('forward.png')), _('Next'),
+        self.next_button = QPushButton(QIcon(I('forward.png')), _('&Next'),
                 self)
         self.next_button.setShortcut(QKeySequence('Alt+Right'))
         self.next_button.clicked.connect(self.next_clicked)
-        self.prev_button = QPushButton(QIcon(I('back.png')), _('Previous'),
+        self.prev_button = QPushButton(QIcon(I('back.png')), _('&Previous'),
                 self)
         self.prev_button.setShortcut(QKeySequence('Alt+Left'))
 
@@ -83,15 +98,11 @@ class MetadataSingleDialogBase(ResizableDialog):
         bb.setStandardButtons(bb.Ok|bb.Cancel)
         bb.button(bb.Ok).setDefault(True)
 
-        self.scroll_area = QScrollArea(self)
-        self.scroll_area.setFrameShape(QScrollArea.NoFrame)
-        self.scroll_area.setWidgetResizable(True)
         self.central_widget = QTabWidget(self)
-        self.scroll_area.setWidget(self.central_widget)
 
         self.l = QVBoxLayout(self)
         self.setLayout(self.l)
-        self.l.addWidget(self.scroll_area)
+        self.l.addWidget(self.central_widget)
         ll = self.button_box_layout = QHBoxLayout()
         self.l.addLayout(ll)
         ll.addSpacing(10)
@@ -104,12 +115,21 @@ class MetadataSingleDialogBase(ResizableDialog):
 
         if len(self.db.custom_column_label_map):
             self.create_custom_metadata_widgets()
+        self.comments_edit_state_at_apply = {self.comments:None}
 
         self.do_layout()
         geom = gprefs.get('metasingle_window_geometry3', None)
         if geom is not None:
             self.restoreGeometry(bytes(geom))
+        else:
+            self.resize(self.sizeHint())
     # }}}
+
+    def sizeHint(self):
+        desktop = QCoreApplication.instance().desktop()
+        geom = desktop.availableGeometry(self)
+        nh, nw = max(300, geom.height()-50), max(400, geom.width()-70)
+        return QSize(nw, nh)
 
     def create_basic_metadata_widgets(self):  # {{{
         self.basic_metadata_widgets = []
@@ -211,7 +231,7 @@ class MetadataSingleDialogBase(ResizableDialog):
 
         self.tags = TagsEdit(self)
         self.tags_editor_button = QToolButton(self)
-        self.tags_editor_button.setToolTip(_('Open Tag Editor'))
+        self.tags_editor_button.setToolTip(_('Open Tag editor'))
         self.tags_editor_button.setIcon(QIcon(I('chapters.png')))
         self.tags_editor_button.clicked.connect(self.tags_editor)
         self.clear_tags_button = QToolButton(self)
@@ -226,12 +246,16 @@ class MetadataSingleDialogBase(ResizableDialog):
         self.clear_identifiers_button.setIcon(QIcon(I('trash.png')))
         self.clear_identifiers_button.setToolTip(_('Clear Ids'))
         self.clear_identifiers_button.clicked.connect(self.identifiers.clear)
-        self.paste_isbn_button = QToolButton(self)
-        self.paste_isbn_button.setToolTip('<p>' +
+        self.paste_isbn_button = b = RightClickButton(self)
+        b.setToolTip('<p>' +
                     _('Paste the contents of the clipboard into the '
-                      'identifiers box prefixed with isbn:') + '</p>')
-        self.paste_isbn_button.setIcon(QIcon(I('edit-paste.png')))
-        self.paste_isbn_button.clicked.connect(self.identifiers.paste_isbn)
+                      'identifiers prefixed with isbn:. Or right click, '
+                      'to choose a different prefix.') + '</p>')
+        b.setIcon(QIcon(I('edit-paste.png')))
+        b.clicked.connect(self.identifiers.paste_identifier)
+        b.setPopupMode(b.DelayedPopup)
+        b.setMenu(QMenu())
+        self.update_paste_identifiers_menu()
 
         self.publisher = PublisherEdit(self)
         self.basic_metadata_widgets.append(self.publisher)
@@ -271,8 +295,26 @@ class MetadataSingleDialogBase(ResizableDialog):
         self.config_metadata_button.clicked.connect(self.configure_metadata)
         self.config_metadata_button.setToolTip(
             _('Change how calibre downloads metadata'))
+        for w in self.basic_metadata_widgets:
+            w.data_changed.connect(self.data_changed)
 
     # }}}
+
+    def update_paste_identifiers_menu(self):
+        m = self.paste_isbn_button.menu()
+        m.clear()
+        m.addAction(_('Edit list of prefixes'), self.edit_prefix_list)
+        m.addSeparator()
+        for prefix in gprefs['paste_isbn_prefixes'][1:]:
+            m.addAction(prefix, partial(self.identifiers.paste_prefix, prefix))
+
+    def edit_prefix_list(self):
+        prefixes, ok = QInputDialog.getMultiLineText(
+            self, _('Edit prefixes'), _('Enter prefixes, one on a line. The first prefix becomes the default.'),
+            '\n'.join(list(map(type(u''), gprefs['paste_isbn_prefixes']))))
+        if ok:
+            gprefs['paste_isbn_prefixes'] = list(filter(None, (x.strip() for x in prefixes.splitlines()))) or gprefs.defaults['paste_isbn_prefixes']
+            self.update_paste_identifiers_menu()
 
     def create_custom_metadata_widgets(self):  # {{{
         self.custom_metadata_widgets_parent = w = QWidget(self)
@@ -282,6 +324,10 @@ class MetadataSingleDialogBase(ResizableDialog):
             populate_metadata_page(layout, self.db, None, parent=w, bulk=False,
                 two_column=self.cc_two_column)
         self.__custom_col_layouts = [layout]
+        for widget in self.custom_metadata_widgets:
+            widget.connect_data_changed(self.data_changed)
+            if isinstance(widget, Comments):
+                self.comments_edit_state_at_apply[widget] = None
     # }}}
 
     def set_custom_metadata_tab_order(self, before=None, after=None):  # {{{
@@ -307,11 +353,31 @@ class MetadataSingleDialogBase(ResizableDialog):
         else:
             self.view_format.emit(self.book_id, fmt)
 
+    def do_edit_format(self, path, fmt):
+        if self.was_data_edited:
+            from calibre.gui2.tweak_book import tprefs
+            tprefs.refresh()  # In case they were changed in a Tweak Book process
+            from calibre.gui2 import question_dialog
+            if tprefs['update_metadata_from_calibre'] and question_dialog(
+                    self, _('Save Changed Metadata?'),
+                    _("You've changed the metadata for this book."
+                      " Edit book is set to update embedded metadata when opened."
+                      " You need to save your changes for them to be included."),
+                    yes_text=_('&Save'), no_text=_("&Don't save"),
+                    yes_icon='dot_green.png', no_icon='dot_red.png',
+                    default_yes=True, skip_dialog_name='edit-metadata-save-before-edit-format'):
+                if self.apply_changes():
+                    self.was_data_edited = False
+        self.edit_format.emit(self.book_id, fmt)
+
     def copy_fmt(self, fmt, f):
         self.db.copy_format_to(self.book_id, fmt, f, index_is_id=True)
 
     def do_layout(self):
         raise NotImplementedError()
+
+    def data_changed(self):
+        self.was_data_edited = True
 
     def __call__(self, id_):
         self.book_id = id_
@@ -323,6 +389,7 @@ class MetadataSingleDialogBase(ResizableDialog):
             widget.initialize(id_)
         if callable(self.set_current_callback):
             self.set_current_callback(id_)
+        self.was_data_edited = False
         # Commented out as it doesn't play nice with Next, Prev buttons
         # self.fetch_metadata_button.setFocus(Qt.OtherFocusReason)
 
@@ -416,13 +483,10 @@ class MetadataSingleDialogBase(ResizableDialog):
             self.authors.set_value(mi.authors)
         if not mi.is_null('author_sort'):
             self.author_sort.set_value(mi.author_sort)
-        elif update_sorts:
+        elif update_sorts and not mi.is_null('authors'):
             self.author_sort.auto_generate()
         if not mi.is_null('rating'):
-            try:
-                self.rating.set_value(mi.rating)
-            except:
-                pass
+            self.rating.set_value(mi.rating * 2)
         if not mi.is_null('publisher'):
             self.publisher.set_value(mi.publisher)
         if not mi.is_null('tags'):
@@ -460,6 +524,8 @@ class MetadataSingleDialogBase(ResizableDialog):
             fw.setFocus(Qt.OtherFocusReason)
 
     def fetch_metadata(self, *args):
+        from calibre.ebooks.metadata.sources.update import update_sources
+        update_sources()
         d = FullFetch(self.cover.pixmap(), self)
         ret = d.start(title=self.title.current_val, authors=self.authors.current_val,
                 identifiers=self.identifiers.current_val)
@@ -500,6 +566,8 @@ class MetadataSingleDialogBase(ResizableDialog):
                 gui=gui, never_shutdown=True)
 
     def download_cover(self, *args):
+        from calibre.ebooks.metadata.sources.update import update_sources
+        update_sources()
         from calibre.gui2.metadata.single_download import CoverFetch
         d = CoverFetch(self.cover.pixmap(), self)
         ret = d.start(self.title.current_val, self.authors.current_val,
@@ -527,6 +595,7 @@ class MetadataSingleDialogBase(ResizableDialog):
             # break_cycles has already been called, don't know why this should
             # happen but a user reported it
             return True
+        self.comments_edit_state_at_apply = {w:w.tab for w in self.comments_edit_state_at_apply}
         for widget in self.basic_metadata_widgets:
             try:
                 if hasattr(widget, 'validate_for_commit'):
@@ -564,20 +633,25 @@ class MetadataSingleDialogBase(ResizableDialog):
         if self.editing_multiple and self.current_row != len(self.row_list) - 1:
             num = len(self.row_list) - 1 - self.current_row
             from calibre.gui2 import question_dialog
+            pm = ngettext('There is another book to edit in this set.',
+                          'There are still {} more books to edit in this set.', num).format(num)
             if not question_dialog(
-                    self, _('Are you sure?'),
-                    _('There are still %d more books to edit in this set.'
-                      ' Are you sure you want to stop? Use the Next button'
-                      ' instead of the OK button to move through books in the set.') % num,
+                    self, _('Are you sure?'), pm + ' ' + _(
+                      'Are you sure you want to stop? Use the "Next" button'
+                      ' instead of the "OK" button to move through books in the set.'),
                     yes_text=_('&Stop editing'), no_text=_('&Continue editing'),
                     yes_icon='dot_red.png', no_icon='dot_green.png',
                     default_yes=False, skip_dialog_name='edit-metadata-single-confirm-ok-on-multiple'):
                 return self.do_one(delta=1, apply_changes=False)
-        ResizableDialog.accept(self)
+        QDialog.accept(self)
 
     def reject(self):
         self.save_state()
-        ResizableDialog.reject(self)
+        if self.was_data_edited and not confirm(
+                title=_('Are you sure?'), name='confirm-cancel-edit-single-metadata', msg=_(
+                    'You will lose all unsaved changes, are you sure?'), parent=self):
+            return
+        QDialog.reject(self)
 
     def save_state(self):
         try:
@@ -588,12 +662,14 @@ class MetadataSingleDialogBase(ResizableDialog):
             traceback.print_exc()
 
     # Dialog use methods {{{
-    def start(self, row_list, current_row, view_slot=None,
+    def start(self, row_list, current_row, view_slot=None, edit_slot=None,
             set_current_callback=None):
         self.row_list = row_list
         self.current_row = current_row
         if view_slot is not None:
             self.view_format.connect(view_slot)
+        if edit_slot is not None:
+            self.edit_format.connect(edit_slot)
         self.set_current_callback = set_current_callback
         self.do_one(apply_changes=False)
         ret = self.exec_()
@@ -634,18 +710,23 @@ class MetadataSingleDialogBase(ResizableDialog):
         self.button_box.button(self.button_box.Ok).setDefault(True)
         self.button_box.button(self.button_box.Ok).setFocus(Qt.OtherFocusReason)
         self(self.db.id(self.row_list[self.current_row]))
+        for w, state in self.comments_edit_state_at_apply.iteritems():
+            if state == 'code':
+                w.tab = 'code'
 
     def break_cycles(self):
         # Break any reference cycles that could prevent python
         # from garbage collecting this dialog
         self.set_current_callback = self.db = None
         self.metadata_before_fetch = None
+
         def disconnect(signal):
             try:
                 signal.disconnect()
             except:
                 pass  # Fails if view format was never connected
         disconnect(self.view_format)
+        disconnect(self.edit_format)
         for b in ('next_button', 'prev_button'):
             x = getattr(self, b, None)
             if x is not None:
@@ -659,6 +740,7 @@ class MetadataSingleDialogBase(ResizableDialog):
 
     # }}}
 
+
 class Splitter(QSplitter):
 
     frame_resized = pyqtSignal(object)
@@ -666,6 +748,7 @@ class Splitter(QSplitter):
     def resizeEvent(self, ev):
         self.frame_resized.emit(ev)
         return QSplitter.resizeEvent(self, ev)
+
 
 class MetadataSingleDialog(MetadataSingleDialogBase):  # {{{
 
@@ -676,14 +759,14 @@ class MetadataSingleDialog(MetadataSingleDialogBase):  # {{{
         self.tabs = []
         self.labels = []
         self.tabs.append(QWidget(self))
-        self.central_widget.addTab(self.tabs[0], _("&Basic metadata"))
+        self.central_widget.addTab(ScrollArea(self.tabs[0], self), _("&Basic metadata"))
         self.tabs[0].l = l = QVBoxLayout()
         self.tabs[0].tl = tl = QGridLayout()
         self.tabs[0].setLayout(l)
         w = getattr(self, 'custom_metadata_widgets_parent', None)
         if w is not None:
             self.tabs.append(w)
-            self.central_widget.addTab(w, _('&Custom metadata'))
+            self.central_widget.addTab(ScrollArea(w, self), _('&Custom metadata'))
         l.addLayout(tl)
         l.addItem(QSpacerItem(10, 15, QSizePolicy.Expanding,
             QSizePolicy.Fixed))
@@ -711,14 +794,14 @@ class MetadataSingleDialog(MetadataSingleDialogBase):  # {{{
         tl.addWidget(self.swap_title_author_button, 0, 0, 1, 1)
         tl.addWidget(self.manage_authors_button, 1, 0, 1, 1)
 
+        sto(self.swap_title_author_button, self.title)
         create_row(0, self.title, self.deduce_title_sort_button, self.title_sort)
-        sto(self.title_sort, self.authors)
+        sto(self.title_sort, self.manage_authors_button)
+        sto(self.manage_authors_button, self.authors)
         create_row(1, self.authors, self.deduce_author_sort_button, self.author_sort)
         sto(self.author_sort, self.series)
         create_row(2, self.series, self.clear_series_button,
                 self.series_index, icon='trash.png')
-        sto(self.series_index, self.swap_title_author_button)
-        sto(self.swap_title_author_button, self.manage_authors_button)
 
         tl.addWidget(self.formats_manager, 0, 6, 3, 1)
 
@@ -729,7 +812,6 @@ class MetadataSingleDialog(MetadataSingleDialogBase):  # {{{
         self.tabs[0].gb = gb = QGroupBox(_('Change cover'), self)
         gb.l = l = QGridLayout()
         gb.setLayout(l)
-        sto(self.manage_authors_button, self.cover.buttons[0])
         for i, b in enumerate(self.cover.buttons[:3]):
             l.addWidget(b, 0, i, 1, 1)
             sto(b, self.cover.buttons[i+1])
@@ -742,6 +824,7 @@ class MetadataSingleDialog(MetadataSingleDialogBase):  # {{{
         w.l = l = QGridLayout()
         w.setLayout(w.l)
         self.splitter.addWidget(w)
+
         def create_row2(row, widget, button=None, front_button=None):
             row += 1
             ql = BuddyLabel(widget)
@@ -777,8 +860,8 @@ class MetadataSingleDialog(MetadataSingleDialogBase):  # {{{
         sto(self.timestamp.clear_button, self.pubdate)
         create_row2(5, self.pubdate, self.pubdate.clear_button)
         sto(self.pubdate.clear_button, self.publisher)
-        create_row2(6, self.publisher)
-        sto(self.publisher, self.languages)
+        create_row2(6, self.publisher, self.publisher.clear_button)
+        sto(self.publisher.clear_button, self.languages)
         create_row2(7, self.languages)
         self.tabs[0].spc_two = QSpacerItem(10, 10, QSizePolicy.Expanding,
                 QSizePolicy.Expanding)
@@ -796,6 +879,7 @@ class MetadataSingleDialog(MetadataSingleDialogBase):  # {{{
 
 # }}}
 
+
 class DragTrackingWidget(QWidget):  # {{{
 
     def __init__(self, parent, on_drag_enter):
@@ -806,6 +890,7 @@ class DragTrackingWidget(QWidget):  # {{{
         self.on_drag_enter.emit()
 
 # }}}
+
 
 class MetadataSingleDialogAlt1(MetadataSingleDialogBase):  # {{{
 
@@ -826,12 +911,12 @@ class MetadataSingleDialogAlt1(MetadataSingleDialogBase):  # {{{
 
         self.on_drag_enter.connect(self.handle_drag_enter)
         self.tabs.append(DragTrackingWidget(self, self.on_drag_enter))
-        self.central_widget.addTab(self.tabs[0], _("&Metadata"))
+        self.central_widget.addTab(ScrollArea(self.tabs[0], self), _("&Metadata"))
         self.tabs[0].l = QGridLayout()
         self.tabs[0].setLayout(self.tabs[0].l)
 
         self.tabs.append(QWidget(self))
-        self.central_widget.addTab(self.tabs[1], _("&Cover and formats"))
+        self.central_widget.addTab(ScrollArea(self.tabs[1], self), _("&Cover and formats"))
         self.tabs[1].l = QGridLayout()
         self.tabs[1].setLayout(self.tabs[1].l)
 
@@ -888,7 +973,7 @@ class MetadataSingleDialogAlt1(MetadataSingleDialogBase):  # {{{
         create_row(7, self.rating, self.pubdate, button=self.clear_ratings_button)
         create_row(8, self.pubdate, self.publisher,
                    button=self.pubdate.clear_button, icon='trash.png')
-        create_row(9, self.publisher, self.languages)
+        create_row(9, self.publisher, self.languages, button=self.publisher.clear_button, icon='trash.png')
         create_row(10, self.languages, self.timestamp)
         create_row(11, self.timestamp, self.identifiers,
                    button=self.timestamp.clear_button, icon='trash.png')
@@ -961,6 +1046,7 @@ class MetadataSingleDialogAlt1(MetadataSingleDialogBase):  # {{{
 
 # }}}
 
+
 class MetadataSingleDialogAlt2(MetadataSingleDialogBase):  # {{{
 
     cc_two_column = False
@@ -974,7 +1060,7 @@ class MetadataSingleDialogAlt2(MetadataSingleDialogBase):  # {{{
 
         self.central_widget.tabBar().setVisible(False)
         tab0 = QWidget(self)
-        self.central_widget.addTab(tab0, _("&Metadata"))
+        self.central_widget.addTab(ScrollArea(tab0, self), _("&Metadata"))
         l = QGridLayout()
         tab0.setLayout(l)
 
@@ -1025,7 +1111,8 @@ class MetadataSingleDialogAlt2(MetadataSingleDialogBase):  # {{{
         create_row(7, self.rating, self.pubdate, button=self.clear_ratings_button)
         create_row(8, self.pubdate, self.publisher,
                    button=self.pubdate.clear_button, icon='trash.png')
-        create_row(9, self.publisher, self.languages)
+        create_row(9, self.publisher, self.languages,
+                   button=self.publisher.clear_button, icon='trash.png')
         create_row(10, self.languages, self.timestamp)
         create_row(11, self.timestamp, self.identifiers,
                    button=self.timestamp.clear_button, icon='trash.png')
@@ -1097,19 +1184,21 @@ class MetadataSingleDialogAlt2(MetadataSingleDialogBase):  # {{{
 editors = {'default': MetadataSingleDialog, 'alt1': MetadataSingleDialogAlt1,
            'alt2': MetadataSingleDialogAlt2}
 
-def edit_metadata(db, row_list, current_row, parent=None, view_slot=None,
+
+def edit_metadata(db, row_list, current_row, parent=None, view_slot=None, edit_slot=None,
         set_current_callback=None, editing_multiple=False):
     cls = gprefs.get('edit_metadata_single_layout', '')
     if cls not in editors:
         cls = 'default'
     d = editors[cls](db, parent, editing_multiple=editing_multiple)
     try:
-        d.start(row_list, current_row, view_slot=view_slot,
+        d.start(row_list, current_row, view_slot=view_slot, edit_slot=edit_slot,
                 set_current_callback=set_current_callback)
         return d.changed, d.rows_to_refresh
     finally:
         # possible workaround for bug reports of occasional ghost edit metadata dialog on windows
         d.deleteLater()
+
 
 if __name__ == '__main__':
     from calibre.gui2 import Application as QApplication
@@ -1118,4 +1207,3 @@ if __name__ == '__main__':
     db = db()
     row_list = list(range(len(db.data)))
     edit_metadata(db, row_list, 0)
-

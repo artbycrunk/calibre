@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python2
 # vim:fileencoding=utf-8
 from __future__ import (unicode_literals, division, absolute_import,
                         print_function)
@@ -9,14 +9,14 @@ __copyright__ = '2013, Kovid Goyal <kovid at kovidgoyal.net>'
 import sys
 from collections import defaultdict, deque
 
-from PyQt5.Qt import (
-    QTextCursor, pyqtSlot, QTextBlockUserData, QTextLayout, QTimer)
+from PyQt5.Qt import QTextCursor, QTextBlockUserData, QTextLayout, QTimer
 
 from ..themes import highlight_to_char_format
 from calibre.gui2.tweak_book.widgets import BusyCursor
 from calibre.utils.icu import utf16_length
 
 is_wide_build = sys.maxunicode >= 0x10ffff
+
 
 def run_loop(user_data, state_map, formats, text):
     state = user_data.state
@@ -38,8 +38,9 @@ def run_loop(user_data, state_map, formats, text):
                 i += num
         if orig_i == i and state.parse in seen_states[i]:
             # Something went wrong in the syntax highlighter
-            print ('Syntax highlighter returned a zero length format, parse state:', state.parse)
+            print('Syntax highlighter returned a zero length format, parse state:', state.parse)
             break
+
 
 class SimpleState(object):
 
@@ -53,6 +54,7 @@ class SimpleState(object):
         s.parse = self.parse
         return s
 
+
 class SimpleUserData(QTextBlockUserData):
 
     def __init__(self):
@@ -63,6 +65,7 @@ class SimpleUserData(QTextBlockUserData):
     def clear(self, state=None, doc_name=None):
         self.state = SimpleState() if state is None else state
         self.doc_name = doc_name
+
 
 class SyntaxHighlighter(object):
 
@@ -124,7 +127,6 @@ class SyntaxHighlighter(object):
             new_data = True
         return ud, new_data
 
-    @pyqtSlot(int, int, int)
     def reformat_blocks(self, position, removed, added):
         doc = self.doc
         if doc is None or self.ignore_requests or not hasattr(self, 'state_map'):

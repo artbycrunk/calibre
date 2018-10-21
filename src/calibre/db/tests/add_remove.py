@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python2
 # vim:fileencoding=UTF-8:ts=4:sw=4:sta:et:sts=4:fdm=marker:ai
 from __future__ import (unicode_literals, division, absolute_import,
                         print_function)
@@ -16,6 +16,7 @@ from calibre.db.tests.base import BaseTest, IMG
 from calibre.ptempfile import PersistentTemporaryFile
 from calibre.utils.date import now, UNDEFINED_DATE
 
+
 def import_test(replacement_data, replacement_fmt=None):
     def func(path, fmt):
         if not path.endswith('.'+fmt.lower()):
@@ -25,6 +26,7 @@ def import_test(replacement_data, replacement_fmt=None):
             f.write(replacement_data)
         return f.name
     return func
+
 
 class AddRemoveTest(BaseTest):
 

@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python2
 # vim:fileencoding=UTF-8:ts=4:sw=4:sta:et:sts=4:ai
 from __future__ import with_statement
 
@@ -8,12 +8,14 @@ __docformat__ = 'restructuredtext en'
 
 from calibre.customize.conversion import InputFormatPlugin
 
+
 class LITInput(InputFormatPlugin):
 
     name        = 'LIT Input'
     author      = 'Marshall T. Vandegrift'
     description = 'Convert LIT files to HTML'
-    file_types  = set(['lit'])
+    file_types  = {'lit'}
+    commit_name = 'lit_input'
 
     def convert(self, stream, options, file_ext, log,
                 accelerators):
@@ -26,7 +28,8 @@ class LITInput(InputFormatPlugin):
         from calibre.ebooks.oeb.base import XHTML_NS, XPath, XHTML
         for item in oeb.spine:
             root = item.data
-            if not hasattr(root, 'xpath'): continue
+            if not hasattr(root, 'xpath'):
+                continue
             for bad in ('metadata', 'guide'):
                 metadata = XPath('//h:'+bad)(root)
                 if metadata:
@@ -42,11 +45,16 @@ class LITInput(InputFormatPlugin):
                     from calibre.ebooks.chardet import xml_to_unicode
                     from lxml import etree
                     import copy
+                    self.log('LIT file with all text in singe <pre> tag detected')
                     html = separate_paragraphs_single_line(pre.text)
                     html = convert_basic(html).replace('<html>',
                             '<html xmlns="%s">'%XHTML_NS)
                     html = xml_to_unicode(html, strip_encoding_pats=True,
                             resolve_entities=True)[0]
+                    if opts.smarten_punctuation:
+                        # SmartyPants skips text inside <pre> tags
+                        from calibre.ebooks.conversion.preprocess import smarten_punctuation
+                        html = smarten_punctuation(html, self.log)
                     root = etree.fromstring(html)
                     body = XPath('//h:body')(root)
                     pre.tag = XHTML('div')

@@ -1,30 +1,37 @@
 __license__   = 'GPL v3'
 __copyright__ = '2008, Kovid Goyal <kovid at kovidgoyal.net>'
 """ The GUI """
-import os, sys, Queue, threading, glob
+import os, sys, Queue, threading, glob, signal
 from contextlib import contextmanager
 from threading import RLock, Lock
-from urllib import unquote
+from PyQt5.QtWidgets import QStyle  # Gives a nicer error message than import from Qt
 from PyQt5.Qt import (
-    QFileInfo, QObject, QBuffer, Qt, QStyle, QByteArray, QTranslator,
-    QCoreApplication, QThread, QEvent, QTimer, pyqtSignal, QDateTime,
-    QDesktopServices, QFileDialog, QFileIconProvider, QSettings, QIcon,
-    QApplication, QDialog, QUrl, QFont, QFontDatabase, QLocale, QFontInfo)
+    QFileInfo, QObject, QBuffer, Qt, QByteArray, QTranslator, QSocketNotifier,
+    QCoreApplication, QThread, QEvent, QTimer, pyqtSignal, QDateTime, QFontMetrics,
+    QDesktopServices, QFileDialog, QFileIconProvider, QSettings, QIcon, QStringListModel,
+    QApplication, QDialog, QUrl, QFont, QFontDatabase, QLocale, QFontInfo, QT_VERSION)
 
-ORG_NAME = 'KovidsBrain'
-APP_UID  = 'libprs500'
-from calibre import prints
-from calibre.constants import (islinux, iswindows, isbsd, isfrozen, isosx,
-        plugins, config_dir, filesystem_encoding, isxp)
+from calibre import prints, as_unicode
+from calibre.constants import (islinux, iswindows, isbsd, isfrozen, isosx, is_running_from_develop,
+        plugins, config_dir, filesystem_encoding, isxp, DEBUG, __version__, __appname__ as APP_UID)
+from calibre.ptempfile import base_dir
+from calibre.gui2.linux_file_dialogs import check_for_linux_native_dialogs, linux_native_dialog
+from calibre.gui2.qt_file_dialogs import FileDialog
 from calibre.utils.config import Config, ConfigProxy, dynamic, JSONConfig
 from calibre.ebooks.metadata import MetaInformation
 from calibre.utils.date import UNDEFINED_DATE
 from calibre.utils.localization import get_lang
-from calibre.utils.filenames import expanduser
+from calibre.utils.file_type_icons import EXT_MAP
+
+try:
+    NO_URL_FORMATTING = QUrl.None_
+except AttributeError:
+    NO_URL_FORMATTING = getattr(QUrl, 'None')
+
 
 # Setup gprefs {{{
 gprefs = JSONConfig('gui')
-defs = gprefs.defaults
+
 
 native_menubar_defaults = {
     'action-layout-menubar': (
@@ -39,110 +46,142 @@ native_menubar_defaults = {
         )
 }
 
-if isosx:
-    defs['action-layout-menubar'] = native_menubar_defaults['action-layout-menubar']
-    defs['action-layout-menubar-device'] = native_menubar_defaults['action-layout-menubar-device']
-    defs['action-layout-toolbar'] = (
-        'Add Books', 'Edit Metadata', None, 'Convert Books', 'View', None,
-        'Choose Library', 'Donate', None, 'Fetch News', 'Store', 'Save To Disk',
-        'Connect Share', None, 'Remove Books', 'Tweak ePub'
-        )
-    defs['action-layout-toolbar-device'] = (
-        'Add Books', 'Edit Metadata', None, 'Convert Books', 'View',
-        'Send To Device', None, None, 'Location Manager', None, None,
-        'Fetch News', 'Store', 'Save To Disk', 'Connect Share', None,
-        'Remove Books',
-        )
-else:
-    defs['action-layout-menubar'] = ()
-    defs['action-layout-menubar-device'] = ()
-    defs['action-layout-toolbar'] = (
-        'Add Books', 'Edit Metadata', None, 'Convert Books', 'View', None,
-        'Store', 'Donate', 'Fetch News', 'Help', None,
-        'Remove Books', 'Choose Library', 'Save To Disk',
-        'Connect Share', 'Tweak ePub', 'Preferences',
-        )
-    defs['action-layout-toolbar-device'] = (
-        'Add Books', 'Edit Metadata', None, 'Convert Books', 'View',
-        'Send To Device', None, None, 'Location Manager', None, None,
-        'Fetch News', 'Save To Disk', 'Store', 'Connect Share', None,
-        'Remove Books', None, 'Help', 'Preferences',
-        )
 
-defs['action-layout-toolbar-child'] = ()
+def create_defs():
+    defs = gprefs.defaults
+    if isosx:
+        defs['action-layout-menubar'] = native_menubar_defaults['action-layout-menubar']
+        defs['action-layout-menubar-device'] = native_menubar_defaults['action-layout-menubar-device']
+        defs['action-layout-toolbar'] = (
+            'Add Books', 'Edit Metadata', None, 'Convert Books', 'View', None,
+            'Choose Library', 'Donate', None, 'Fetch News', 'Store', 'Save To Disk',
+            'Connect Share', None, 'Remove Books', 'Tweak ePub'
+            )
+        defs['action-layout-toolbar-device'] = (
+            'Add Books', 'Edit Metadata', None, 'Convert Books', 'View',
+            'Send To Device', None, None, 'Location Manager', None, None,
+            'Fetch News', 'Store', 'Save To Disk', 'Connect Share', None,
+            'Remove Books',
+            )
+    else:
+        defs['action-layout-menubar'] = ()
+        defs['action-layout-menubar-device'] = ()
+        defs['action-layout-toolbar'] = (
+            'Add Books', 'Edit Metadata', None, 'Convert Books', 'View', None,
+            'Store', 'Donate', 'Fetch News', 'Help', None,
+            'Remove Books', 'Choose Library', 'Save To Disk',
+            'Connect Share', 'Tweak ePub', 'Preferences',
+            )
+        defs['action-layout-toolbar-device'] = (
+            'Add Books', 'Edit Metadata', None, 'Convert Books', 'View',
+            'Send To Device', None, None, 'Location Manager', None, None,
+            'Fetch News', 'Save To Disk', 'Store', 'Connect Share', None,
+            'Remove Books', None, 'Help', 'Preferences',
+            )
 
-defs['action-layout-context-menu'] = (
-        'Edit Metadata', 'Send To Device', 'Save To Disk',
-        'Connect Share', 'Copy To Library', None,
-        'Convert Books', 'View', 'Open Folder', 'Show Book Details',
-        'Similar Books', 'Tweak ePub', None, 'Remove Books',
-        )
+    defs['action-layout-toolbar-child'] = ()
 
-defs['action-layout-context-menu-device'] = (
-        'View', 'Save To Disk', None, 'Remove Books', None,
-        'Add To Library', 'Edit Collections', 'Match Books'
-        )
+    defs['action-layout-context-menu'] = (
+            'Edit Metadata', 'Send To Device', 'Save To Disk',
+            'Connect Share', 'Copy To Library', None,
+            'Convert Books', 'View', 'Open Folder', 'Show Book Details',
+            'Similar Books', 'Tweak ePub', None, 'Remove Books',
+            )
 
-defs['action-layout-context-menu-cover-browser'] = (
-        'Edit Metadata', 'Send To Device', 'Save To Disk',
-        'Connect Share', 'Copy To Library', None,
-        'Convert Books', 'View', 'Open Folder', 'Show Book Details',
-        'Similar Books', 'Tweak ePub', None, 'Remove Books',
-        )
+    defs['action-layout-context-menu-split'] = (
+            'Edit Metadata', 'Send To Device', 'Save To Disk',
+            'Connect Share', 'Copy To Library', None,
+            'Convert Books', 'View', 'Open Folder', 'Show Book Details',
+            'Similar Books', 'Tweak ePub', None, 'Remove Books',
+            )
 
-defs['show_splash_screen'] = True
-defs['toolbar_icon_size'] = 'medium'
-defs['automerge'] = 'ignore'
-defs['toolbar_text'] = 'always'
-defs['font'] = None
-defs['tags_browser_partition_method'] = 'first letter'
-defs['tags_browser_collapse_at'] = 100
-defs['tag_browser_dont_collapse'] = []
-defs['edit_metadata_single_layout'] = 'default'
-defs['default_author_link'] = 'https://en.wikipedia.org/w/index.php?search={author}'
-defs['preserve_date_on_ctl'] = True
-defs['manual_add_auto_convert'] = False
-defs['cb_fullscreen'] = False
-defs['worker_max_time'] = 0
-defs['show_files_after_save'] = True
-defs['auto_add_path'] = None
-defs['auto_add_check_for_duplicates'] = False
-defs['blocked_auto_formats'] = []
-defs['auto_add_auto_convert'] = True
-defs['auto_add_everything'] = False
-defs['ui_style'] = 'calibre' if iswindows or isosx else 'system'
-defs['tag_browser_old_look'] = False
-defs['book_list_tooltips'] = True
-defs['bd_show_cover'] = True
-defs['bd_overlay_cover_size'] = False
-defs['tags_browser_category_icons'] = {}
-defs['cover_browser_reflections'] = True
-defs['book_list_extra_row_spacing'] = 0
-defs['refresh_book_list_on_bulk_edit'] = True
-defs['cover_grid_width'] = 0
-defs['cover_grid_height'] = 0
-defs['cover_grid_spacing'] = 0
-defs['cover_grid_color'] = (80, 80, 80)
-defs['cover_grid_cache_size_multiple'] = 5
-defs['cover_grid_disk_cache_size'] = 2500
-defs['cover_grid_show_title'] = False
-defs['cover_grid_texture'] = None
-defs['show_vl_tabs'] = False
-defs['show_highlight_toggle_button'] = False
-defs['add_comments_to_email'] = False
-defs['cb_preserve_aspect_ratio'] = False
-defs['show_rating_in_cover_browser'] = True
-defs['gpm_template_editor_font_size'] = 10
-defs['show_emblems'] = False
-defs['emblem_size'] = 32
-defs['emblem_position'] = 'left'
-del defs
+    defs['action-layout-context-menu-device'] = (
+            'View', 'Save To Disk', None, 'Remove Books', None,
+            'Add To Library', 'Edit Collections', 'Match Books'
+            )
+
+    defs['action-layout-context-menu-cover-browser'] = (
+            'Edit Metadata', 'Send To Device', 'Save To Disk',
+            'Connect Share', 'Copy To Library', None,
+            'Convert Books', 'View', 'Open Folder', 'Show Book Details',
+            'Similar Books', 'Tweak ePub', None, 'Remove Books',
+            )
+
+    defs['show_splash_screen'] = True
+    defs['toolbar_icon_size'] = 'medium'
+    defs['automerge'] = 'ignore'
+    defs['toolbar_text'] = 'always'
+    defs['font'] = None
+    defs['tags_browser_partition_method'] = 'first letter'
+    defs['tags_browser_collapse_at'] = 100
+    defs['tag_browser_dont_collapse'] = []
+    defs['edit_metadata_single_layout'] = 'default'
+    defs['preserve_date_on_ctl'] = True
+    defs['manual_add_auto_convert'] = False
+    defs['auto_convert_same_fmt'] = False
+    defs['cb_fullscreen'] = False
+    defs['worker_max_time'] = 0
+    defs['show_files_after_save'] = True
+    defs['auto_add_path'] = None
+    defs['auto_add_check_for_duplicates'] = False
+    defs['blocked_auto_formats'] = []
+    defs['auto_add_auto_convert'] = True
+    defs['auto_add_everything'] = False
+    defs['ui_style'] = 'calibre' if iswindows or isosx else 'system'
+    defs['tag_browser_old_look'] = False
+    defs['tag_browser_hide_empty_categories'] = False
+    defs['book_list_tooltips'] = True
+    defs['show_layout_buttons'] = False
+    defs['bd_show_cover'] = True
+    defs['bd_overlay_cover_size'] = False
+    defs['tags_browser_category_icons'] = {}
+    defs['cover_browser_reflections'] = True
+    defs['book_list_extra_row_spacing'] = 0
+    defs['refresh_book_list_on_bulk_edit'] = True
+    defs['cover_grid_width'] = 0
+    defs['cover_grid_height'] = 0
+    defs['cover_grid_spacing'] = 0
+    defs['cover_grid_color'] = (80, 80, 80)
+    defs['cover_grid_cache_size_multiple'] = 5
+    defs['cover_grid_disk_cache_size'] = 2500
+    defs['cover_grid_show_title'] = False
+    defs['cover_grid_texture'] = None
+    defs['show_vl_tabs'] = False
+    defs['vl_tabs_closable'] = True
+    defs['show_highlight_toggle_button'] = False
+    defs['add_comments_to_email'] = False
+    defs['cb_preserve_aspect_ratio'] = False
+    defs['gpm_template_editor_font_size'] = 10
+    defs['show_emblems'] = False
+    defs['emblem_size'] = 32
+    defs['emblem_position'] = 'left'
+    defs['metadata_diff_mark_rejected'] = False
+    defs['tag_browser_show_counts'] = True
+    defs['tag_browser_show_tooltips'] = True
+    defs['row_numbers_in_book_list'] = True
+    defs['hidpi'] = 'auto'
+    defs['tag_browser_item_padding'] = 0.5
+    defs['paste_isbn_prefixes'] = ['isbn', 'url', 'amazon', 'google']
+    defs['qv_respects_vls'] = True
+    defs['qv_dclick_changes_column'] = True
+    defs['qv_retkey_changes_column'] = True
+    defs['qv_follows_column'] = False
+    defs['book_details_narrow_comments_layout'] = 'float'
+    defs['book_list_split'] = False
+    defs['wrap_toolbar_text'] = False
+    defs['dnd_merge'] = True
+    defs['booklist_grid'] = False
+
+
+create_defs()
+del create_defs
 # }}}
 
 UNDEFINED_QDATETIME = QDateTime(UNDEFINED_DATE)
 
 ALL_COLUMNS = ['title', 'ondevice', 'authors', 'size', 'timestamp', 'rating', 'publisher',
         'tags', 'series', 'pubdate']
+
 
 def _config():  # {{{
     c = Config('gui', 'preferences for the calibre GUI')
@@ -165,14 +204,14 @@ def _config():  # {{{
     c.add_opt('LRF_conversion_defaults', default=[],
               help=_('Defaults for conversion to LRF'))
     c.add_opt('LRF_ebook_viewer_options', default=None,
-              help=_('Options for the LRF ebook viewer'))
+              help=_('Options for the LRF e-book viewer'))
     c.add_opt('internally_viewed_formats', default=['LRF', 'EPUB', 'LIT',
         'MOBI', 'PRC', 'POBI', 'AZW', 'AZW3', 'HTML', 'FB2', 'PDB', 'RB',
         'SNB', 'HTMLZ', 'KEPUB'], help=_(
             'Formats that are viewed using the internal viewer'))
     c.add_opt('column_map', default=ALL_COLUMNS,
               help=_('Columns to be displayed in the book list'))
-    c.add_opt('autolaunch_server', default=False, help=_('Automatically launch content server on application startup'))
+    c.add_opt('autolaunch_server', default=False, help=_('Automatically launch Content server on application startup'))
     c.add_opt('oldest_news', default=60, help=_('Oldest news kept in database'))
     c.add_opt('systray_icon', default=False, help=_('Show system tray icon'))
     c.add_opt('upload_news_to_device', default=True,
@@ -184,7 +223,7 @@ def _config():  # {{{
     c.add_opt('disable_tray_notification', default=False,
               help=_('Disable notifications from the system tray icon'))
     c.add_opt('default_send_to_device_action', default=None,
-            help=_('Default action to perform when send to device button is '
+            help=_('Default action to perform when the "Send to device" button is '
                 'clicked'))
     c.add_opt('asked_library_thing_password', default=False,
             help='Asked library thing password at least once.')
@@ -202,9 +241,9 @@ def _config():  # {{{
     c.add_opt('main_search_history', default=[],
         help='Search history for the main GUI')
     c.add_opt('viewer_search_history', default=[],
-        help='Search history for the ebook viewer')
+        help='Search history for the e-book viewer')
     c.add_opt('viewer_toc_search_history', default=[],
-        help='Search history for the ToC in the ebook viewer')
+        help='Search history for the ToC in the e-book viewer')
     c.add_opt('lrf_viewer_search_history', default=[],
         help='Search history for the LRF viewer')
     c.add_opt('scheduler_search_history', default=[],
@@ -231,10 +270,10 @@ def _config():  # {{{
             help=_('Limit max simultaneous jobs to number of CPUs'))
     c.add_opt('gui_layout', choices=['wide', 'narrow'],
             help=_('The layout of the user interface. Wide has the '
-                'book details panel on the right and narrow has '
+                'Book details panel on the right and narrow has '
                 'it at the bottom.'), default='wide')
     c.add_opt('show_avg_rating', default=True,
-            help=_('Show the average rating per item indication in the tag browser'))
+            help=_('Show the average rating per item indication in the Tag browser'))
     c.add_opt('disable_animations', default=False,
             help=_('Disable UI animations'))
 
@@ -246,49 +285,55 @@ def _config():  # {{{
     c.add_opt
     return ConfigProxy(c)
 
+
 config = _config()
+
 # }}}
 
 QSettings.setPath(QSettings.IniFormat, QSettings.UserScope, config_dir)
 QSettings.setPath(QSettings.IniFormat, QSettings.SystemScope, config_dir)
 QSettings.setDefaultFormat(QSettings.IniFormat)
 
-# Turn off DeprecationWarnings in windows GUI
-if iswindows:
-    import warnings
-    warnings.simplefilter('ignore', DeprecationWarning)
+
+def default_author_link():
+    from calibre.ebooks.metadata.book.render import DEFAULT_AUTHOR_LINK
+    ans = gprefs.get('default_author_link')
+    if ans == 'https://en.wikipedia.org/w/index.php?search={author}':
+        # The old default value for this setting
+        ans = DEFAULT_AUTHOR_LINK
+    return ans or DEFAULT_AUTHOR_LINK
+
 
 def available_heights():
     desktop  = QCoreApplication.instance().desktop()
     return map(lambda x: x.height(), map(desktop.availableGeometry, range(desktop.screenCount())))
 
+
 def available_height():
     desktop  = QCoreApplication.instance().desktop()
     return desktop.availableGeometry().height()
 
+
 def max_available_height():
     return max(available_heights())
 
+
 def min_available_height():
     return min(available_heights())
+
 
 def available_width():
     desktop       = QCoreApplication.instance().desktop()
     return desktop.availableGeometry().width()
 
-def get_windows_color_depth():
-    import win32gui, win32con, win32print
-    hwin = win32gui.GetDesktopWindow()
-    hwindc = win32gui.GetWindowDC(hwin)
-    ans = win32print.GetDeviceCaps(hwindc, win32con.BITSPIXEL)
-    win32gui.ReleaseDC(hwin, hwindc)
-    return ans
 
 def get_screen_dpi():
     d = QApplication.desktop()
     return (d.logicalDpiX(), d.logicalDpiY())
 
+
 _is_widescreen = None
+
 
 def is_widescreen():
     global _is_widescreen
@@ -299,6 +344,7 @@ def is_widescreen():
             _is_widescreen = False
     return _is_widescreen
 
+
 def extension(path):
     return os.path.splitext(path)[1][1:].lower()
 
@@ -306,22 +352,24 @@ def extension(path):
 def warning_dialog(parent, title, msg, det_msg='', show=False,
         show_copy_button=True):
     from calibre.gui2.dialogs.message_box import MessageBox
-    d = MessageBox(MessageBox.WARNING, _('WARNING:')+ ' ' +
-            title, msg, det_msg, parent=parent,
-            show_copy_button=show_copy_button)
+    d = MessageBox(MessageBox.WARNING, _('WARNING:'
+        )+ ' ' + title, msg, det_msg, parent=parent,
+        show_copy_button=show_copy_button)
     if show:
         return d.exec_()
     return d
 
+
 def error_dialog(parent, title, msg, det_msg='', show=False,
         show_copy_button=True):
     from calibre.gui2.dialogs.message_box import MessageBox
-    d = MessageBox(MessageBox.ERROR, _('ERROR:')+ ' ' +
-            title, msg, det_msg, parent=parent,
-                    show_copy_button=show_copy_button)
+    d = MessageBox(MessageBox.ERROR, _('ERROR:'
+        ) + ' ' + title, msg, det_msg, parent=parent,
+        show_copy_button=show_copy_button)
     if show:
         return d.exec_()
     return d
+
 
 def question_dialog(parent, title, msg, det_msg='', show_copy_button=False,
         default_yes=True,
@@ -362,6 +410,7 @@ def question_dialog(parent, title, msg, det_msg='', show_copy_button=False,
 
     return ret
 
+
 def info_dialog(parent, title, msg, det_msg='', show=False,
         show_copy_button=True):
     from calibre.gui2.dialogs.message_box import MessageBox
@@ -372,12 +421,14 @@ def info_dialog(parent, title, msg, det_msg='', show=False,
         return d.exec_()
     return d
 
+
 def show_restart_warning(msg, parent=None):
     d = warning_dialog(parent, _('Restart needed'), msg,
             show_copy_button=False)
-    b = d.bb.addButton(_('Restart calibre now'), d.bb.AcceptRole)
+    b = d.bb.addButton(_('&Restart calibre now'), d.bb.AcceptRole)
     b.setIcon(QIcon(I('lt.png')))
     d.do_restart = False
+
     def rf():
         d.do_restart = True
     b.clicked.connect(rf)
@@ -411,6 +462,7 @@ class Dispatcher(QObject):
 
     def dispatch(self, args, kwargs):
         self.func(*args, **kwargs)
+
 
 class FunctionDispatcher(QObject):
     '''
@@ -454,6 +506,7 @@ class FunctionDispatcher(QObject):
             res = None
         q.put(res)
 
+
 class GetMetadata(QObject):
     '''
     Convenience class to ensure that metadata readers are used only in the
@@ -492,58 +545,10 @@ class GetMetadata(QObject):
             mi = MetaInformation('', [_('Unknown')])
         self.metadata.emit(id, mi)
 
+
 class FileIconProvider(QFileIconProvider):
 
-    ICONS = {
-             'default' : 'unknown',
-             'dir'     : 'dir',
-             'zero'    : 'zero',
-
-             'jpeg'    : 'jpeg',
-             'jpg'     : 'jpeg',
-             'gif'     : 'gif',
-             'png'     : 'png',
-             'bmp'     : 'bmp',
-             'cbz'     : 'cbz',
-             'cbr'     : 'cbr',
-             'svg'     : 'svg',
-             'html'    : 'html',
-             'htmlz'   : 'html',
-             'htm'     : 'html',
-             'xhtml'   : 'html',
-             'xhtm'    : 'html',
-             'lit'     : 'lit',
-             'lrf'     : 'lrf',
-             'lrx'     : 'lrx',
-             'pdf'     : 'pdf',
-             'pdr'     : 'zero',
-             'rar'     : 'rar',
-             'zip'     : 'zip',
-             'txt'     : 'txt',
-             'text'    : 'txt',
-             'prc'     : 'mobi',
-             'azw'     : 'mobi',
-             'mobi'    : 'mobi',
-             'pobi'    : 'mobi',
-             'mbp'     : 'zero',
-             'azw1'    : 'tpz',
-             'azw2'    : 'azw2',
-             'azw3'    : 'azw3',
-             'azw4'    : 'pdf',
-             'tpz'     : 'tpz',
-             'tan'     : 'zero',
-             'epub'    : 'epub',
-             'fb2'     : 'fb2',
-             'rtf'     : 'rtf',
-             'odt'     : 'odt',
-             'snb'     : 'snb',
-             'djv'     : 'djvu',
-             'djvu'    : 'djvu',
-             'xps'     : 'xps',
-             'oxps'    : 'xps',
-             'docx'    : 'docx',
-             'opml'    : 'opml',
-             }
+    ICONS = EXT_MAP
 
     def __init__(self):
         QFileIconProvider.__init__(self)
@@ -607,135 +612,39 @@ class FileIconProvider(QFileIconProvider):
             return self.icons['default']
         return QFileIconProvider.icon(self, arg)
 
+
 _file_icon_provider = None
+
+
 def initialize_file_icon_provider():
     global _file_icon_provider
     if _file_icon_provider is None:
         _file_icon_provider = FileIconProvider()
+
 
 def file_icon_provider():
     global _file_icon_provider
     initialize_file_icon_provider()
     return _file_icon_provider
 
-def select_initial_dir(q):
-    while q:
-        c = os.path.dirname(q)
-        if c == q:
-            break
-        if os.path.exists(c):
-            return c
-        q = c
-    return expanduser(u'~')
 
-class FileDialog(QObject):
-    def __init__(self, title=_('Choose Files'),
-                       filters=[],
-                       add_all_files_filter=True,
-                       parent=None,
-                       modal=True,
-                       name='',
-                       mode=QFileDialog.ExistingFiles,
-                       default_dir=u'~',
-                       no_save_dir=False,
-                       combine_file_and_saved_dir=False
-                       ):
-        QObject.__init__(self)
-        ftext = ''
-        if filters:
-            for filter in filters:
-                text, extensions = filter
-                extensions = ['*'+(i if i.startswith('.') else '.'+i) for i in
-                        extensions]
-                ftext += '%s (%s);;'%(text, ' '.join(extensions))
-        if add_all_files_filter or not ftext:
-            ftext += 'All files (*)'
-        if ftext.endswith(';;'):
-            ftext = ftext[:-2]
+has_windows_file_dialog_helper = False
+if iswindows and 'CALIBRE_NO_NATIVE_FILEDIALOGS' not in os.environ:
+    from calibre.gui2.win_file_dialogs import is_ok as has_windows_file_dialog_helper
+    has_windows_file_dialog_helper = has_windows_file_dialog_helper()
+has_linux_file_dialog_helper = False
+if not iswindows and not isosx and 'CALIBRE_NO_NATIVE_FILEDIALOGS' not in os.environ and getattr(sys, 'frozen', False):
+    has_linux_file_dialog_helper = check_for_linux_native_dialogs()
 
-        self.dialog_name = name if name else 'dialog_' + title
-        self.selected_files = None
-        self.fd = None
+if has_windows_file_dialog_helper:
+    from calibre.gui2.win_file_dialogs import choose_files, choose_images, choose_dir, choose_save_file
+elif has_linux_file_dialog_helper:
+    choose_dir, choose_files, choose_save_file, choose_images = map(
+        linux_native_dialog, 'dir files save_file images'.split())
+else:
+    from calibre.gui2.qt_file_dialogs import choose_files, choose_images, choose_dir, choose_save_file
+    choose_files, choose_images, choose_dir, choose_save_file
 
-        if combine_file_and_saved_dir:
-            bn = os.path.basename(default_dir)
-            prev = dynamic.get(self.dialog_name,
-                    expanduser(u'~'))
-            if os.path.exists(prev):
-                if os.path.isfile(prev):
-                    prev = os.path.dirname(prev)
-            else:
-                prev = expanduser(u'~')
-            initial_dir = os.path.join(prev, bn)
-        elif no_save_dir:
-            initial_dir = expanduser(default_dir)
-        else:
-            initial_dir = dynamic.get(self.dialog_name,
-                    expanduser(default_dir))
-        if not isinstance(initial_dir, basestring):
-            initial_dir = expanduser(default_dir)
-        if not initial_dir or (not os.path.exists(initial_dir) and not (
-                mode == QFileDialog.AnyFile and (no_save_dir or combine_file_and_saved_dir))):
-            initial_dir = select_initial_dir(initial_dir)
-        self.selected_files = []
-        use_native_dialog = 'CALIBRE_NO_NATIVE_FILEDIALOGS' not in os.environ
-        with sanitize_env_vars():
-            opts = QFileDialog.Option()
-            if not use_native_dialog:
-                opts |= QFileDialog.DontUseNativeDialog
-            if mode == QFileDialog.AnyFile:
-                f = QFileDialog.getSaveFileName(parent, title,
-                    initial_dir, ftext, "", opts)
-                if f and f[0]:
-                    self.selected_files.append(f[0])
-            elif mode == QFileDialog.ExistingFile:
-                f = QFileDialog.getOpenFileName(parent, title,
-                    initial_dir, ftext, "", opts)
-                if f and f[0] and os.path.exists(f[0]):
-                    self.selected_files.append(f[0])
-            elif mode == QFileDialog.ExistingFiles:
-                fs = QFileDialog.getOpenFileNames(parent, title, initial_dir,
-                        ftext, "", opts)
-                if fs and fs[0]:
-                    for f in fs[0]:
-                        f = unicode(f)
-                        if not f:
-                            continue
-                        if not os.path.exists(f):
-                            # QFileDialog for some reason quotes spaces
-                            # on linux if there is more than one space in a row
-                            f = unquote(f)
-                        if f and os.path.exists(f):
-                            self.selected_files.append(f)
-            else:
-                if mode == QFileDialog.Directory:
-                    opts |= QFileDialog.ShowDirsOnly
-                f = unicode(QFileDialog.getExistingDirectory(parent, title, initial_dir, opts))
-                if os.path.exists(f):
-                    self.selected_files.append(f)
-        if self.selected_files:
-            self.selected_files = [unicode(q) for q in self.selected_files]
-            saved_loc = self.selected_files[0]
-            if os.path.isfile(saved_loc):
-                saved_loc = os.path.dirname(saved_loc)
-            if not no_save_dir:
-                dynamic[self.dialog_name] = saved_loc
-        self.accepted = bool(self.selected_files)
-
-    def get_files(self):
-        if self.selected_files is None:
-            return tuple(os.path.abspath(unicode(i)) for i in self.fd.selectedFiles())
-        return tuple(self.selected_files)
-
-
-def choose_dir(window, name, title, default_dir='~', no_save_dir=False):
-    fd = FileDialog(title=title, filters=[], add_all_files_filter=False,
-            parent=window, name=name, mode=QFileDialog.Directory,
-            default_dir=default_dir, no_save_dir=no_save_dir)
-    dir = fd.get_files()
-    fd.setParent(None)
-    if dir:
-        return dir[0]
 
 def choose_osx_app(window, name, title, default_dir='/Applications'):
     fd = FileDialog(title=title, parent=window, name=name, mode=QFileDialog.ExistingFile,
@@ -745,77 +654,26 @@ def choose_osx_app(window, name, title, default_dir='/Applications'):
     if app:
         return app
 
-def choose_files(window, name, title,
-                 filters=[], all_files=True, select_only_single_file=False):
-    '''
-    Ask user to choose a bunch of files.
-    :param name: Unique dialog name used to store the opened directory
-    :param title: Title to show in dialogs titlebar
-    :param filters: list of allowable extensions. Each element of the list
-                    must be a 2-tuple with first element a string describing
-                    the type of files to be filtered and second element a list
-                    of extensions.
-    :param all_files: If True add All files to filters.
-    :param select_only_single_file: If True only one file can be selected
-    '''
-    mode = QFileDialog.ExistingFile if select_only_single_file else QFileDialog.ExistingFiles
-    fd = FileDialog(title=title, name=name, filters=filters,
-                    parent=window, add_all_files_filter=all_files, mode=mode,
-                    )
-    fd.setParent(None)
-    if fd.accepted:
-        return fd.get_files()
-    return None
 
-def choose_save_file(window, name, title, filters=[], all_files=True, initial_path=None, initial_filename=None):
-    '''
-    Ask user to choose a file to save to. Can be a non-existent file.
-    :param filters: list of allowable extensions. Each element of the list
-                     must be a 2-tuple with first element a string describing
-                     the type of files to be filtered and second element a list
-                     of extensions.
-    :param all_files: If True add All files to filters.
-    :param initial_path: The initially selected path (does not need to exist). Cannot be used with initial_filename.
-    :param initial_filename: If specified, the initially selected path is this filename in the previously used directory. Cannot be used with initial_path.
-    '''
-    kwargs = dict(title=title, name=name, filters=filters,
-                    parent=window, add_all_files_filter=all_files, mode=QFileDialog.AnyFile)
-    if initial_path is not None:
-        kwargs['no_save_dir'] = True
-        kwargs['default_dir'] = initial_path
-    elif initial_filename is not None:
-        kwargs['combine_file_and_saved_dir'] = True
-        kwargs['default_dir'] = initial_filename
-    fd = FileDialog(**kwargs)
-    fd.setParent(None)
-    ans = None
-    if fd.accepted:
-        ans = fd.get_files()
-        if ans:
-            ans = ans[0]
-    return ans
-
-def choose_images(window, name, title, select_only_single_file=True,
-                  formats=('png', 'gif', 'jpg', 'jpeg', 'svg')):
-    mode = QFileDialog.ExistingFile if select_only_single_file else QFileDialog.ExistingFiles
-    fd = FileDialog(title=title, name=name,
-                    filters=[('Images', list(formats))],
-                    parent=window, add_all_files_filter=False, mode=mode,
-                    )
-    fd.setParent(None)
-    if fd.accepted:
-        return fd.get_files()
-    return None
-
-def pixmap_to_data(pixmap, format='JPEG', quality=90):
+def pixmap_to_data(pixmap, format='JPEG', quality=None):
     '''
     Return the QPixmap pixmap as a string saved in the specified format.
     '''
+    if quality is None:
+        if format.upper() == "PNG":
+            # For some reason on windows with Qt 5.6 using a quality of 90
+            # generates invalid PNG data. Many other quality values work
+            # but we use -1 for the default quality which is most likely to
+            # work
+            quality = -1
+        else:
+            quality = 90
     ba = QByteArray()
     buf = QBuffer(ba)
     buf.open(QBuffer.WriteOnly)
     pixmap.save(buf, format, quality=quality)
     return bytes(ba.data())
+
 
 def decouple(prefix):
     ' Ensure that config files used by utility code are not the same as those used by the main calibre GUI '
@@ -823,21 +681,34 @@ def decouple(prefix):
     from calibre.gui2.widgets import history
     history.decouple(prefix)
 
+
+_gui_prefs = gprefs
+
+
+def gui_prefs():
+    return _gui_prefs
+
+
+def set_gui_prefs(prefs):
+    global _gui_prefs
+    _gui_prefs = prefs
+
+
 class ResizableDialog(QDialog):
+
+    # This class is present only for backwards compat with third party plugins
+    # that might use it. Do not use it in new code.
 
     def __init__(self, *args, **kwargs):
         QDialog.__init__(self, *args)
         self.setupUi(self)
         desktop = QCoreApplication.instance().desktop()
         geom = desktop.availableGeometry(self)
-        nh, nw = geom.height()-25, geom.width()-10
-        if nh < 0:
-            nh = max(800, self.height())
-        if nw < 0:
-            nw = max(600, self.height())
+        nh, nw = max(550, geom.height()-25), max(700, geom.width()-10)
         nh = min(self.height(), nh)
         nw = min(self.width(), nw)
         self.resize(nw, nh)
+
 
 class Translator(QTranslator):
     '''
@@ -861,6 +732,7 @@ qt_app = None
 
 builtin_fonts_loaded = False
 
+
 def load_builtin_fonts():
     global _rating_font, builtin_fonts_loaded
     # Load the builtin fonts and any fonts added to calibre by the user to
@@ -882,15 +754,53 @@ def load_builtin_fonts():
                     if u'calibre Symbols' in fam:
                         _rating_font = u'calibre Symbols'
 
+
 def setup_gui_option_parser(parser):
     if islinux:
         parser.add_option('--detach', default=False, action='store_true',
-                          help=_('Detach from the controlling terminal, if any (linux only)'))
+                          help=_('Detach from the controlling terminal, if any (Linux only)'))
+
+
+def show_temp_dir_error(err):
+    import traceback
+    extra = _('Click "Show details" for more information.')
+    if 'CALIBRE_TEMP_DIR' in os.environ:
+        extra = _('The %s environment variable is set. Try unsetting it.') % 'CALIBRE_TEMP_DIR'
+    error_dialog(None, _('Could not create temporary directory'), _(
+        'Could not create temporary directory, calibre cannot start.') + ' ' + extra, det_msg=traceback.format_exc(), show=True)
+
+
+def setup_hidpi():
+    # This requires Qt >= 5.6
+    has_env_setting = False
+    env_vars = ('QT_AUTO_SCREEN_SCALE_FACTOR', 'QT_SCALE_FACTOR', 'QT_SCREEN_SCALE_FACTORS', 'QT_DEVICE_PIXEL_RATIO')
+    for v in env_vars:
+        if os.environ.get(v):
+            has_env_setting = True
+            break
+    hidpi = gprefs['hidpi']
+    if hidpi == 'on' or (hidpi == 'auto' and not has_env_setting):
+        if DEBUG:
+            prints('Turning on automatic hidpi scaling')
+        QApplication.setAttribute(Qt.AA_EnableHighDpiScaling, True)
+    elif hidpi == 'off':
+        if DEBUG:
+            prints('Turning off automatic hidpi scaling')
+        QApplication.setAttribute(Qt.AA_EnableHighDpiScaling, False)
+        for p in env_vars:
+            os.environ.pop(p, None)
+    elif DEBUG:
+        prints('Not controlling automatic hidpi scaling')
+
 
 class Application(QApplication):
 
+    shutdown_signal_received = pyqtSignal()
+
     def __init__(self, args, force_calibre_style=False, override_program_name=None, headless=False, color_prefs=gprefs):
         self.file_event_hook = None
+        if isfrozen and QT_VERSION <= 0x050700 and 'wayland' in os.environ.get('QT_QPA_PLATFORM', ''):
+            os.environ['QT_QPA_PLATFORM'] = 'xcb'
         if override_program_name:
             args = [override_program_name] + args[1:]
         if headless:
@@ -900,16 +810,34 @@ class Application(QApplication):
         self.headless = headless
         qargs = [i.encode('utf-8') if isinstance(i, unicode) else i for i in args]
         self.pi = plugins['progress_indicator'][0]
+        if not isosx and not headless:
+            # On OS X high dpi scaling is turned on automatically by the OS, so we dont need to set it explicitly
+            setup_hidpi()
+        QApplication.setOrganizationName('calibre-ebook.com')
+        QApplication.setOrganizationDomain(QApplication.organizationName())
+        QApplication.setApplicationVersion(__version__)
+        QApplication.setApplicationName(APP_UID)
         QApplication.__init__(self, qargs)
+        self.setAttribute(Qt.AA_UseHighDpiPixmaps)
+        self.setAttribute(Qt.AA_SynthesizeTouchForUnhandledMouseEvents, False)
+        try:
+            base_dir()
+        except EnvironmentError as err:
+            if not headless:
+                show_temp_dir_error(err)
+            raise SystemExit('Failed to create temporary directory')
+        if DEBUG and not headless:
+            prints('devicePixelRatio:', self.devicePixelRatio())
+            s = self.primaryScreen()
+            if s:
+                prints('logicalDpi:', s.logicalDotsPerInchX(), 'x', s.logicalDotsPerInchY())
+                prints('physicalDpi:', s.physicalDotsPerInchX(), 'x', s.physicalDotsPerInchY())
+        if not iswindows:
+            self.setup_unix_signals()
         if islinux or isbsd:
             self.setAttribute(Qt.AA_DontUseNativeMenuBar, 'CALIBRE_NO_NATIVE_MENUBAR' in os.environ)
         self.setup_styles(force_calibre_style)
-        f = QFont(QApplication.font())
-        if (f.family(), f.pointSize()) == ('Sans Serif', 9):  # Hard coded Qt settings, no user preference detected
-            f.setPointSize(10)
-            QApplication.setFont(f)
-        f = QFontInfo(f)
-        self.original_font = (f.family(), f.pointSize(), f.weight(), f.italic(), 100)
+        self.setup_ui_font()
         if not self.using_calibre_style and self.style().objectName() == 'fusion':
             # Since Qt is using the fusion style anyway, specialize it
             self.load_calibre_style()
@@ -920,6 +848,12 @@ class Application(QApplication):
             if s is not None:
                 font.setStretch(s)
             QApplication.setFont(font)
+        if not isosx and not iswindows:
+            # Qt 5.10.1 on Linux resets the global font on first event loop tick.
+            # So workaround it by setting the font once again in a timer.
+            font_from_prefs = self.font()
+            QTimer.singleShot(0, lambda : QApplication.setFont(font_from_prefs))
+        self.line_height = max(12, QFontMetrics(self.font()).lineSpacing())
 
         dl = QLocale(get_lang())
         if unicode(dl.bcp47Name()) != u'C':
@@ -960,11 +894,28 @@ class Application(QApplication):
             # Qt 5 bug: https://bugreports.qt-project.org/browse/QTBUG-41125
             self.aboutToQuit.connect(self.flush_clipboard)
 
+    def setup_ui_font(self):
+        f = QFont(QApplication.font())
+        q = (f.family(), f.pointSize())
+        if iswindows:
+            if q == ('MS Shell Dlg 2', 8):  # Qt default setting
+                # Microsoft recommends the default font be Segoe UI at 9 pt
+                # https://msdn.microsoft.com/en-us/library/windows/desktop/dn742483(v=vs.85).aspx
+                f.setFamily('Segoe UI')
+                f.setPointSize(9)
+                QApplication.setFont(f)
+        else:
+            if q == ('Sans Serif', 9):  # Hard coded Qt settings, no user preference detected
+                f.setPointSize(10)
+                QApplication.setFont(f)
+        f = QFontInfo(f)
+        self.original_font = (f.family(), f.pointSize(), f.weight(), f.italic(), 100)
+
     def flush_clipboard(self):
         try:
             if self.clipboard().ownsClipboard():
                 import ctypes
-                ctypes.WinDLL('ole32.dll').OleFlushClipboard()
+                ctypes.WinDLL(b'ole32.dll').OleFlushClipboard()
         except Exception:
             import traceback
             traceback.print_exc()
@@ -978,19 +929,15 @@ class Application(QApplication):
         load_builtin_fonts()
 
     def setup_styles(self, force_calibre_style):
-        depth_ok = True
-        if iswindows:
-            # There are some people that still run 16 bit winxp installs. The
-            # new style does not render well on 16bit machines.
-            try:
-                depth_ok = get_windows_color_depth() >= 32
-            except:
-                import traceback
-                traceback.print_exc()
-            if not depth_ok:
-                prints('Color depth is less than 32 bits disabling modern look')
-
-        self.using_calibre_style = force_calibre_style or (depth_ok and gprefs['ui_style'] != 'system')
+        if iswindows or isosx:
+            using_calibre_style = gprefs['ui_style'] != 'system'
+        else:
+            using_calibre_style = os.environ.get('CALIBRE_USE_SYSTEM_THEME', '0') == '0'
+        if force_calibre_style:
+            using_calibre_style = True
+        self.using_calibre_style = using_calibre_style
+        if DEBUG:
+            prints('Using calibre Qt style:', self.using_calibre_style)
         if self.using_calibre_style:
             self.load_calibre_style()
 
@@ -1013,6 +960,7 @@ class Application(QApplication):
             'MessageBoxCritical': u'dialog_error.png',
             'MessageBoxQuestion': u'dialog_question.png',
             'BrowserReload': u'view-refresh.png',
+            'LineEditClearButton': u'clear_left.png',
         }.iteritems():
             if v not in pcache:
                 p = I(v)
@@ -1050,9 +998,11 @@ class Application(QApplication):
     @dynamic_property
     def current_custom_colors(self):
         from PyQt5.Qt import QColorDialog, QColor
+
         def fget(self):
             return [col.getRgb() for col in
                     (QColorDialog.customColor(i) for i in xrange(QColorDialog.customCount()))]
+
         def fset(self, colors):
             num = min(len(colors), QColorDialog.customCount())
             for i in xrange(num):
@@ -1076,7 +1026,31 @@ class Application(QApplication):
     def __exit__(self, *args):
         self.setQuitOnLastWindowClosed(True)
 
+    def setup_unix_signals(self):
+        import fcntl
+        read_fd, write_fd = os.pipe()
+        cloexec_flag = getattr(fcntl, 'FD_CLOEXEC', 1)
+        for fd in (read_fd, write_fd):
+            flags = fcntl.fcntl(fd, fcntl.F_GETFD)
+            fcntl.fcntl(fd, fcntl.F_SETFD, flags | cloexec_flag | os.O_NONBLOCK)
+        for sig in (signal.SIGINT, signal.SIGTERM):
+            signal.signal(sig, lambda x, y: None)
+            signal.siginterrupt(sig, False)
+        signal.set_wakeup_fd(write_fd)
+        self.signal_notifier = QSocketNotifier(read_fd, QSocketNotifier.Read, self)
+        self.signal_notifier.setEnabled(True)
+        self.signal_notifier.activated.connect(self.signal_received, type=Qt.QueuedConnection)
+
+    def signal_received(self, read_fd):
+        try:
+            os.read(read_fd, 1024)
+        except EnvironmentError:
+            return
+        self.shutdown_signal_received.emit()
+
+
 _store_app = None
+
 
 @contextmanager
 def sanitize_env_vars():
@@ -1084,12 +1058,12 @@ def sanitize_env_vars():
     is needed to prevent library conflicts when launching external utilities.'''
 
     if islinux and isfrozen:
-        env_vars = {'LD_LIBRARY_PATH':'/lib', 'QT_PLUGIN_PATH':'/lib/qt_plugins', 'MAGICK_CODER_MODULE_PATH':None, 'MAGICK_CODER_FILTER_PATH':None}
+        env_vars = {'LD_LIBRARY_PATH':'/lib', 'QT_PLUGIN_PATH':'/lib/qt_plugins'}
     elif iswindows:
-        env_vars = {k:None for k in 'MAGICK_HOME MAGICK_CONFIGURE_PATH MAGICK_CODER_MODULE_PATH MAGICK_FILTER_MODULE_PATH QT_PLUGIN_PATH'.split()}
+        env_vars = {k:None for k in 'QT_PLUGIN_PATH'.split()}
     elif isosx:
-        env_vars = {k:None for k in
-                    'FONTCONFIG_FILE FONTCONFIG_PATH MAGICK_CONFIGURE_PATH MAGICK_CODER_MODULE_PATH MAGICK_FILTER_MODULE_PATH QT_PLUGIN_PATH'.split()}
+        env_vars = {k:None for k in (
+                    'FONTCONFIG_FILE FONTCONFIG_PATH QT_PLUGIN_PATH SSL_CERT_FILE').split()}
     else:
         env_vars = {}
 
@@ -1114,7 +1088,10 @@ def sanitize_env_vars():
                     os.environ[var] = orig
                 elif var in os.environ:
                     del os.environ[var]
+
+
 SanitizeLibraryPath = sanitize_env_vars  # For old plugins
+
 
 def open_url(qurl):
     # Qt 5 requires QApplication to be constructed before trying to use
@@ -1124,6 +1101,7 @@ def open_url(qurl):
         qurl = QUrl(qurl)
     with sanitize_env_vars():
         QDesktopServices.openUrl(qurl)
+
 
 def get_current_db():
     '''
@@ -1138,6 +1116,7 @@ def get_current_db():
     from calibre.library import db
     return db()
 
+
 def open_local_file(path):
     if iswindows:
         with sanitize_env_vars():
@@ -1146,18 +1125,21 @@ def open_local_file(path):
         url = QUrl.fromLocalFile(path)
         open_url(url)
 
+
 _ea_lock = Lock()
 
-def ensure_app():
+
+def ensure_app(headless=True):
     global _store_app
     with _ea_lock:
         if _store_app is None and QApplication.instance() is None:
             args = sys.argv[:1]
-            headless = islinux or isbsd
-            if headless:
+            has_headless = isosx or islinux or isbsd
+            if headless and has_headless:
                 args += ['-platformpluginpath', sys.extensions_location, '-platform', 'headless']
             _store_app = QApplication(args)
-            _store_app.headless = headless
+            if headless and has_headless:
+                _store_app.headless = True
             import traceback
             # This is needed because as of PyQt 5.4 if sys.execpthook ==
             # sys.__excepthook__ PyQt will abort the application on an
@@ -1167,6 +1149,7 @@ def ensure_app():
             # dont feel like going through all the code and making sure no
             # unhandled exceptions ever occur. All the actual GUI apps already
             # override sys.except_hook with a proper error handler.
+
             def eh(t, v, tb):
                 try:
                     traceback.print_exception(t, v, tb, file=sys.stderr)
@@ -1174,18 +1157,24 @@ def ensure_app():
                     pass
             sys.excepthook = eh
 
-def must_use_qt():
+
+def app_is_headless():
+    return getattr(_store_app, 'headless', False)
+
+
+def must_use_qt(headless=True):
     ''' This function should be called if you want to use Qt for some non-GUI
     task like rendering HTML/SVG or using a headless browser. It will raise a
     RuntimeError if using Qt is not possible, which will happen if the current
     thread is not the main GUI thread. On linux, it uses a special QPA headless
     plugin, so that the X server does not need to be running. '''
-    global gui_thread, _store_app
-    ensure_app()
+    global gui_thread
+    ensure_app(headless=headless)
     if gui_thread is None:
         gui_thread = QThread.currentThread()
     if gui_thread is not QThread.currentThread():
         raise RuntimeError('Cannot use Qt in non GUI thread')
+
 
 def is_ok_to_use_qt():
     try:
@@ -1194,14 +1183,19 @@ def is_ok_to_use_qt():
         return False
     return True
 
+
 def is_gui_thread():
     global gui_thread
     return gui_thread is QThread.currentThread()
 
+
 _rating_font = 'Arial Unicode MS' if iswindows else 'sans-serif'
+
+
 def rating_font():
     global _rating_font
     return _rating_font
+
 
 def elided_text(text, font=None, width=300, pos='middle'):
     ''' Return a version of text that is no wider than width pixels when
@@ -1209,7 +1203,7 @@ def elided_text(text, font=None, width=300, pos='middle'):
     of the string with an ellipsis. Results in a string much closer to the
     limit than Qt's elidedText().'''
     from PyQt5.Qt import QFontMetrics, QApplication
-    fm = QApplication.fontMetrics() if font is None else QFontMetrics(font)
+    fm = QApplication.fontMetrics() if font is None else (font if isinstance(font, QFontMetrics) else QFontMetrics(font))
     delta = 4
     ellipsis = u'\u2026'
 
@@ -1222,6 +1216,7 @@ def elided_text(text, font=None, width=300, pos='middle'):
         text = chomp(text)
     return unicode(text)
 
+
 def find_forms(srcdir):
     base = os.path.join(srcdir, 'calibre', 'gui2')
     forms = []
@@ -1232,8 +1227,10 @@ def find_forms(srcdir):
 
     return forms
 
+
 def form_to_compiled_form(form):
     return form.rpartition('.')[0]+'_ui.py'
+
 
 def build_forms(srcdir, info=None, summary=False, check_for_migration=False):
     import re, cStringIO
@@ -1243,6 +1240,7 @@ def build_forms(srcdir, info=None, summary=False, check_for_migration=False):
         from calibre import prints
         info = prints
     pat = re.compile(r'''(['"]):/images/([^'"]+)\1''')
+
     def sub(match):
         ans = 'I(%s%s%s)'%(match.group(1), match.group(2), match.group(1))
         return ans
@@ -1277,9 +1275,10 @@ def build_forms(srcdir, info=None, summary=False, check_for_migration=False):
     if force_compile:
         gprefs.set('migrated_forms_to_qt5', True)
 
-_df = os.environ.get('CALIBRE_DEVELOP_FROM', None)
-if _df and os.path.exists(_df):
-    build_forms(_df, check_for_migration=True)
+
+if is_running_from_develop:
+    build_forms(os.environ['CALIBRE_DEVELOP_FROM'], check_for_migration=True)
+
 
 def event_type_name(ev_or_etype):
     from PyQt5.QtCore import QEvent
@@ -1289,14 +1288,70 @@ def event_type_name(ev_or_etype):
             return name
     return 'UnknownEventType'
 
-if islinux or isbsd:
-    def workaround_broken_under_mouse(ch):
-        import sip
-        from PyQt5.Qt import QCursor, QToolButton
-        # See https://bugreports.qt-project.org/browse/QTBUG-40233
-        if isinstance(ch, QToolButton) and not sip.isdeleted(ch):
-            ch.setAttribute(Qt.WA_UnderMouse, ch.rect().contains(ch.mapFromGlobal(QCursor.pos())))
-            ch.update()
-else:
-    workaround_broken_under_mouse = None
 
+def secure_web_page(qwebpage_or_qwebsettings):
+    from PyQt5.QtWebKit import QWebSettings
+    settings = qwebpage_or_qwebsettings if isinstance(qwebpage_or_qwebsettings, QWebSettings) else qwebpage_or_qwebsettings.settings()
+    settings.setAttribute(QWebSettings.JavaEnabled, False)
+    settings.setAttribute(QWebSettings.PluginsEnabled, False)
+    settings.setAttribute(QWebSettings.JavascriptCanOpenWindows, False)
+    settings.setAttribute(QWebSettings.JavascriptCanAccessClipboard, False)
+    settings.setAttribute(QWebSettings.LocalContentCanAccessFileUrls, False)  # ensure javascript cannot read from local files
+    settings.setAttribute(QWebSettings.NotificationsEnabled, False)
+    settings.setThirdPartyCookiePolicy(QWebSettings.AlwaysBlockThirdPartyCookies)
+    settings.setAttribute(QWebSettings.OfflineStorageDatabaseEnabled, False)
+    settings.setAttribute(QWebSettings.LocalStorageEnabled, False)
+    QWebSettings.setOfflineStorageDefaultQuota(0)
+    QWebSettings.setOfflineStoragePath(None)
+    return settings
+
+
+empty_model = QStringListModel([''])
+empty_index = empty_model.index(0)
+
+
+def get_app_uid():
+    import ctypes
+    from ctypes import wintypes
+    lpBuffer = wintypes.LPWSTR()
+    try:
+        AppUserModelID = ctypes.windll.shell32.GetCurrentProcessExplicitAppUserModelID
+    except Exception:  # Vista has no app uids
+        return
+    AppUserModelID.argtypes = [wintypes.LPWSTR]
+    AppUserModelID.restype = wintypes.HRESULT
+    try:
+        AppUserModelID(ctypes.cast(ctypes.byref(lpBuffer), wintypes.LPWSTR))
+    except Exception:
+        return
+    appid = lpBuffer.value
+    ctypes.windll.ole32.CoTaskMemFree(lpBuffer)
+    return appid
+
+
+def set_app_uid(val):
+    import ctypes
+    from ctypes import wintypes
+    try:
+        AppUserModelID = ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID
+    except Exception:  # Vista has no app uids
+        return False
+    AppUserModelID.argtypes = [wintypes.LPCWSTR]
+    AppUserModelID.restype = wintypes.HRESULT
+    try:
+        AppUserModelID(unicode(val))
+    except Exception as err:
+        prints(u'Failed to set app uid with error:', as_unicode(err))
+        return False
+    return True
+
+
+def add_to_recent_docs(path):
+    from win32com.shell import shell, shellcon
+    path = unicode(path)
+    app_id = get_app_uid()
+    if app_id is None:
+        shell.SHAddToRecentDocs(shellcon.SHARD_PATHW, path)
+    else:
+        item = shell.SHCreateItemFromParsingName(path, None, shell.IID_IShellItem)
+        shell.SHAddToRecentDocs(shellcon.SHARD_APPIDINFO, (item, app_id))

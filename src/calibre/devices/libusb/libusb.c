@@ -8,7 +8,11 @@
 #define UNICODE
 
 #include <Python.h>
+#ifdef __FreeBSD__
+#include <libusb.h>
+#else
 #include <libusb-1.0/libusb.h>
+#endif
 
 static PyObject *Error = NULL;
 static PyObject *cache = NULL;
@@ -119,7 +123,7 @@ static PyMethodDef libusb_methods[] = {
     {NULL, NULL, 0, NULL}
 };
 
-PyMODINIT_FUNC
+CALIBRE_MODINIT_FUNC
 initlibusb(void) {
     PyObject *m;
 

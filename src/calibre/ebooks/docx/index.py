@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python2
 # vim:fileencoding=utf-8
 from __future__ import (unicode_literals, division, absolute_import,
                         print_function)
@@ -10,10 +10,10 @@ from operator import itemgetter
 
 from lxml import etree
 
-from calibre.ebooks.docx.names import XPath, expand
 from calibre.utils.icu import partition_by_first_letter, sort_key
 
-def get_applicable_xe_fields(index, xe_fields):
+
+def get_applicable_xe_fields(index, xe_fields, XPath, expand):
     iet = index.get('entry-type', None)
     xe_fields = [xe for xe in xe_fields if xe.get('entry-type', None) == iet]
 
@@ -40,7 +40,8 @@ def get_applicable_xe_fields(index, xe_fields):
 
     return [xe for xe in xe_fields if contained(xe)]
 
-def make_block(style, parent, pos):
+
+def make_block(expand, style, parent, pos):
     p = parent.makeelement(expand('w:p'))
     parent.insert(pos, p)
     if style is not None:
@@ -56,7 +57,8 @@ def make_block(style, parent, pos):
     r.append(t)
     return p, t
 
-def add_xe(xe, t):
+
+def add_xe(xe, t, expand):
     text = xe.get('text', '')
     pt = xe.get('page-number-text', None)
     t.text = text or ' '
@@ -70,7 +72,8 @@ def add_xe(xe, t):
         r.append(t2)
     return xe['anchor'], t.getparent()
 
-def process_index(field, index, xe_fields, log):
+
+def process_index(field, index, xe_fields, log, XPath, expand):
     '''
     We remove all the word generated index markup and replace it with our own
     that is more suitable for an ebook.
@@ -89,7 +92,7 @@ def process_index(field, index, xe_fields, log):
                 start_pos = (p, p.index(elem))
             p.remove(elem)
 
-    xe_fields = get_applicable_xe_fields(index, xe_fields)
+    xe_fields = get_applicable_xe_fields(index, xe_fields, XPath, expand)
     if not xe_fields:
         return [], []
     if heading_text is not None:
@@ -107,17 +110,18 @@ def process_index(field, index, xe_fields, log):
     for item in reversed(items):
         is_heading = not isinstance(item, dict)
         style = heading_style if is_heading else None
-        p, t = make_block(style, *start_pos)
+        p, t = make_block(expand, style, *start_pos)
         if is_heading:
             text = heading_text
             if text.lower().startswith('a'):
                 text = item + text[1:]
             t.text = text
         else:
-            hyperlinks.append(add_xe(item, t))
+            hyperlinks.append(add_xe(item, t, expand))
             blocks.append(p)
 
     return hyperlinks, blocks
+
 
 def split_up_block(block, a, text, parts, ldict):
     prefix = parts[:-1]
@@ -169,6 +173,7 @@ If there is no matching entry, then because of the original reversed order we wa
 to insert nk+1 and all following entries from n into p immediately following pk.
 """
 
+
 def find_match(prev_block, pind, nextent, ldict):
     curlevel = ldict.get(prev_block[pind], -1)
     if curlevel < 0:
@@ -182,6 +187,7 @@ def find_match(prev_block, pind, nextent, ldict):
         if prev_block[p].text_content() == nextent.text_content():
             return p
     return -1
+
 
 def add_link(pent, nent, ldict):
     na = nent.xpath('descendant::a[1]')
@@ -200,6 +206,7 @@ def add_link(pent, nent, ldict):
         # substitute link na for plain text in pent
         pent.text = ""
         pent.append(na)
+
 
 def merge_blocks(prev_block, next_block, pind, nind, next_path, ldict):
     # First elements match. Any more in next?
@@ -222,6 +229,7 @@ def merge_blocks(prev_block, next_block, pind, nind, next_path, ldict):
         prev_block.insert(pind, next_block[nind])
 
     next_block.getparent().remove(next_block)
+
 
 def polish_index_markup(index, blocks):
     # Blocks are in reverse order at this point

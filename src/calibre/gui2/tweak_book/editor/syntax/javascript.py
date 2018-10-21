@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python2
 # vim:fileencoding=utf-8
 from __future__ import (unicode_literals, division, absolute_import,
                         print_function)
@@ -20,6 +20,7 @@ JS_IDENT_PART = ('(?:[$' + uni.combine('Lu', 'Ll', 'Lt', 'Lm', 'Lo', 'Nl',
                                        'Mn', 'Mc', 'Nd', 'Pc') +
                  u'\u200c\u200d]|\\\\u[a-fA-F0-9]{4})')
 JS_IDENT = JS_IDENT_START + '(?:' + JS_IDENT_PART + ')*'
+
 
 class JavascriptLexer(RegexLexer):
 

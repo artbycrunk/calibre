@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python2
 # vim:fileencoding=utf-8
 from __future__ import (unicode_literals, division, absolute_import,
                         print_function)
@@ -6,7 +6,7 @@ from __future__ import (unicode_literals, division, absolute_import,
 __license__ = 'GPL v3'
 __copyright__ = '2013, Kovid Goyal <kovid at kovidgoyal.net>'
 
-from future_builtins import zip
+from polyglot.builtins import zip
 from functools import wraps
 
 try:
@@ -14,50 +14,52 @@ try:
 except ImportError:
     raise RuntimeError('You need cssutils >= 0.9.9 for calibre')
 from cssutils import profile as cssprofiles, CSSParser
+from tinycss.fonts3 import parse_font, serialize_font_family
 
 DEFAULTS = {'azimuth': 'center', 'background-attachment': 'scroll',  # {{{
             'background-color': 'transparent', 'background-image': 'none',
             'background-position': '0% 0%', 'background-repeat': 'repeat',
-            'border-bottom-color': 'currentColor', 'border-bottom-style': 'none',
-            'border-bottom-width': 'medium', 'border-collapse': 'separate',
-            'border-left-color': 'currentColor', 'border-left-style': 'none',
-            'border-left-width': 'medium', 'border-right-color': 'currentColor',
-            'border-right-style': 'none', 'border-right-width': 'medium',
-            'border-spacing': 0, 'border-top-color': 'currentColor',
-            'border-top-style': 'none', 'border-top-width': 'medium', 'bottom':
-            'auto', 'caption-side': 'top', 'clear': 'none', 'clip': 'auto',
-            'color': 'black', 'content': 'normal', 'counter-increment': 'none',
-            'counter-reset': 'none', 'cue-after': 'none', 'cue-before': 'none',
-            'cursor': 'auto', 'direction': 'ltr', 'display': 'inline',
-            'elevation': 'level', 'empty-cells': 'show', 'float': 'none',
-            'font-family': 'serif', 'font-size': 'medium', 'font-style':
-            'normal', 'font-variant': 'normal', 'font-weight': 'normal',
-            'height': 'auto', 'left': 'auto', 'letter-spacing': 'normal',
-            'line-height': 'normal', 'list-style-image': 'none',
-            'list-style-position': 'outside', 'list-style-type': 'disc',
-            'margin-bottom': 0, 'margin-left': 0, 'margin-right': 0,
-            'margin-top': 0, 'max-height': 'none', 'max-width': 'none',
-            'min-height': 0, 'min-width': 0, 'orphans': '2',
-            'outline-color': 'invert', 'outline-style': 'none',
+            'border-bottom-color': 'currentColor', 'border-bottom-style':
+            'none', 'border-bottom-width': 'medium', 'border-collapse':
+            'separate', 'border-left-color': 'currentColor',
+            'border-left-style': 'none', 'border-left-width': 'medium',
+            'border-right-color': 'currentColor', 'border-right-style': 'none',
+            'border-right-width': 'medium', 'border-spacing': 0,
+            'border-top-color': 'currentColor', 'border-top-style': 'none',
+            'border-top-width': 'medium', 'bottom': 'auto', 'caption-side':
+            'top', 'clear': 'none', 'clip': 'auto', 'color': 'black',
+            'content': 'normal', 'counter-increment': 'none', 'counter-reset':
+            'none', 'cue-after': 'none', 'cue-before': 'none', 'cursor':
+            'auto', 'direction': 'ltr', 'display': 'inline', 'elevation':
+            'level', 'empty-cells': 'show', 'float': 'none', 'font-family':
+            'serif', 'font-size': 'medium', 'font-stretch': 'normal', 'font-style': 'normal',
+            'font-variant': 'normal', 'font-weight': 'normal', 'height':
+            'auto', 'left': 'auto', 'letter-spacing': 'normal', 'line-height':
+            'normal', 'list-style-image': 'none', 'list-style-position':
+            'outside', 'list-style-type': 'disc', 'margin-bottom': 0,
+            'margin-left': 0, 'margin-right': 0, 'margin-top': 0, 'max-height':
+            'none', 'max-width': 'none', 'min-height': 0, 'min-width': 0,
+            'orphans': '2', 'outline-color': 'invert', 'outline-style': 'none',
             'outline-width': 'medium', 'overflow': 'visible', 'padding-bottom':
             0, 'padding-left': 0, 'padding-right': 0, 'padding-top': 0,
             'page-break-after': 'auto', 'page-break-before': 'auto',
-            'page-break-inside': 'auto', 'pause-after': 0, 'pause-before':
-            0, 'pitch': 'medium', 'pitch-range': '50', 'play-during': 'auto',
+            'page-break-inside': 'auto', 'pause-after': 0, 'pause-before': 0,
+            'pitch': 'medium', 'pitch-range': '50', 'play-during': 'auto',
             'position': 'static', 'quotes': u"'“' '”' '‘' '’'", 'richness':
             '50', 'right': 'auto', 'speak': 'normal', 'speak-header': 'once',
             'speak-numeral': 'continuous', 'speak-punctuation': 'none',
             'speech-rate': 'medium', 'stress': '50', 'table-layout': 'auto',
-            'text-align': 'auto', 'text-decoration': 'none', 'text-indent':
-            0, 'text-transform': 'none', 'top': 'auto', 'unicode-bidi':
-            'normal', 'vertical-align': 'baseline', 'visibility': 'visible',
-            'voice-family': 'default', 'volume': 'medium', 'white-space':
-            'normal', 'widows': '2', 'width': 'auto', 'word-spacing': 'normal',
-            'z-index': 'auto'}
+            'text-align': 'auto', 'text-decoration': 'none', 'text-indent': 0,
+            'text-shadow': 'none', 'text-transform': 'none', 'top': 'auto',
+            'unicode-bidi': 'normal', 'vertical-align': 'baseline',
+            'visibility': 'visible', 'voice-family': 'default', 'volume':
+            'medium', 'white-space': 'normal', 'widows': '2', 'width': 'auto',
+            'word-spacing': 'normal', 'z-index': 'auto'}
 # }}}
 
 EDGES = ('top', 'right', 'bottom', 'left')
 BORDER_PROPS = ('color', 'style', 'width')
+
 
 def normalize_edge(name, cssvalue):
     style = {}
@@ -88,6 +90,7 @@ def normalize_edge(name, cssvalue):
 
 def simple_normalizer(prefix, names, check_inherit=True):
     composition = tuple('%s-%s' %(prefix, n) for n in names)
+
     @wraps(normalize_simple_composition)
     def wrapper(name, cssvalue):
         return normalize_simple_composition(name, cssvalue, composition, check_inherit=check_inherit)
@@ -111,59 +114,29 @@ def normalize_simple_composition(name, cssvalue, composition, check_inherit=True
                     break
     return style
 
+
 font_composition = ('font-style', 'font-variant', 'font-weight', 'font-size', 'line-height', 'font-family')
+
 
 def normalize_font(cssvalue, font_family_as_list=False):
     # See https://developer.mozilla.org/en-US/docs/Web/CSS/font
     composition = font_composition
     val = cssvalue.cssText
     if val == 'inherit':
-        return {k:'inherit' for k in composition}
-    if val in {'caption', 'icon', 'menu', 'message-box', 'small-caption', 'status-bar'}:
-        return {k:DEFAULTS[k] for k in composition}
-    if getattr(cssvalue, 'length', 1) < 2:
-        return {}  # Mandatory to define both font size and font family
-    style = {k:DEFAULTS[k] for k in composition}
-    families = []
-    vals = [x.cssText for x in cssvalue]
-    found_font_size = False
-    while vals:
-        text = vals.pop()
-        if not families and text == 'inherit':
-            families.append(text)
-            continue
-        if cssprofiles.validate('line-height', text):
-            if not vals or not cssprofiles.validate('font-size', vals[-1]):
-                if cssprofiles.validate('font-size', text):
-                    style['font-size'] = text
-                    found_font_size = True
-                    break
-                return {}  # must have font-size here
-            style['line-height'] = text
-            style['font-size'] = vals.pop()
-            found_font_size = True
-            break
-        if cssprofiles.validate('font-size', text):
-            style['font-size'] = text
-            found_font_size = True
-            break
-        if families == ['inherit']:
-            return {}  # Cannot have multiple font-families if the last one if inherit
-        families.insert(0, text)
-    if not families or not found_font_size:
-        return {}  # font-family required
-    style['font-family'] = families if font_family_as_list else ', '.join(families)
-    props = ['font-style', 'font-variant', 'font-weight']
-    while vals:
-        for i, prop in enumerate(tuple(props)):
-            if cssprofiles.validate(prop, vals[0]):
-                props.pop(i)
-                style[prop] = vals.pop(0)
-                break
-        else:
-            return {}  # unrecognized value
+        ans = {k:'inherit' for k in composition}
+    elif val in {'caption', 'icon', 'menu', 'message-box', 'small-caption', 'status-bar'}:
+        ans = {k:DEFAULTS[k] for k in composition}
+    else:
+        ans = {k:DEFAULTS[k] for k in composition}
+        ans.update(parse_font(val))
+    if font_family_as_list:
+        if isinstance(ans['font-family'], basestring):
+            ans['font-family'] = [x.strip() for x in ans['font-family'].split(',')]
+    else:
+        if not isinstance(ans['font-family'], basestring):
+            ans['font-family'] = serialize_font_family(ans['font-family'])
+    return ans
 
-    return style
 
 def normalize_border(name, cssvalue):
     style = normalizers['border-' + EDGES[0]]('border-' + EDGES[0], cssvalue)
@@ -171,6 +144,7 @@ def normalize_border(name, cssvalue):
     for edge in EDGES[1:]:
         style.update({k.replace(EDGES[0], edge):v for k, v in vals.iteritems()})
     return style
+
 
 normalizers = {
     'list-style': simple_normalizer('list-style', ('type', 'position', 'image')),
@@ -191,10 +165,20 @@ SHORTHAND_DEFAULTS = {
     'list-style': 'inherit', 'font': 'inherit',
 }
 
+_safe_parser = None
+
+
+def safe_parser():
+    global _safe_parser
+    if _safe_parser is None:
+        import logging
+        _safe_parser = CSSParser(loglevel=logging.CRITICAL, validate=False)
+    return _safe_parser
+
+
 def normalize_filter_css(props):
-    import logging
     ans = set()
-    p = CSSParser(loglevel=logging.CRITICAL, validate=False)
+    p = safe_parser()
     for prop in props:
         n = normalizers.get(prop, None)
         ans.add(prop)
@@ -203,6 +187,7 @@ def normalize_filter_css(props):
             cssvalue = dec.getPropertyCSSValue(dec.item(0))
             ans |= set(n(prop, cssvalue))
     return ans
+
 
 def condense_edge(vals):
     edges = {x.name.rpartition('-')[-1]:x.value for x in vals}
@@ -225,6 +210,7 @@ def condense_edge(vals):
             return ce['top']
         return ' '.join(ce[x] for x in ('top', 'left'))
 
+
 def simple_condenser(prefix, func):
     @wraps(func)
     def condense_simple(style, props):
@@ -234,6 +220,7 @@ def simple_condenser(prefix, func):
                 style.removeProperty(prop.name)
             style.setProperty(prefix, cp)
     return condense_simple
+
 
 def condense_border(style, props):
     prop_map = {p.name:p for p in props}
@@ -258,6 +245,7 @@ def condense_border(style, props):
             style.removeProperty(prop.name)
         style.setProperty('border', edge_vals[0].value)
 
+
 condensers = {'margin': simple_condenser('margin', condense_edge), 'padding': simple_condenser('padding', condense_edge), 'border': condense_border}
 
 
@@ -272,12 +260,14 @@ def condense_rule(style):
         if len(vals) > 1 and {x.priority for x in vals} == {''}:
             condensers[prefix[:-1]](style, vals)
 
+
 def condense_sheet(sheet):
     for rule in sheet.cssRules:
         if rule.type == rule.STYLE_RULE:
             condense_rule(rule.style)
 
-def test_normalization():  # {{{
+
+def test_normalization(return_tests=False):  # {{{
     import unittest
     from cssutils import parseStyle
     from itertools import product
@@ -293,15 +283,16 @@ def test_normalization():  # {{{
                 return ans
 
             for raw, expected in {
-                'some_font': {}, 'none': {}, 'inherit':{k:'inherit' for k in font_composition},
+                'some_font': {'font-family':'some_font'}, 'inherit':{k:'inherit' for k in font_composition},
                 '1.2pt/1.4 A_Font': {'font-family':'A_Font', 'font-size':'1.2pt', 'line-height':'1.4'},
-                'bad font': {}, '10% serif': {'font-family':'serif', 'font-size':'10%'},
+                'bad font': {'font-family':'"bad font"'}, '10% serif': {'font-family':'serif', 'font-size':'10%'},
                 '12px "My Font", serif': {'font-family':'"My Font", serif', 'font-size': '12px'},
                 'normal 0.6em/135% arial,sans-serif': {'font-family': 'arial, sans-serif', 'font-size': '0.6em', 'line-height':'135%', 'font-style':'normal'},
                 'bold italic large serif': {'font-family':'serif', 'font-weight':'bold', 'font-style':'italic', 'font-size':'large'},
                 'bold italic small-caps larger/normal serif':
                 {'font-family':'serif', 'font-weight':'bold', 'font-style':'italic', 'font-size':'larger',
                  'line-height':'normal', 'font-variant':'small-caps'},
+                '2em A B': {'font-family': '"A B"', 'font-size': '2em'},
             }.iteritems():
                 val = tuple(parseStyle('font: %s' % raw, validate=False))[0].cssValue
                 style = normalizers['font']('font', val)
@@ -313,11 +304,13 @@ def test_normalization():  # {{{
                 for x, v in expected.iteritems():
                     ans['border-%s-%s' % (edge, x)] = v
                 return ans
+
             def border_dict(expected):
                 ans = {}
                 for edge in EDGES:
                     ans.update(border_edge_dict(expected, edge))
                 return ans
+
             def border_val_dict(expected, val='color'):
                 ans = {'border-%s-%s' % (edge, val): DEFAULTS['border-%s-%s' % (edge, val)] for edge in EDGES}
                 for edge in EDGES:
@@ -435,8 +428,11 @@ def test_normalization():  # {{{
             self.assertEqual(style.getProperty('border-left').value, vals.replace('red', 'green'))
 
     tests = unittest.defaultTestLoader.loadTestsFromTestCase(TestNormalization)
+    if return_tests:
+        return tests
     unittest.TextTestRunner(verbosity=4).run(tests)
 # }}}
+
 
 if __name__ == '__main__':
     test_normalization()

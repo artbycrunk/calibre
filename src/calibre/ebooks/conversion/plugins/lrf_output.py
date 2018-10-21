@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python2
 # vim:fileencoding=UTF-8:ts=4:sw=4:sta:et:sts=4:ai
 from __future__ import with_statement
 
@@ -10,6 +10,7 @@ import sys, os
 
 from calibre.customize.conversion import OutputFormatPlugin
 from calibre.customize.conversion import OptionRecommendation
+
 
 class LRFOptions(object):
 
@@ -73,7 +74,6 @@ class LRFOptions(object):
         self.header_separation = (self.profile.dpi/72.) * opts.header_separation
         self.headerformat = opts.header_format
 
-
         for x in ('top', 'bottom', 'left', 'right'):
             setattr(self, x+'_margin',
                 (self.profile.dpi/72.) * float(getattr(opts, 'margin_'+x)))
@@ -84,15 +84,17 @@ class LRFOptions(object):
                 'text_size_multiplier_for_rendered_tables'):
             setattr(self, x, getattr(opts, x))
 
+
 class LRFOutput(OutputFormatPlugin):
 
     name = 'LRF Output'
     author = 'Kovid Goyal'
     file_type = 'lrf'
+    commit_name = 'lrf_output'
 
-    options = set([
+    options = {
         OptionRecommendation(name='enable_autorotation', recommended_value=False,
-            help=_('Enable autorotation of images that are wider than the screen width.')
+            help=_('Enable auto-rotation of images that are wider than the screen width.')
         ),
         OptionRecommendation(name='wordspace',
             recommended_value=2.5, level=OptionRecommendation.LOW,
@@ -132,11 +134,10 @@ class LRFOutput(OutputFormatPlugin):
             help=_('The monospace family of fonts to embed')
         ),
 
-    ])
+    }
 
-    recommendations = set([
-        ('change_justification', 'original', OptionRecommendation.HIGH),
-        ])
+    recommendations = {
+        ('change_justification', 'original', OptionRecommendation.HIGH)}
 
     def convert_images(self, pages, opts, wide):
         from calibre.ebooks.lrf.pylrs.pylrs import Book, BookSetting, ImageStream, ImageBlock
@@ -173,7 +174,6 @@ class LRFOutput(OutputFormatPlugin):
             nroot.add(x.title, x.href)
         self.oeb.toc = nroot
 
-
     def convert(self, oeb, output_path, input_plugin, opts, log):
         self.log, self.opts, self.oeb = log, opts, oeb
 
@@ -194,4 +194,3 @@ class LRFOutput(OutputFormatPlugin):
             opf = [x for x in os.listdir(tdir) if x.endswith('.opf')][0]
             from calibre.ebooks.lrf.html.convert_from import process_file
             process_file(os.path.join(tdir, opf), lrf_opts, self.log)
-

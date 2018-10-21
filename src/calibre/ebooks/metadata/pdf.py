@@ -13,7 +13,6 @@ from calibre.ebooks.metadata import (
     MetaInformation, string_to_authors, check_isbn, check_doi)
 from calibre.utils.ipc.simple_worker import fork_job, WorkerError
 
-#_isbn_pat = re.compile(r'ISBN[: ]*([-0-9Xx]+)')
 
 def get_tools():
     from calibre.ebooks.pdf.pdftohtml import PDFTOHTML
@@ -22,6 +21,7 @@ def get_tools():
     pdfinfo = os.path.join(base, 'pdfinfo') + suffix
     pdftoppm = os.path.join(base, 'pdftoppm') + suffix
     return pdfinfo, pdftoppm
+
 
 def read_info(outputdir, get_cover):
     ''' Read info dict and cover from a pdf file named src.pdf in outputdir.
@@ -35,28 +35,40 @@ def read_info(outputdir, get_cover):
     ans = {}
 
     try:
-        raw = subprocess.check_output([pdfinfo, '-meta', '-enc', 'UTF-8', 'src.pdf'])
+        raw = subprocess.check_output([pdfinfo, '-enc', 'UTF-8', '-isodates', 'src.pdf'])
     except subprocess.CalledProcessError as e:
         prints('pdfinfo errored out with return code: %d'%e.returncode)
         return None
-    # The XMP metadata could be in an encoding other than UTF-8, so split it
-    # out before trying to decode raw
-    parts = re.split(br'^Metadata:', raw, 1, flags=re.MULTILINE)
-    if len(parts) > 1:
-        raw, ans['xmp_metadata'] = parts
     try:
-        raw = raw.decode('utf-8')
+        info_raw = raw.decode('utf-8')
     except UnicodeDecodeError:
         prints('pdfinfo returned no UTF-8 data')
         return None
 
-    for line in raw.splitlines():
+    for line in info_raw.splitlines():
         if u':' not in line:
             continue
         field, val = line.partition(u':')[::2]
         val = val.strip()
         if field and val:
             ans[field] = val.strip()
+
+    # Now read XMP metadata
+    # Versions of poppler before 0.47.0 used to print out both the Info dict and
+    # XMP metadata packet together. However, since that changed in
+    # https://cgit.freedesktop.org/poppler/poppler/commit/?id=c91483aceb1b640771f572cb3df9ad707e5cad0d
+    # we can no longer rely on it.
+    try:
+        raw = subprocess.check_output([pdfinfo, '-meta', 'src.pdf']).strip()
+    except subprocess.CalledProcessError as e:
+        prints('pdfinfo failed to read XML metadata with return code: %d'%e.returncode)
+    else:
+        parts = re.split(br'^Metadata:', raw, 1, flags=re.MULTILINE)
+        if len(parts) > 1:
+            # old poppler < 0.47.0
+            raw = parts[1].strip()
+        if raw:
+            ans['xmp_metadata'] = raw
 
     if get_cover:
         try:
@@ -66,6 +78,7 @@ def read_info(outputdir, get_cover):
             prints('pdftoppm errored out with return code: %d'%e.returncode)
 
     return ans
+
 
 def page_images(pdfpath, outputdir, first=1, last=1):
     pdftoppm = get_tools()[1]
@@ -80,6 +93,7 @@ def page_images(pdfpath, outputdir, first=1, last=1):
                                os.path.join(outputdir, 'page-images')], **args)
     except subprocess.CalledProcessError as e:
         raise ValueError('Failed to render PDF, pdftoppm errorcode: %s'%e.returncode)
+
 
 def get_metadata(stream, cover=True):
     with TemporaryDirectory('_pdf_metadata_read') as pdfpath:
@@ -97,7 +111,7 @@ def get_metadata(stream, cover=True):
             raw = f.read().strip()
             if raw:
                 prints(raw)
-        if not info:
+        if info is None:
             raise ValueError('Could not read info dict from PDF')
         covpath = os.path.join(pdfpath, 'cover.jpg')
         cdata = None
@@ -105,7 +119,7 @@ def get_metadata(stream, cover=True):
             with open(covpath, 'rb') as f:
                 cdata = f.read()
 
-    title = info.get('Title', None)
+    title = info.get('Title', None) or _('Unknown')
     au = info.get('Author', None)
     if au is None:
         au = [_('Unknown')]
@@ -151,12 +165,12 @@ def get_metadata(stream, cover=True):
         mi.cover_data = ('jpeg', cdata)
     return mi
 
+
 get_quick_metadata = partial(get_metadata, cover=False)
 
 from calibre.utils.podofo import set_metadata as podofo_set_metadata
 
+
 def set_metadata(stream, mi):
     stream.seek(0)
     return podofo_set_metadata(stream, mi)
-
-

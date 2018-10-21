@@ -10,6 +10,7 @@ Device driver for Nokia's internet tablet devices
 
 from calibre.devices.usbms.driver import USBMS
 
+
 class N770(USBMS):
 
     name           = 'Nokia 770 Device Interface'
@@ -34,6 +35,7 @@ class N770(USBMS):
     EBOOK_DIR_MAIN = 'My Ebooks'
     SUPPORTS_SUB_DIRS = True
 
+
 class N810(N770):
     name           = 'Nokia N800/N810/N900/N950/N9 Device Interface'
     gui_name       = 'Nokia N800/N810/N900/N950/N9'
@@ -46,18 +48,18 @@ class N810(N770):
 
     MAIN_MEMORY_VOLUME_LABEL = 'Nokia Maemo/MeeGo device Main Memory'
 
+
 class E71X(USBMS):
 
     name           = 'Nokia E71X device interface'
     gui_name       = 'Nokia E71X'
-    description    = 'Communicate with the Nokia E71X'
+    description    = _('Communicate with the Nokia E71X')
     author         = 'Kovid Goyal'
     supported_platforms = ['windows', 'linux', 'osx']
 
     VENDOR_ID   = [0x421]
     PRODUCT_ID  = [0x1a0]
     BCD         = [0x100]
-
 
     FORMATS = ['mobi', 'prc']
 
@@ -66,6 +68,7 @@ class E71X(USBMS):
 
     VENDOR_NAME      = 'NOKIA'
     WINDOWS_MAIN_MEM = 'S60'
+
 
 class E52(USBMS):
 
@@ -79,7 +82,6 @@ class E52(USBMS):
     PRODUCT_ID = [0x1CD, 0x273, 0x00aa]
     BCD = [0x100]
 
-
     FORMATS = ['epub', 'fb2', 'mobi', 'prc', 'txt']
 
     EBOOK_DIR_MAIN = 'eBooks'
@@ -87,4 +89,3 @@ class E52(USBMS):
 
     VENDOR_NAME = 'NOKIA'
     WINDOWS_MAIN_MEM = ['S60', 'E71']
-

@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python2
 # vim:fileencoding=utf-8
 from __future__ import (unicode_literals, division, absolute_import,
                         print_function)
@@ -7,9 +7,10 @@ __license__ = 'GPL v3'
 __copyright__ = '2014, Kovid Goyal <kovid at kovidgoyal.net>'
 
 import regex, sys
-from future_builtins import map, zip
+from polyglot.builtins import map, zip
 
 is_narrow_build = sys.maxunicode < 0x10ffff
+
 
 class Parser(object):
 
@@ -164,7 +165,9 @@ class Parser(object):
             ans['text_assertion'] = ta
         return raw[1:]
 
+
 _parser = None
+
 
 def parser():
     global _parser
@@ -172,11 +175,13 @@ def parser():
         _parser = Parser()
     return _parser
 
+
 def get_steps(pcfi):
     ans = tuple(pcfi['steps'])
     if 'redirect' in pcfi:
         ans += get_steps(pcfi['redirect'])
     return ans
+
 
 def cfi_sort_key(cfi, only_path=True):
     p = parser()
@@ -199,5 +204,3 @@ def cfi_sort_key(cfi, only_path=True):
     step = steps[-1] if steps else {}
     offsets = (step.get('temporal_offset', 0), tuple(reversed(step.get('spatial_offset', (0, 0)))), step.get('text_offset', 0), )
     return (step_nums, offsets)
-
-

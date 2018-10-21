@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python2
 # vim:fileencoding=utf-8
 from __future__ import (unicode_literals, division, absolute_import,
                         print_function)
@@ -8,9 +8,10 @@ __copyright__ = '2014, Kovid Goyal <kovid at kovidgoyal.net>'
 
 import sys, re
 from operator import itemgetter
+from itertools import chain
 
 from cssutils import parseStyle
-from PyQt5.Qt import QTextEdit, Qt
+from PyQt5.Qt import QTextEdit, Qt, QTextCursor
 
 from calibre import prepare_string_for_xml, xml_entity_to_unicode
 from calibre.ebooks.oeb.polish.container import OEB_DOCS
@@ -25,6 +26,7 @@ from calibre.utils.icu import utf16_length
 
 get_offset = itemgetter(0)
 PARAGRAPH_SEPARATOR = '\u2029'
+
 
 class Tag(object):
 
@@ -42,6 +44,7 @@ class Tag(object):
             self.name, self.start_block.blockNumber(), self.start_offset, self.end_block.blockNumber(), self.end_offset, self.self_closing)
     __str__ = __repr__
 
+
 def next_tag_boundary(block, offset, forward=True, max_lines=10000):
     while block.isValid() and max_lines > 0:
         ud = block.userData()
@@ -57,6 +60,7 @@ def next_tag_boundary(block, offset, forward=True, max_lines=10000):
         max_lines -= 1
     return None, None
 
+
 def next_attr_boundary(block, offset, forward=True):
     while block.isValid():
         ud = block.userData()
@@ -70,6 +74,7 @@ def next_attr_boundary(block, offset, forward=True):
         block = block.next() if forward else block.previous()
         offset = -1 if forward else sys.maxint
     return None, None
+
 
 def find_closest_containing_tag(block, offset, max_tags=sys.maxint):
     ''' Find the closest containing tag. To find it, we search for the first
@@ -113,10 +118,11 @@ def find_closest_containing_tag(block, offset, max_tags=sys.maxint):
         max_tags -= 1
     return None  # Could not find a containing tag
 
+
 def find_tag_definition(block, offset):
     ''' Return the <tag | > definition, if any that (block, offset) is inside. '''
     block, boundary = next_tag_boundary(block, offset, forward=False)
-    if not boundary.is_start:
+    if not boundary or not boundary.is_start:
         return None, False
     tag_start = boundary
     closing = tag_start.closing
@@ -124,6 +130,7 @@ def find_tag_definition(block, offset):
     if tag_start.prefix:
         tag = tag_start.prefix + ':' + tag
     return tag, closing
+
 
 def find_containing_attribute(block, offset):
     block, boundary = next_attr_boundary(block, offset, forward=False)
@@ -135,6 +142,7 @@ def find_containing_attribute(block, offset):
     if block is not None and boundary.type == ATTR_NAME:
         return boundary.data
     return None
+
 
 def find_attribute_in_tag(block, offset, attr_name):
     ' Return the start of the attribute value as block, offset or None, None if attribute not found '
@@ -159,6 +167,7 @@ def find_attribute_in_tag(block, offset, attr_name):
                 found_attr = True
             current_offset += 1
 
+
 def find_end_of_attribute(block, offset):
     ' Find the end of an attribute that occurs somewhere after the position specified by (block, offset) '
     block, boundary = next_attr_boundary(block, offset)
@@ -167,6 +176,7 @@ def find_end_of_attribute(block, offset):
     if boundary.type is not ATTR_VALUE or boundary.data is not ATTR_END:
         return None, None
     return block, boundary.offset
+
 
 def find_closing_tag(tag, max_tags=sys.maxint):
     ''' Find the closing tag corresponding to the specified tag. To find it we
@@ -198,10 +208,12 @@ def find_closing_tag(tag, max_tags=sys.maxint):
         max_tags -= 1
     return None
 
+
 def select_tag(cursor, tag):
     cursor.setPosition(tag.start_block.position() + tag.start_offset)
     cursor.setPosition(tag.end_block.position() + tag.end_offset + 1, cursor.KeepAnchor)
     return unicode(cursor.selectedText()).replace(PARAGRAPH_SEPARATOR, '\n').rstrip('\0')
+
 
 def rename_tag(cursor, opening_tag, closing_tag, new_name, insert=False):
     cursor.beginEditBlock()
@@ -218,6 +230,7 @@ def rename_tag(cursor, opening_tag, closing_tag, new_name, insert=False):
         text = re.sub(r'^<\s*[a-zA-Z0-9]+', '<%s' % new_name, text)
     cursor.insertText(text)
     cursor.endEditBlock()
+
 
 def ensure_not_within_tag_definition(cursor, forward=True):
     ''' Ensure the cursor is not inside a tag definition <>. Returns True iff the cursor was moved. '''
@@ -238,11 +251,13 @@ def ensure_not_within_tag_definition(cursor, forward=True):
 
     return False
 
+
 BLOCK_TAG_NAMES = frozenset((
     'address', 'article', 'aside', 'blockquote', 'center', 'dir', 'fieldset',
     'isindex', 'menu', 'noframes', 'hgroup', 'noscript', 'pre', 'section',
     'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'header', 'p', 'div', 'dd', 'dl', 'ul',
     'ol', 'li', 'body', 'td', 'th'))
+
 
 def find_closest_containing_block_tag(block, offset, block_tag_names=BLOCK_TAG_NAMES):
     while True:
@@ -253,6 +268,7 @@ def find_closest_containing_block_tag(block, offset, block_tag_names=BLOCK_TAG_N
             return tag
         block, offset = tag.start_block, tag.start_offset
 
+
 def set_style_property(tag, property_name, value, editor):
     '''
     Set a style property, i.e. a CSS property inside the style attribute of the tag.
@@ -260,6 +276,7 @@ def set_style_property(tag, property_name, value, editor):
     '''
     block, offset = find_attribute_in_tag(tag.start_block, tag.start_offset + 1, 'style')
     c = editor.textCursor()
+
     def css(d):
         return d.cssText.replace('\n', ' ')
     if block is None or offset is None:
@@ -279,7 +296,9 @@ def set_style_property(tag, property_name, value, editor):
         d.setProperty(property_name, value)
         c.insertText('"%s"' % css(d))
 
+
 entity_pat = re.compile(r'&(#{0,1}[a-zA-Z0-9]{1,8});$')
+
 
 class Smarts(NullSmarts):
 
@@ -292,7 +311,7 @@ class Smarts(NullSmarts):
             Smarts.self_closing_pat = re.compile(r'/\s*>')
             Smarts.complete_attr_pat = re.compile(r'''([a-zA-Z0-9_-]+)\s*=\s*(?:'([^']*)|"([^"]*))$''')
         NullSmarts.__init__(self, *args, **kwargs)
-        self.last_matched_tag = None
+        self.last_matched_tag = self.last_matched_closing_tag = None
 
     def get_extra_selections(self, editor):
         ans = []
@@ -313,12 +332,42 @@ class Smarts(NullSmarts):
         c = editor.textCursor()
         block, offset = c.block(), c.positionInBlock()
         tag = self.last_matched_tag = find_closest_containing_tag(block, offset, max_tags=2000)
+        self.last_matched_closing_tag = None
         if tag is not None:
             add_tag(tag)
-            tag = find_closing_tag(tag, max_tags=4000)
+            tag = self.last_matched_closing_tag = find_closing_tag(tag, max_tags=4000)
             if tag is not None:
                 add_tag(tag)
         return ans
+
+    def jump_to_enclosing_tag(self, editor, start=True):
+        editor.highlighter.join()
+        tag = self.last_matched_tag if start else self.last_matched_closing_tag
+        if tag is None:
+            return False
+        c = editor.textCursor()
+        c.setPosition(tag.start_block.position() + tag.start_offset + (1 if start else 2))
+        editor.setTextCursor(c)
+        return True
+
+    def remove_tag(self, editor):
+        editor.highlighter.join()
+        if not self.last_matched_closing_tag and not self.last_matched_tag:
+            return
+        c = editor.textCursor()
+        c.beginEditBlock()
+
+        def erase_tag(tag):
+            c.setPosition(tag.start_block.position() + tag.start_offset)
+            c.setPosition(tag.end_block.position() + tag.end_offset + 1, c.KeepAnchor)
+            c.removeSelectedText()
+
+        if self.last_matched_closing_tag:
+            erase_tag(self.last_matched_closing_tag)
+        if self.last_matched_tag:
+            erase_tag(self.last_matched_tag)
+        c.endEditBlock()
+        self.last_matched_tag = self.last_matched_closing_tag = None
 
     def rename_block_tag(self, editor, new_name):
         editor.highlighter.join()
@@ -417,7 +466,7 @@ class Smarts(NullSmarts):
 
     def cursor_position_with_sourceline(self, cursor, for_position_sync=True, use_matched_tag=True):
         ''' Return the tag just before the current cursor as a source line
-        number and a list of tags defined on that line upto and including the
+        number and a list of tags defined on that line up to and including the
         containing tag. If ``for_position_sync`` is False then the tag
         *containing* the cursor is returned instead of the tag just before the
         cursor. Note that finding the containing tag is expensive, so
@@ -602,6 +651,12 @@ class Smarts(NullSmarts):
         if key == Qt.Key_Backspace and smart_backspace(editor, ev):
             return True
 
+        if key in (Qt.Key_BraceLeft, Qt.Key_BraceRight):
+            mods = ev.modifiers()
+            if int(mods & Qt.ControlModifier):
+                if self.jump_to_enclosing_tag(editor, key == Qt.Key_BraceLeft):
+                    return True
+
         return False
 
     def replace_possible_entity(self, editor):
@@ -619,8 +674,22 @@ class Smarts(NullSmarts):
                 editor.setTextCursor(c)
 
     def auto_close_tag(self, editor):
+        if not tprefs['auto_close_tags']:
+            return False
+
+        def check_if_in_tag(block, offset=0):
+            if block.isValid():
+                text = block.text()
+                close_pos = text.find('>', offset)
+                open_pos = text.find('<', offset)
+                if (close_pos > -1 and open_pos == -1) or (close_pos < open_pos):
+                    return True
+            return False
+
         c = editor.textCursor()
         block, offset = c.block(), c.positionInBlock()
+        if check_if_in_tag(block, offset) or check_if_in_tag(block.next()):
+            return False
         tag = find_closest_containing_tag(block, offset - 1, max_tags=4000)
         if tag is None:
             return False
@@ -658,9 +727,74 @@ class Smarts(NullSmarts):
 
             return 'complete_names', (names_type, doc_name, c.root), query
 
+    def find_text(self, pat, cursor):
+        from calibre.gui2.tweak_book.text_search import find_text_in_chunks
+        chunks = []
+
+        cstart = min(cursor.position(), cursor.anchor())
+        cend = max(cursor.position(), cursor.anchor())
+        c = QTextCursor(cursor)
+        c.setPosition(cstart)
+        block = c.block()
+        in_text = find_tag_definition(block, 0)[0] is None
+        if in_text:
+            # Check if we are in comment/PI/etc.
+            pb = block.previous()
+            while pb.isValid():
+                boundaries = pb.userData().non_tag_structures
+                if boundaries:
+                    if boundaries[-1].is_start:
+                        in_text = False
+                    break
+                pb = pb.previous()
+
+        def append(text, start):
+            text = text.replace(PARAGRAPH_SEPARATOR, '\n')
+            after = start + len(text)
+            if start <= cend and cstart < after:
+                extra = after - (cend + 1)
+                if extra > 0:
+                    text = text[:-extra]
+                extra = cstart - start
+                if extra > 0:
+                    text = text[extra:]
+                chunks.append((text, start + max(extra, 0)))
+
+        while block.isValid() and block.position() <= cend:
+            ud = block.userData()
+            boundaries = sorted(chain(ud.tags, ud.non_tag_structures), key=get_offset)
+            if not boundaries:
+                # Add the whole line
+                if in_text:
+                    text = block.text() + '\n'
+                    append(text, block.position())
+            else:
+                start = block.position()
+                c.setPosition(start)
+                for b in boundaries:
+                    if in_text:
+                        c.setPosition(start + b.offset, c.KeepAnchor)
+                        if c.hasSelection():
+                            append(c.selectedText(), c.anchor())
+                    in_text = not b.is_start
+                    c.setPosition(start + b.offset + 1)
+                if in_text:
+                    # Add remaining text in block
+                    c.setPosition(block.position() + boundaries[-1].offset + 1)
+                    c.movePosition(c.EndOfBlock, c.KeepAnchor)
+                    if c.hasSelection():
+                        append(c.selectedText() + '\n', c.anchor())
+            block = block.next()
+        s, e = find_text_in_chunks(pat, chunks)
+        return s != -1 and e != -1, s, e
+
+
 if __name__ == '__main__':  # {{{
     from calibre.gui2.tweak_book.editor.widget import launch_editor
-    launch_editor('''\
+    if sys.argv[-1].endswith('.html'):
+        raw = lopen(sys.argv[-1], 'rb').read().decode('utf-8')
+    else:
+        raw = '''\
 <!DOCTYPE html>
 <html xml:lang="en" lang="en">
 <!--
@@ -689,5 +823,10 @@ if __name__ == '__main__':  # {{{
         <p>Some non-BMP unicode text:\U0001f431\U0001f431\U0001f431</p>
     </body>
 </html>
-''', path_is_raw=True, syntax='xml')
+'''
+
+    def callback(ed):
+        import regex
+        ed.find_text(regex.compile('A bold word'))
+    launch_editor(raw, path_is_raw=True, syntax='html', callback=callback)
 # }}}

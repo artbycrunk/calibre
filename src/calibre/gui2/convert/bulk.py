@@ -6,11 +6,9 @@ __docformat__ = 'restructuredtext en'
 
 import shutil
 
-from PyQt5.Qt import QModelIndex
+from PyQt5.Qt import QModelIndex, QDialog
 
-from calibre.gui2.convert.single import (Config, sort_formats_by_preference,
-    GroupModel, gprefs, get_output_formats)
-from calibre.gui2 import ResizableDialog
+from calibre.gui2.convert.single import Config, GroupModel, gprefs
 from calibre.gui2.convert.look_and_feel import LookAndFeelWidget
 from calibre.gui2.convert.heuristics import HeuristicsWidget
 from calibre.gui2.convert.search_and_replace import SearchAndReplaceWidget
@@ -19,14 +17,17 @@ from calibre.gui2.convert.structure_detection import StructureDetectionWidget
 from calibre.gui2.convert.toc import TOCWidget
 from calibre.gui2.convert import GuiRecommendations
 from calibre.ebooks.conversion.plumber import Plumber
+from calibre.ebooks.conversion.config import sort_formats_by_preference, get_output_formats
 from calibre.utils.config import prefs
 from calibre.utils.logging import Log
+
 
 class BulkConfig(Config):
 
     def __init__(self, parent, db, preferred_output_format=None,
             has_saved_settings=True):
-        ResizableDialog.__init__(self, parent)
+        QDialog.__init__(self, parent)
+        self.setupUi(self)
 
         self.setup_output_formats(db, preferred_output_format)
         self.db = db
@@ -43,6 +44,7 @@ class BulkConfig(Config):
             'of using the defaults specified in the Preferences'))
 
         self.output_formats.currentIndexChanged[str].connect(self.setup_pipeline)
+        self.groups.setSpacing(5)
         self.groups.activated[(QModelIndex)].connect(self.show_pane)
         self.groups.clicked[(QModelIndex)].connect(self.show_pane)
         self.groups.entered[(QModelIndex)].connect(self.show_group_help)
@@ -59,6 +61,8 @@ class BulkConfig(Config):
         geom = gprefs.get('convert_bulk_dialog_geom', None)
         if geom:
             self.restoreGeometry(geom)
+        else:
+            self.resize(self.sizeHint())
 
     def setup_pipeline(self, *args):
         oidx = self.groups.currentIndex().row()
@@ -68,14 +72,14 @@ class BulkConfig(Config):
         output_path = 'dummy.'+output_format
         log = Log()
         log.outputs = []
-        self.plumber = Plumber(input_path, output_path, log,
-                merge_plugin_recs=False)
+        self.plumber = Plumber(input_path, output_path, log, merge_plugin_recs=False)
+        self.plumber.merge_plugin_recs(self.plumber.output_plugin)
 
         def widget_factory(cls):
             return cls(self.stack, self.plumber.get_option_by_name,
                 self.plumber.get_option_help, self.db)
 
-        self.setWindowTitle(_('Bulk Convert'))
+        self.setWindowTitle(_('Bulk convert'))
         lf = widget_factory(LookAndFeelWidget)
         hw = widget_factory(HeuristicsWidget)
         sr = widget_factory(SearchAndReplaceWidget)
@@ -132,12 +136,10 @@ class BulkConfig(Config):
             x = w.commit(save_defaults=False)
             recs.update(x)
         self._recommendations = recs
-        ResizableDialog.accept(self)
+        QDialog.accept(self)
 
     def done(self, r):
         if self.isVisible():
             gprefs['convert_bulk_dialog_geom'] = \
                 bytearray(self.saveGeometry())
-        return ResizableDialog.done(self, r)
-
-
+        return QDialog.done(self, r)

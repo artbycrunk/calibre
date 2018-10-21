@@ -1,4 +1,4 @@
-#!/usr/bin/env  python
+#!/usr/bin/env  python2
 __license__   = 'GPL v3'
 __copyright__ = '2008, Kovid Goyal kovid@kovidgoyal.net'
 __docformat__ = 'restructuredtext en'
@@ -11,6 +11,7 @@ from PyQt5.Qt import QUrl, QApplication, QSize, QEventLoop, \
                      QPainter, QImage, QObject, Qt
 from PyQt5.QtWebKitWidgets import QWebPage
 
+
 class HTMLTableRenderer(QObject):
 
     def __init__(self, html, base_dir, width, height, dpi, factor):
@@ -18,6 +19,7 @@ class HTMLTableRenderer(QObject):
         `width, height`: page width and height in pixels
         `base_dir`: The directory in which the HTML file that contains the table resides
         '''
+        from calibre.gui2 import secure_web_page
         QObject.__init__(self)
 
         self.app = None
@@ -27,6 +29,7 @@ class HTMLTableRenderer(QObject):
         self.tdir = tempfile.mkdtemp(prefix='calibre_render_table')
         self.loop = QEventLoop()
         self.page = QWebPage()
+        secure_web_page(self.page.settings())
         self.page.loadFinished.connect(self.render_html)
         self.page.mainFrame().setTextSizeMultiplier(factor)
         self.page.mainFrame().setHtml(html,
@@ -60,6 +63,7 @@ class HTMLTableRenderer(QObject):
         finally:
             QApplication.quit()
 
+
 def render_table(soup, table, css, base_dir, width, height, dpi, factor=1.0):
     head = ''
     for e in soup.findAll(['link', 'style']):
@@ -83,6 +87,7 @@ def render_table(soup, table, css, base_dir, width, height, dpi, factor=1.0):
     images, tdir = do_render(html, base_dir, width, height, dpi, factor)
     atexit.register(shutil.rmtree, tdir)
     return images
+
 
 def do_render(html, base_dir, width, height, dpi, factor):
     from calibre.gui2 import is_ok_to_use_qt

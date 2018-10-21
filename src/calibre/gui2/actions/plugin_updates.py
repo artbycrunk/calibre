@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python2
 # vim:fileencoding=UTF-8:ts=4:sw=4:sta:et:sts=4:ai
 from __future__ import (unicode_literals, division, absolute_import,
                         print_function)
@@ -11,6 +11,7 @@ from PyQt5.Qt import QApplication, Qt, QIcon
 from calibre.gui2.actions import InterfaceAction
 from calibre.gui2.dialogs.plugin_updater import (PluginUpdaterDialog,
                                                  FILTER_ALL, FILTER_UPDATE_AVAILABLE)
+
 
 class PluginUpdaterAction(InterfaceAction):
 

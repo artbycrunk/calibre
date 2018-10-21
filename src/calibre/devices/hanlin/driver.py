@@ -12,11 +12,12 @@ import re
 
 from calibre.devices.usbms.driver import USBMS
 
+
 class HANLINV3(USBMS):
 
     name           = 'Hanlin V3 driver'
     gui_name       = 'Hanlin V3'
-    description    = _('Communicate with Hanlin V3 eBook readers.')
+    description    = _('Communicate with Hanlin V3 e-book readers.')
     author         = 'Tijmen Ruizendaal'
     supported_platforms = ['windows', 'osx', 'linux']
 
@@ -38,7 +39,6 @@ class HANLINV3(USBMS):
     STORAGE_CARD_VOLUME_LABEL = 'Hanlin V3 Storage Card'
 
     SUPPORTS_SUB_DIRS = True
-
 
     def osx_sort_names(self, names):
         main = names.get('main', None)
@@ -64,7 +64,8 @@ class HANLINV3(USBMS):
         return names
 
     def linux_swap_drives(self, drives):
-        if len(drives) < 2 or not drives[0] or not drives[1]: return drives
+        if len(drives) < 2 or not drives[0] or not drives[1]:
+            return drives
         drives = list(drives)
         t = drives[0]
         drives[0] = drives[1]
@@ -72,13 +73,15 @@ class HANLINV3(USBMS):
         return tuple(drives)
 
     def windows_sort_drives(self, drives):
-        if len(drives) < 2: return drives
+        if len(drives) < 2:
+            return drives
         main = drives.get('main', None)
         carda = drives.get('carda', None)
         if main and carda:
             drives['main'] = carda
             drives['carda'] = main
         return drives
+
 
 class SPECTRA(HANLINV3):
 
@@ -90,10 +93,11 @@ class SPECTRA(HANLINV3):
 
     SUPPORTS_SUB_DIRS = True
 
+
 class HANLINV5(HANLINV3):
     name           = 'Hanlin V5 driver'
     gui_name       = 'Hanlin V5'
-    description    = _('Communicate with Hanlin V5 eBook readers.')
+    description    = _('Communicate with Hanlin V5 e-book readers.')
 
     VENDOR_ID	= [0x0492]
     PRODUCT_ID	= [0x8813]
@@ -107,16 +111,17 @@ class HANLINV5(HANLINV3):
 
     OSX_EJECT_COMMAND = ['diskutil', 'unmount', 'force']
 
+
 class BOOX(HANLINV3):
 
     name           = 'BOOX driver'
     gui_name       = 'BOOX'
-    description    = _('Communicate with the BOOX eBook reader.')
+    description    = _('Communicate with the BOOX e-book reader.')
     author         = 'Jesus Manuel Marinho Valcarce'
     supported_platforms = ['windows', 'osx', 'linux']
     METADATA_CACHE = '.metadata.calibre'
     DRIVEINFO = '.driveinfo.calibre'
-    icon           = I('devices/boox.jpg')
+    icon           = I('devices/boox.png')
 
     # Ordered list of supported formats
     FORMATS     = ['epub', 'fb2', 'djvu', 'pdf', 'html', 'txt', 'rtf', 'mobi',
@@ -154,4 +159,3 @@ class BOOX(HANLINV3):
 
     def linux_swap_drives(self, drives):
         return drives
-

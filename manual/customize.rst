@@ -25,16 +25,26 @@ Environment variables
 
     * ``CALIBRE_CONFIG_DIRECTORY`` - sets the directory where configuration files are stored/read.
     * ``CALIBRE_TEMP_DIR`` - sets the temporary directory used by calibre
+    * ``CALIBRE_CACHE_DIRECTORY`` - sets the directory calibre uses to cache persistent data between sessions
     * ``CALIBRE_OVERRIDE_DATABASE_PATH`` - allows you to specify the full path to metadata.db. Using this variable you can have metadata.db be in a location other than the library folder. Useful if your library folder is on a networked drive that does not support file locking.
     * ``CALIBRE_DEVELOP_FROM`` - Used to run from a calibre development environment. See :ref:`develop`.
     * ``CALIBRE_OVERRIDE_LANG`` - Used to force the language used by the interface (ISO 639 language code)
-    * ``CALIBRE_NO_NATIVE_FILEDIALOGS`` - Causes calibre to not use native file dialogs for selecting files/directories. Set it to 1 to enable.
-    * ``CALIBRE_NO_NATIVE_MENUBAR`` - Causes calibre to not create a native (global) menu on Ubuntu Unity and similar linux desktop environments. The menu is instead placed inside the window, as traditional.
+    * ``CALIBRE_TEST_TRANSLATION`` - Used to test a translation .po file (should be the path to the .po file)
+    * ``CALIBRE_NO_NATIVE_FILEDIALOGS`` - Causes calibre to not use native file dialogs for selecting files/directories. 
+    * ``CALIBRE_NO_NATIVE_MENUBAR`` - Causes calibre to not create a native (global) menu on Ubuntu Unity and similar linux desktop environments. The menu is instead placed inside the window, as is traditional.
+    * ``CALIBRE_USE_SYSTEM_THEME`` - By default, on Linux, calibre uses its own
+      builtin Qt style. This is to avoid crashes and hangs caused by incompatibilities
+      between the version of Qt calibre is built against and the system Qt. The
+      downside is that calibre may not follow the system look and feel. If
+      you set this environment variable on Linux, it will cause calibre to use
+      the system theme -- beware of crashes and hangs.
+    * ``CALIBRE_SHOW_DEPRECATION_WARNINGS`` - Causes calibre to print deprecation warnings to stdout. Useful for calibre developers.
+    * ``CALIBRE_NO_DEFAULT_PROGRAMS`` - Prevent calibre from automatically registering the filetypes it is capable of handling with Windows.
     * ``SYSFS_PATH`` - Use if sysfs is mounted somewhere other than /sys
-    * ``http_proxy`` - Used on linux to specify an HTTP proxy
+    * ``http_proxy``, ``https_proxy`` - Used on linux to specify an HTTP(S) proxy
 
-See `How to set environment variables in windows <http://www.computerhope.com/issues/ch000549.htm>`_ or
-`How to set environment variables in OS X <http://www.dowdandassociates.com/blog/content/howto-set-an-environment-variable-in-mac-os-x-home-slash-dot-macosx-slash-environment-dot-plist/>`_.
+See `How to set environment variables in Windows <https://www.computerhope.com/issues/ch000549.htm>`_ or
+`How to set environment variables in macOS <https://www.dowdandassociates.com/blog/content/howto-set-an-environment-variable-in-mac-os-x-launchd-plist/>`_.
 
 Tweaks
 ------------
@@ -48,11 +58,16 @@ The default values for the tweaks are reproduced below
 Overriding icons, templates, et cetera
 ----------------------------------------
 
+.. note:: 
+    calibre has direct support for icon themes, there are several icon themes
+    available for calibre, that you can use by going to :guilabel:`Preferences->Interface->Look & Feel->Change Icon theme`.
+    The icon themes use the same mechanism as described below for overriding static resources.
+
 calibre allows you to override the static resources, like icons, javascript and
 templates for the metadata jacket, catalogs, etc. with customized versions that
 you like.  All static resources are stored in the resources sub-folder of the
 calibre install location. On Windows, this is usually :file:`C:\\Program Files\\Calibre2\\resources`. 
-On OS X, :file:`/Applications/calibre.app/Contents/Resources/resources/`. On linux, if
+On macOS, :file:`/Applications/calibre.app/Contents/Resources/resources/`. On linux, if
 you are using the binary installer from the calibre website it will be
 :file:`/opt/calibre/resources`. These paths can change depending on where you
 choose to install calibre. 
@@ -68,22 +83,31 @@ in preference to the built-in one the next time it is started.
 
 For example, if you wanted to change the icon for the :guilabel:`Remove books`
 action, you would first look in the built-in resources folder and see that the
-relevant file is :file:`resources/images/trash.png`. Assuming you have an
-alternate icon in PNG format called :file:`mytrash.png` you would save it in
-the configuration directory as :file:`resources/images/trash.png`. All the
+relevant file is :file:`resources/images/remove_books.png`. Assuming you have an
+alternate icon in PNG format called :file:`my_remove_books.png` you would save it in
+the configuration directory as :file:`resources/images/remove_books.png`. All the
 icons used by the calibre user interface are in :file:`resources/images` and
 its sub-folders.
 
+Creating your own icon theme for calibre
+-------------------------------------------------------------
 
-.. note:: 
-    There are several replacement icon sets for calibre created by users
-    over the years. You can find them gathered together in this `forum thread 
-    <http://www.mobileread.com/forums/showthread.php?t=151397>`_.
+If you have created a beautiful set of icons and wish to share them with other
+calibre users via calibre's builtin icon theme support, you can easily package
+up your icons into a theme. To do so, go to
+:guilabel:`Preferences->Miscellaneous->Create icon theme`, select the folder
+where you have put your icons (usually the :file:`resources/images` folder in
+the calibre config directory, as described above). Then fill up the theme
+metadata and click OK.  This will result in a ZIP file containing the theme
+icons. You can upload that to the calibre forum at `Mobileread
+<https://www.mobileread.com/forums/forumdisplay.php?f=166>`_ and then I will
+make your theme available via calibre's builtin icon theme system.
+
 
 Customizing calibre with plugins
 --------------------------------
 
-calibre has a very modular design. Almost all functionality in calibre comes in the form of plugins. Plugins are used for conversion, for downloading news (though these are called recipes), for various components of the user interface, to connect to different devices, to process files when adding them to calibre and so on. You can get a complete list of all the built-in plugins in calibre by going to :guilabel:`Preferences->Plugins`.
+calibre has a very modular design. Almost all functionality in calibre comes in the form of plugins. Plugins are used for conversion, for downloading news (though these are called recipes), for various components of the user interface, to connect to different devices, to process files when adding them to calibre and so on. You can get a complete list of all the built-in plugins in calibre by going to :guilabel:`Preferences->Advanced->Plugins`.
 
 You can write your own plugins to customize and extend the behavior of calibre. The plugin architecture in calibre is very simple, see the tutorial :ref:`pluginstutorial`.
 

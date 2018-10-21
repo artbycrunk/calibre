@@ -32,6 +32,19 @@ has_start_text = (elem) ->
             return true
     return false
 
+create_page_div = (elem) ->
+    div = document.createElement('blank-page-div')
+    div.innerText = ' \n    '
+    document.body.appendChild(div)
+    div.style.setProperty('-webkit-column-break-before', 'always')
+    div.style.setProperty('display', 'block')
+    div.style.setProperty('white-space', 'pre')
+    div.style.setProperty('background-color', 'transparent')
+    div.style.setProperty('background-image', 'none')
+    div.style.setProperty('border-width', '0')
+    div.style.setProperty('float', 'none')
+    div.style.setProperty('position', 'static')
+
 class PagedDisplay
     # This class is a namespace to expose functions via the
     # window.paged_display object. The most important functions are:
@@ -72,15 +85,16 @@ class PagedDisplay
             tmp.style.position = 'absolute'
             document.body.appendChild(tmp)
             for sheet in document.styleSheets
-                for rule in sheet.rules
-                    if rule.type == CSSRule.PAGE_RULE
-                        for prop in ['left', 'top', 'bottom', 'right']
-                            val = rule.style.getPropertyValue('margin-'+prop)
-                            if val
-                                tmp.style.height = val
-                                pxval = parseInt(window.getComputedStyle(tmp).height)
-                                if not isNaN(pxval)
-                                    this.document_margins[prop] = pxval
+                if sheet.rules
+                    for rule in sheet.rules
+                        if rule.type == CSSRule.PAGE_RULE
+                            for prop in ['left', 'top', 'bottom', 'right']
+                                val = rule.style.getPropertyValue('margin-'+prop)
+                                if val
+                                    tmp.style.height = val
+                                    pxval = parseInt(window.getComputedStyle(tmp).height)
+                                    if not isNaN(pxval)
+                                        this.document_margins[prop] = pxval
             document.body.removeChild(tmp)
             if this.document_margins.left is null
                 val = parseInt(window.getComputedStyle(document.body).marginLeft)
@@ -94,9 +108,14 @@ class PagedDisplay
     set_geometry: (cols_per_screen=1, margin_top=20, margin_side=40, margin_bottom=20) ->
         this.cols_per_screen = cols_per_screen
         if this.use_document_margins and this.document_margins != null
-            this.margin_top = this.document_margins.top or margin_top
-            this.margin_bottom = this.document_margins.bottom or margin_bottom
-            this.margin_side = this.document_margins.left or this.document_margins.right or margin_side
+            this.margin_top = if this.document_margins.top != null then this.document_margins.top else margin_top
+            this.margin_bottom = if this.document_margins.bottom != null then this.document_margins.bottom else margin_bottom
+            if this.document_margins.left != null
+                this.margin_side = this.document_margins.left
+            else if this.document_margins.right != null
+                this.margin_side = this.document_margins.right
+            else
+                this.margin_side = margin_side
             this.effective_margin_top = this.margin_top
             this.effective_margin_bottom = this.margin_bottom
         else
@@ -112,6 +131,7 @@ class PagedDisplay
                 if node.nodeType == node.ELEMENT_NODE and window.getComputedStyle(node).direction == "rtl"
                     node.style.setProperty("direction", "rtl")
             document.body.style.direction = "ltr"
+            document.documentElement.style.direction = 'ltr'
 
     layout: (is_single_page=false) ->
         # start_time = new Date().getTime()
@@ -122,8 +142,28 @@ class PagedDisplay
             # Check if the current document is a full screen layout like
             # cover, if so we treat it specially.
             single_screen = (document.body.scrollHeight < window.innerHeight + 75)
+            has_svg = document.getElementsByTagName('svg').length > 0
+            only_img = document.getElementsByTagName('img').length == 1 and document.getElementsByTagName('div').length < 3 and document.getElementsByTagName('p').length < 2
+            if only_img
+                has_viewport = document.head and document.head.querySelector('meta[name="viewport"]')
+                if has_viewport
+                    # Has a viewport and only an img, is probably a comic, see for
+                    # example: https://bugs.launchpad.net/bugs/1667357
+                    single_screen = true
             this.handle_rtl_body(body_style)
             first_layout = true
+            if not single_screen and this.cols_per_screen > 1
+                num = this.cols_per_screen - 1
+                elems = document.querySelectorAll('body > *')
+                if elems.length == 1
+                    # Workaround for the case when the content is wrapped in a
+                    # 100% height <div>. This causes the generated page divs to
+                    # not be in the correct location. See
+                    # https://bugs.launchpad.net/bugs/1594657 for an example.
+                    elems[0].style.height = 'auto'
+                while num > 0
+                    num -= 1
+                    create_page_div()
 
         ww = window.innerWidth
 
@@ -152,21 +192,18 @@ class PagedDisplay
 
         fgcolor = body_style.getPropertyValue('color')
 
+        bs.setProperty('box-sizing', 'content-box')
         bs.setProperty('-webkit-column-gap', 2*sm + 'px')
         bs.setProperty('-webkit-column-width', col_width + 'px')
         bs.setProperty('-webkit-column-rule', '0px inset blue')
+        bs.setProperty('column-fill', 'auto')
 
         # Without this, webkit bleeds the margin of the first block(s) of body
         # above the columns, which causes them to effectively be added to the
         # page margins (the margin collapse algorithm)
         bs.setProperty('-webkit-margin-collapse', 'separate')
-        # Remove any webkit specified default margin from the first child of body
-        # Otherwise, you could end up with an effective negative margin, I dont
-        # understand exactly why, but see:
-        # https://bugs.launchpad.net/calibre/+bug/1082640 for an example
         c = first_child(document.body)
         if c != null
-            c.style.setProperty('-webkit-margin-before', '0')
             # Remove page breaks on the first few elements to prevent blank pages
             # at the start of a chapter
             c.style.setProperty('-webkit-column-break-before', 'avoid')
@@ -192,12 +229,12 @@ class PagedDisplay
         bs.setProperty('overflow', 'visible')
         bs.setProperty('height', this.current_page_height + 'px')
         bs.setProperty('width', (window.innerWidth - 2*sm)+'px')
-        bs.setProperty('margin-top', this.effective_margin_top + 'px')
-        bs.setProperty('margin-bottom', this.effective_margin_bottom+'px')
-        bs.setProperty('margin-left', sm+'px')
-        bs.setProperty('margin-right', sm+'px')
+        bs.setProperty('padding-top', this.effective_margin_top + 'px')
+        bs.setProperty('padding-bottom', this.effective_margin_bottom+'px')
+        bs.setProperty('padding-left', sm+'px')
+        bs.setProperty('padding-right', sm+'px')
         for edge in ['left', 'right', 'top', 'bottom']
-            bs.setProperty('padding-'+edge, '0px')
+            bs.setProperty('margin-'+edge, '0px')
             bs.setProperty('border-'+edge+'-width', '0px')
         bs.setProperty('min-width', '0')
         bs.setProperty('max-width', 'none')
@@ -206,22 +243,21 @@ class PagedDisplay
 
         # Convert page-breaks to column-breaks
         for sheet in document.styleSheets
-            for rule in sheet.rules
-                if rule.type == CSSRule.STYLE_RULE
-                    for prop in ['page-break-before', 'page-break-after', 'page-break-inside']
-                        val = rule.style.getPropertyValue(prop)
-                        if val
-                            cprop = '-webkit-column-' + prop.substr(5)
-                            priority = rule.style.getPropertyPriority(prop)
-                            rule.style.setProperty(cprop, val, priority)
+            if sheet.rules
+                for rule in sheet.rules
+                    if rule.type == CSSRule.STYLE_RULE
+                        for prop in ['page-break-before', 'page-break-after', 'page-break-inside']
+                            val = rule.style.getPropertyValue(prop)
+                            if val
+                                cprop = '-webkit-column-' + prop.substr(5)
+                                priority = rule.style.getPropertyPriority(prop)
+                                rule.style.setProperty(cprop, val, priority)
 
         if first_layout
             # Because of a bug in webkit column mode, svg elements defined with
             # width 100% are wider than body and lead to a blank page after the
             # current page (when cols_per_screen == 1). Similarly img elements
             # with height=100% overflow the first column
-            has_svg = document.getElementsByTagName('svg').length > 0
-            only_img = document.getElementsByTagName('img').length == 1 and document.getElementsByTagName('div').length < 3 and document.getElementsByTagName('p').length < 2
             # We only set full_screen_layout if scrollWidth is in (body_width,
             # 2*body_width) as if it is <= body_width scrolling will work
             # anyway and if it is >= 2*body_width it can't be a full screen
@@ -230,6 +266,13 @@ class PagedDisplay
             this.is_full_screen_layout = (only_img or has_svg) and single_screen and document.body.scrollWidth > body_width and document.body.scrollWidth < 2 * body_width
             if is_single_page
                 this.is_full_screen_layout = true
+            # Prevent the TAB key from shifting focus as it causes partial
+            # scrolling
+            document.documentElement.addEventListener('keydown', (evt) ->
+                if evt.keyCode == 9
+                    evt.preventDefault()
+            )
+
 
         ncols = document.body.scrollWidth / this.page_width
         if ncols != Math.floor(ncols) and not this.is_full_screen_layout
@@ -270,18 +313,35 @@ class PagedDisplay
             this.footer.style.setProperty('left', left+'px')
 
     update_header_footer: (pagenum) ->
+        has_images = false
+        this.header_footer_images = []
         if this.hf_style != null
             if pagenum%2 == 1 then cls = "even_page" else cls = "odd_page"
             this.hf_style.innerHTML = "#pdf_page_header_#{ this.hf_uuid } .#{ cls }, #pdf_page_footer_#{ this.hf_uuid } .#{ cls } { display: none }"
             title = py_bridge.title()
             author = py_bridge.author()
             section = py_bridge.section()
+            tl_section = py_bridge.tl_section()
         if this.header != null
-            this.header.innerHTML = this.header_template.replace(/_PAGENUM_/g, pagenum+"").replace(/_TITLE_/g, title+"").replace(/_AUTHOR_/g, author+"").replace(/_SECTION_/g, section+"")
+            this.header.innerHTML = this.header_template.replace(/_PAGENUM_/g, pagenum+"").replace(/_TITLE_/g, title+"").replace(/_AUTHOR_/g, author+"").replace(/_TOP_LEVEL_SECTION_/g, tl_section+"").replace(/_SECTION_/g, section+"")
             runscripts(this.header)
+            for img in this.header.getElementsByTagName('img')
+                this.header_footer_images.push(img)
+                has_images = true
         if this.footer != null
-            this.footer.innerHTML = this.footer_template.replace(/_PAGENUM_/g, pagenum+"").replace(/_TITLE_/g, title+"").replace(/_AUTHOR_/g, author+"").replace(/_SECTION_/g, section+"")
+            this.footer.innerHTML = this.footer_template.replace(/_PAGENUM_/g, pagenum+"").replace(/_TITLE_/g, title+"").replace(/_AUTHOR_/g, author+"").replace(/_TOP_LEVEL_SECTION_/g, tl_section+"").replace(/_SECTION_/g, section+"")
             runscripts(this.footer)
+            for img in this.header.getElementsByTagName('img')
+                this.header_footer_images.push(img)
+                has_images = true
+        has_images
+
+    header_footer_images_loaded: () ->
+        for img in this.header_footer_images
+            if not img.complete
+                return false
+        this.header_footer_images = []
+        return true
 
     fit_images: () ->
         # Ensure no images are wider than the available width in a column. Note
@@ -289,11 +349,16 @@ class PagedDisplay
         # force a relayout if the render tree is dirty.
         images = []
         vimages = []
+        bounding_rects = []
+        img_tags = document.getElementsByTagName('img')
+        for img in img_tags
+            bounding_rects.push(img.getBoundingClientRect())
         maxh = this.current_page_height
-        for img in document.getElementsByTagName('img')
+        for i in [0...img_tags.length]
+            img = img_tags[i]
             previously_limited = calibre_utils.retrieve(img, 'width-limited', false)
             data = calibre_utils.retrieve(img, 'img-data', null)
-            br = img.getBoundingClientRect()
+            br = bounding_rects[i]
             if data == null
                 data = {'left':br.left, 'right':br.right, 'height':br.height, 'display': img.style.display}
                 calibre_utils.store(img, 'img-data', data)
@@ -349,6 +414,9 @@ class PagedDisplay
             this.animated_scroll(pos, duration=1000, notify=notify)
         else
             window.scrollTo(pos, 0)
+
+    scroll_to_column: (number) ->
+        this.scroll_to_xpos(number * this.page_width + 10)
 
     column_at: (xpos) ->
         # Return the number of the column that contains xpos
@@ -430,6 +498,11 @@ class PagedDisplay
             return -1
         cc = this.current_column_location()
         ans = cc + this.screen_width
+        if this.cols_per_screen > 1
+            width_left = document.body.scrollWidth - (window.pageXOffset + window.innerWidth)
+            pages_left = width_left / this.page_width
+            if Math.ceil(pages_left) < this.cols_per_screen
+                return -1  # Only blank, dummy pages left
         limit = document.body.scrollWidth - window.innerWidth
         if ans > limit
             ans = if window.pageXOffset < limit then limit else -1
@@ -527,7 +600,7 @@ class PagedDisplay
             # selection
             this.scroll_to_xpos(left+5)
 
-    jump_to_cfi: (cfi) ->
+    jump_to_cfi: (cfi, job_id=-1) ->
         # Jump to the position indicated by the specified conformal fragment
         # indicator (requires the cfi.coffee library). When in paged mode, the
         # scroll is performed so that the column containing the position
@@ -537,6 +610,8 @@ class PagedDisplay
                 this.scroll_to_xpos(x)
             else
                 window.scrollTo(0, y)
+            if window.py_bridge
+                window.py_bridge.jump_to_cfi_finished(job_id)
         )
 
     current_cfi: () ->

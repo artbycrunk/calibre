@@ -411,7 +411,7 @@ private:
   QRect renderSlide(const SlideInfo &slide, int alpha=256, int col1=-1, int col=-1);
   QRect renderCenterSlide(const SlideInfo &slide);
   QImage* surface(int slideIndex);
-  void triggerRender();
+  void triggerRender(int after_msecs);
   void resetSlides();
   void render_text(QPainter*, int);
 };
@@ -447,7 +447,7 @@ PictureFlowPrivate::PictureFlowPrivate(PictureFlow* w, int queueLength_)
 void PictureFlowPrivate::dataChanged() {
 	surfaceCache.clear();
 	resetSlides();
-	triggerRender();
+	triggerRender(100);
 }
 
 void PictureFlowPrivate::setImages(FlowImages *images)
@@ -474,7 +474,7 @@ void PictureFlowPrivate::setSlideSize(QSize size)
   slideWidth = size.width();
   slideHeight = size.height();
   recalc(buffer.width(), buffer.height());
-  triggerRender();
+  triggerRender(100);
 }
 
 QImage PictureFlowPrivate::slide(int index) const
@@ -500,7 +500,7 @@ void PictureFlowPrivate::setCurrentSlide(int index)
   target = centerIndex;
   slideFrame = ((long long)centerIndex) << 16;
   resetSlides();
-  triggerRender();
+  triggerRender(100);
   widget->emitcurrentChanged(centerIndex);
 }
 
@@ -510,7 +510,7 @@ bool PictureFlowPrivate::showReflections() const {
 
 void PictureFlowPrivate::setShowReflections(bool show) {
     doReflections = show;
-    triggerRender();
+    triggerRender(100);
 }
 
 void PictureFlowPrivate::showPrevious()
@@ -566,7 +566,7 @@ void PictureFlowPrivate::resize(int w, int h)
   fontSize = MAX(int(h/15.), 12);
   recalc(w, h);
   resetSlides();
-  triggerRender();
+  triggerRender(100);
 }
 
 
@@ -603,10 +603,18 @@ void PictureFlowPrivate::resetSlides()
   }
 }
 
-static QImage prepareSurface(QImage srcimg, int w, int h, bool doReflections, bool preserveAspectRatio)
+static inline quint16 qConvertRgb32To16(uint c)
+{
+   return (((c) >> 3) & 0x001f)
+       | (((c) >> 5) & 0x07e0)
+       | (((c) >> 8) & 0xf800);
+}
+
+static QImage prepareSurface(QImage srcimg, const int w, const int h, bool doReflections, bool preserveAspectRatio)
 {
     // slightly larger, to accommodate for the reflection
-    int hs = int(h * REFLECTION_FACTOR), left = 0, top = 0, a = 0, r = 0, g = 0, b = 0, ht, x, y, bpp;
+    int hs = int(h * REFLECTION_FACTOR), left = 0, top = 0, ht, x, y, bpp;
+    double alpha = 0;
     QImage img = (preserveAspectRatio) ? QImage(w, h, srcimg.format()) : srcimg.scaled(w, h, Qt::IgnoreAspectRatio, Qt::SmoothTransformation);
     QRgb color;
 
@@ -625,7 +633,7 @@ static QImage prepareSurface(QImage srcimg, int w, int h, bool doReflections, bo
         result.setText(OFFSET_KEY, QString::number(left));
         result.setText(WIDTH_KEY, QString::number(temp.width()));
         for (y = 0; y < temp.height(); y++) {
-            const uchar *src = temp.scanLine(y);
+            const uchar *src = temp.constScanLine(y);
             uchar *dest = img.scanLine(top + y) + (bpp * left);
             memcpy(dest, src, x);
         }
@@ -634,24 +642,24 @@ static QImage prepareSurface(QImage srcimg, int w, int h, bool doReflections, bo
     // transpose the image, this is to speed-up the rendering
     // because we process one column at a time
     // (and much better and faster to work row-wise, i.e in one scanline)
-    for(x = 0; x < w; x++)
-        for(y = 0; y < h; y++)
-            result.setPixel(y, x, img.pixel(x, y));
+    for(x = 0; x < w; x++) {
+        quint16* line = reinterpret_cast<quint16*>(result.scanLine(x));
+        for(y = 0; y < h; y++) {
+            line[y] = qConvertRgb32To16(img.pixel(x, y));
+        }
+    }
 
     if (doReflections) {
         // create the reflection
         ht = hs - h;
-        for(x = 0; x < w; x++)
-            for(y = 0; y < ht; y++)
-            {
-                color = img.pixel(x, img.height()-y-1);
-                //QRgb565 color = img.scanLine(img.height()-y-1) + x*sizeof(QRgb565); //img.pixel(x, img.height()-y-1);
-                a = qAlpha(color);
-                r = qRed(color)   * a / 256 * (ht - y) / ht * 3/5;
-                g = qGreen(color) * a / 256 * (ht - y) / ht * 3/5;
-                b = qBlue(color)  * a / 256 * (ht - y) / ht * 3/5;
-                result.setPixel(h+y, x, qRgb(r, g, b));
+        for(x = 0; x < w; x++) {
+            quint16* line = reinterpret_cast<quint16*>(result.scanLine(x));
+            for(y = 0; y < ht; y++) {
+                color = img.pixel(x, h-y-1);
+                alpha = (qAlpha(color) / 256.0) * ((ht - y) / (double)ht * 3/5.0);
+                line[h+y] = qConvertRgb32To16(qRgb(qRed(color)*alpha, qGreen(color)*alpha, qBlue(color)*alpha));
             }
+        }
     }
 
     return result;
@@ -702,9 +710,9 @@ QImage* PictureFlowPrivate::surface(int slideIndex)
 
 // Schedules rendering the slides. Call this function to avoid immediate 
 // render and thus cause less flicker.
-void PictureFlowPrivate::triggerRender()
+void PictureFlowPrivate::triggerRender(int after_msecs)
 {
-  triggerTimer.start();
+  triggerTimer.start(after_msecs);
 }
 
 void PictureFlowPrivate::render_text(QPainter *painter, int index) {
@@ -862,11 +870,6 @@ static inline uint BYTE_MUL_RGB16(uint x, uint a) {
     return t;
 }
 
-static inline uint BYTE_MUL_RGB16_32(uint x, uint a) {
-    uint t = (((x & 0xf81f07e0) >> 5)*a) & 0xf81f07e0;
-    t |= (((x & 0x07e0f81f)*a) >> 5) & 0x07e0f81f;
-    return t;
-}
 
 QRect PictureFlowPrivate::renderCenterSlide(const SlideInfo &slide) {
   QImage* src = surface(slide.slideIndex);
@@ -1150,7 +1153,7 @@ void PictureFlowPrivate::updateAnimation()
   {
     resetSlides();
     animateTimer.stop();
-    triggerRender();
+    triggerRender(0);
     step = 0;
     fade = 256;
     return;
@@ -1193,7 +1196,7 @@ void PictureFlowPrivate::updateAnimation()
   if(target > index) if(step < 0)
     step = 1;
 
-  triggerRender();
+  triggerRender(0);
 }
 
 
@@ -1208,6 +1211,7 @@ void PictureFlowPrivate::clearSurfaceCache()
 PictureFlow::PictureFlow(QWidget* parent, int queueLength): QWidget(parent)
 {
   d = new PictureFlowPrivate(this, queueLength);
+  last_device_pixel_ratio = 1;
 
   setAttribute(Qt::WA_StaticContents, true);
   setAttribute(Qt::WA_OpaquePaintEvent, true);
@@ -1346,9 +1350,18 @@ void PictureFlow::keyPressEvent(QKeyEvent* event)
 #define SPEED_LOWER_THRESHOLD 10
 #define SPEED_UPPER_LIMIT 40
 
+qreal PictureFlow::device_pixel_ratio() const {
+#if (QT_VERSION >= QT_VERSION_CHECK(5, 6, 0))
+	return devicePixelRatioF();
+#else
+	return (qreal)devicePixelRatio();
+#endif
+}
+
 void PictureFlow::mouseMoveEvent(QMouseEvent* event)
 {
-  int distanceMovedSinceLastEvent = event->pos().x() - d->previousPos.x();
+  int x = (int)(event->x() * device_pixel_ratio());
+  int distanceMovedSinceLastEvent = x - d->previousPos.x();
 
   // Check to see if we need to switch from single press mode to a drag mode
   if (d->singlePress)
@@ -1372,7 +1385,7 @@ void PictureFlow::mouseMoveEvent(QMouseEvent* event)
       speed = SPEED_LOWER_THRESHOLD;
     else
     {
-      speed = ((qAbs(event->pos().x()-d->previousPos.x())*1000) / d->previousPosTimestamp.elapsed())
+      speed = ((qAbs(x-d->previousPos.x())*1000) / d->previousPosTimestamp.elapsed())
                     / (d->buffer.width() / 10);
   
       if (speed < SPEED_LOWER_THRESHOLD)
@@ -1428,36 +1441,33 @@ void PictureFlow::mouseMoveEvent(QMouseEvent* event)
     
   }
 
-  d->previousPos = event->pos();
+  d->previousPos = event->pos() * device_pixel_ratio();
   d->previousPosTimestamp.restart();
-
-  emit inputReceived();
 }
 
 void PictureFlow::mousePressEvent(QMouseEvent* event)
 {
-  d->firstPress = event->pos();
-  d->previousPos = event->pos();
+  d->firstPress = event->pos() * device_pixel_ratio();
+  d->previousPos = event->pos() * device_pixel_ratio();
   d->previousPosTimestamp.start();
   d->singlePress = true; // Initially assume a single press
 //  d->dragStartSlide = d->getTarget();
   d->pixelDistanceMoved = 0;
-
-  emit inputReceived();
 }
 
 void PictureFlow::mouseReleaseEvent(QMouseEvent* event)
 {
   bool accepted = false;
   int sideWidth = (d->buffer.width() - slideSize().width()) /2;
+  int x = (int)(event->x() * device_pixel_ratio());
 
   if (d->singlePress)
   {
-    if (event->x() < sideWidth )
+    if (x < sideWidth )
     {
       showPrevious();
       accepted = true;
-    } else if ( event->x() > sideWidth + slideSize().width() ) {
+    } else if ( x > sideWidth + slideSize().width() ) {
       showNext();
       accepted = true;
     } else {
@@ -1471,21 +1481,29 @@ void PictureFlow::mouseReleaseEvent(QMouseEvent* event)
         event->accept();
     }
   }
-
-  emit inputReceived();
 }
 
 void PictureFlow::paintEvent(QPaintEvent* event)
 {
   Q_UNUSED(event);
+  if (last_device_pixel_ratio != device_pixel_ratio()) {
+      last_device_pixel_ratio = device_pixel_ratio();
+      d->resize((int)(width() * last_device_pixel_ratio), (int)(height() * last_device_pixel_ratio));
+      update();
+      return;
+  }
   QPainter painter(this);
+  qreal dpr = d->buffer.devicePixelRatio();
+  d->buffer.setDevicePixelRatio(device_pixel_ratio());
   painter.setRenderHint(QPainter::Antialiasing, false);
   painter.drawImage(QPoint(0,0), d->buffer);
+  d->buffer.setDevicePixelRatio(dpr);
 }
 
 void PictureFlow::resizeEvent(QResizeEvent* event)
 {
-  d->resize(width(), height());
+  last_device_pixel_ratio = device_pixel_ratio();
+  d->resize((int)(width() * last_device_pixel_ratio), (int)(height() * last_device_pixel_ratio));
   QWidget::resizeEvent(event);
 }
 

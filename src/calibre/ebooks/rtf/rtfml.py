@@ -15,7 +15,8 @@ import cStringIO
 from lxml import etree
 
 from calibre.ebooks.metadata import authors_to_string
-from calibre.utils.magick.draw import save_cover_data_to, identify_data
+from calibre.utils.img import save_cover_data_to
+from calibre.utils.imghdr import identify
 
 TAGS = {
     'b': '\\b',
@@ -67,6 +68,7 @@ TODO:
     * Fonts
 '''
 
+
 def txt2rtf(text):
     # Escape { and } in the text.
     text = text.replace('{', r'\'7b')
@@ -117,7 +119,7 @@ class RTFMLizer(object):
             self.log.debug('Converting %s to RTF markup...' % item.href)
             # Removing comments is needed as comments with -- inside them can
             # cause fromstring() to fail
-            content = re.sub(ur'<!--.*?-->', u'', etree.tostring(item.data, encoding=unicode), flags=re.DOTALL)
+            content = re.sub(u'<!--.*?-->', u'', etree.tostring(item.data, encoding=unicode), flags=re.DOTALL)
             content = self.remove_newlines(content)
             content = self.remove_tabs(content)
             content = etree.fromstring(content)
@@ -140,22 +142,24 @@ class RTFMLizer(object):
         return text
 
     def remove_tabs(self, text):
-        self.log.debug('\Replace tabs with space for processing...')
+        self.log.debug('Replace tabs with space for processing...')
         text = text.replace('\t', ' ')
 
         return text
 
     def header(self):
-        header = u'{\\rtf1{\\info{\\title %s}{\\author %s}}\\ansi\\ansicpg1252\\deff0\\deflang1033\n' % (self.oeb_book.metadata.title[0].value, authors_to_string([x.value for x in self.oeb_book.metadata.creator]))
-        return header + \
-            '{\\fonttbl{\\f0\\froman\\fprq2\\fcharset128 Times New Roman;}{\\f1\\froman\\fprq2\\fcharset128 Times New Roman;}{\\f2\\fswiss\\fprq2\\fcharset128 Arial;}{\\f3\\fnil\\fprq2\\fcharset128 Arial;}{\\f4\\fnil\\fprq2\\fcharset128 MS Mincho;}{\\f5\\fnil\\fprq2\\fcharset128 Tahoma;}{\\f6\\fnil\\fprq0\\fcharset128 Tahoma;}}\n' \
-            '{\\stylesheet{\\ql \\li0\\ri0\\nowidctlpar\\wrapdefault\\faauto\\rin0\\lin0\\itap0 \\rtlch\\fcs1 \\af25\\afs24\\alang1033 \\ltrch\\fcs0 \\fs24\\lang1033\\langfe255\\cgrid\\langnp1033\\langfenp255 \\snext0 Normal;}\n' \
-            '{\\s1\\ql \\li0\\ri0\\sb240\\sa120\\keepn\\nowidctlpar\\wrapdefault\\faauto\\outlinelevel0\\rin0\\lin0\\itap0 \\rtlch\\fcs1 \\ab\\af0\\afs32\\alang1033 \\ltrch\\fcs0 \\b\\fs32\\lang1033\\langfe255\\loch\\f1\\hich\\af1\\dbch\\af26\\cgrid\\langnp1033\\langfenp255 \\sbasedon15 \\snext16 \\slink21 heading 1;}\n' \
-            '{\\s2\\ql \\li0\\ri0\\sb240\\sa120\\keepn\\nowidctlpar\\wrapdefault\\faauto\\outlinelevel1\\rin0\\lin0\\itap0 \\rtlch\\fcs1 \\ab\\ai\\af0\\afs28\\alang1033 \\ltrch\\fcs0 \\b\\i\\fs28\\lang1033\\langfe255\\loch\\f1\\hich\\af1\\dbch\\af26\\cgrid\\langnp1033\\langfenp255 \\sbasedon15 \\snext16 \\slink22 heading 2;}\n' \
-            '{\\s3\\ql \\li0\\ri0\\sb240\\sa120\\keepn\\nowidctlpar\\wrapdefault\\faauto\\outlinelevel2\\rin0\\lin0\\itap0 \\rtlch\\fcs1 \\ab\\af0\\afs28\\alang1033 \\ltrch\\fcs0 \\b\\fs28\\lang1033\\langfe255\\loch\\f1\\hich\\af1\\dbch\\af26\\cgrid\\langnp1033\\langfenp255 \\sbasedon15 \\snext16 \\slink23 heading 3;}\n' \
-            '{\\s4\\ql \\li0\\ri0\\sb240\\sa120\\keepn\\nowidctlpar\\wrapdefault\\faauto\\outlinelevel3\\rin0\\lin0\\itap0 \\rtlch\\fcs1 \\ab\\ai\\af0\\afs23\\alang1033 \\ltrch\\fcs0\\b\\i\\fs23\\lang1033\\langfe255\\loch\\f1\\hich\\af1\\dbch\\af26\\cgrid\\langnp1033\\langfenp255 \\sbasedon15 \\snext16 \\slink24 heading 4;}\n' \
-            '{\\s5\\ql \\li0\\ri0\\sb240\\sa120\\keepn\\nowidctlpar\\wrapdefault\\faauto\\outlinelevel4\\rin0\\lin0\\itap0 \\rtlch\\fcs1 \\ab\\af0\\afs23\\alang1033 \\ltrch\\fcs0 \\b\\fs23\\lang1033\\langfe255\\loch\\f1\\hich\\af1\\dbch\\af26\\cgrid\\langnp1033\\langfenp255 \\sbasedon15 \\snext16 \\slink25 heading 5;}\n' \
-            '{\\s6\\ql \\li0\\ri0\\sb240\\sa120\\keepn\\nowidctlpar\\wrapdefault\\faauto\\outlinelevel5\\rin0\\lin0\\itap0 \\rtlch\\fcs1 \\ab\\af0\\afs21\\alang1033 \\ltrch\\fcs0 \\b\\fs21\\lang1033\\langfe255\\loch\\f1\\hich\\af1\\dbch\\af26\\cgrid\\langnp1033\\langfenp255 \\sbasedon15 \\snext16 \\slink26 heading 6;}}\n'
+        header = u'{\\rtf1{\\info{\\title %s}{\\author %s}}\\ansi\\ansicpg1252\\deff0\\deflang1033\n' % (
+            self.oeb_book.metadata.title[0].value, authors_to_string([x.value for x in self.oeb_book.metadata.creator]))
+        return header + (
+            '{\\fonttbl{\\f0\\froman\\fprq2\\fcharset128 Times New Roman;}{\\f1\\froman\\fprq2\\fcharset128 Times New Roman;}{\\f2\\fswiss\\fprq2\\fcharset128 Arial;}{\\f3\\fnil\\fprq2\\fcharset128 Arial;}{\\f4\\fnil\\fprq2\\fcharset128 MS Mincho;}{\\f5\\fnil\\fprq2\\fcharset128 Tahoma;}{\\f6\\fnil\\fprq0\\fcharset128 Tahoma;}}\n'  # noqa
+            '{\\stylesheet{\\ql \\li0\\ri0\\nowidctlpar\\wrapdefault\\faauto\\rin0\\lin0\\itap0 \\rtlch\\fcs1 \\af25\\afs24\\alang1033 \\ltrch\\fcs0 \\fs24\\lang1033\\langfe255\\cgrid\\langnp1033\\langfenp255 \\snext0 Normal;}\n'  # noqa
+            '{\\s1\\ql \\li0\\ri0\\sb240\\sa120\\keepn\\nowidctlpar\\wrapdefault\\faauto\\outlinelevel0\\rin0\\lin0\\itap0 \\rtlch\\fcs1 \\ab\\af0\\afs32\\alang1033 \\ltrch\\fcs0 \\b\\fs32\\lang1033\\langfe255\\loch\\f1\\hich\\af1\\dbch\\af26\\cgrid\\langnp1033\\langfenp255 \\sbasedon15 \\snext16 \\slink21 heading 1;}\n'  # noqa
+            '{\\s2\\ql \\li0\\ri0\\sb240\\sa120\\keepn\\nowidctlpar\\wrapdefault\\faauto\\outlinelevel1\\rin0\\lin0\\itap0 \\rtlch\\fcs1 \\ab\\ai\\af0\\afs28\\alang1033 \\ltrch\\fcs0 \\b\\i\\fs28\\lang1033\\langfe255\\loch\\f1\\hich\\af1\\dbch\\af26\\cgrid\\langnp1033\\langfenp255 \\sbasedon15 \\snext16 \\slink22 heading 2;}\n'  # noqa
+            '{\\s3\\ql \\li0\\ri0\\sb240\\sa120\\keepn\\nowidctlpar\\wrapdefault\\faauto\\outlinelevel2\\rin0\\lin0\\itap0 \\rtlch\\fcs1 \\ab\\af0\\afs28\\alang1033 \\ltrch\\fcs0 \\b\\fs28\\lang1033\\langfe255\\loch\\f1\\hich\\af1\\dbch\\af26\\cgrid\\langnp1033\\langfenp255 \\sbasedon15 \\snext16 \\slink23 heading 3;}\n'  # noqa
+            '{\\s4\\ql \\li0\\ri0\\sb240\\sa120\\keepn\\nowidctlpar\\wrapdefault\\faauto\\outlinelevel3\\rin0\\lin0\\itap0 \\rtlch\\fcs1 \\ab\\ai\\af0\\afs23\\alang1033 \\ltrch\\fcs0\\b\\i\\fs23\\lang1033\\langfe255\\loch\\f1\\hich\\af1\\dbch\\af26\\cgrid\\langnp1033\\langfenp255 \\sbasedon15 \\snext16 \\slink24 heading 4;}\n'  # noqa
+            '{\\s5\\ql \\li0\\ri0\\sb240\\sa120\\keepn\\nowidctlpar\\wrapdefault\\faauto\\outlinelevel4\\rin0\\lin0\\itap0 \\rtlch\\fcs1 \\ab\\af0\\afs23\\alang1033 \\ltrch\\fcs0 \\b\\fs23\\lang1033\\langfe255\\loch\\f1\\hich\\af1\\dbch\\af26\\cgrid\\langnp1033\\langfenp255 \\sbasedon15 \\snext16 \\slink25 heading 5;}\n'  # noqa
+            '{\\s6\\ql \\li0\\ri0\\sb240\\sa120\\keepn\\nowidctlpar\\wrapdefault\\faauto\\outlinelevel5\\rin0\\lin0\\itap0 \\rtlch\\fcs1 \\ab\\af0\\afs21\\alang1033 \\ltrch\\fcs0 \\b\\fs21\\lang1033\\langfe255\\loch\\f1\\hich\\af1\\dbch\\af26\\cgrid\\langnp1033\\langfenp255 \\sbasedon15 \\snext16 \\slink26 heading 6;}}\n'  # noqa
+        )
 
     def footer(self):
         return ' }'
@@ -177,8 +181,8 @@ class RTFMLizer(object):
         return text
 
     def image_to_hexstring(self, data):
-        data = save_cover_data_to(data, 'cover.jpg', return_data=True)
-        width, height = identify_data(data)[:2]
+        data = save_cover_data_to(data)
+        width, height = identify(data)[1:]
 
         raw_hex = ''
         for char in data:

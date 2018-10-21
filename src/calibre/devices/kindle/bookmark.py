@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 
+from __future__ import print_function
 __license__   = 'GPL v3'
 __docformat__ = 'restructuredtext en'
 
@@ -7,11 +8,13 @@ import os
 from cStringIO import StringIO
 from struct import unpack
 
-class Bookmark(): # {{{
+
+class Bookmark():  # {{{
     '''
     A simple class fetching bookmark data
     Kindle-specific
     '''
+
     def __init__(self, path, id, book_format, bookmark_extension):
         self.book_format = book_format
         self.bookmark_extension = bookmark_extension
@@ -47,7 +50,7 @@ class Bookmark(): # {{{
         user_notes = {}
         if self.bookmark_extension == 'mbp':
             MAGIC_MOBI_CONSTANT = 150
-            with open(self.path,'rb') as f:
+            with lopen(self.path,'rb') as f:
                 stream = StringIO(f.read())
                 data = StreamSlicer(stream)
                 self.timestamp, = unpack('>I', data[0x24:0x28])
@@ -61,11 +64,11 @@ class Bookmark(): # {{{
                 bpl = bpar_offset + 4
                 bpar_len, = unpack('>I', data[bpl:bpl+4])
                 bpar_len += 8
-                #print "bpar_len: 0x%x" % bpar_len
+                # print "bpar_len: 0x%x" % bpar_len
                 eo = bpar_offset + bpar_len
 
                 # Walk bookmark entries
-                #print " --- %s --- " % self.path
+                # print " --- %s --- " % self.path
                 current_entry = 1
                 sig = data[eo:eo+4]
                 previous_block = None
@@ -76,11 +79,11 @@ class Bookmark(): # {{{
                     rec_len, = unpack('>I', data[eo+4:eo+8])
                     if rec_len == 0:
                         current_block = "empty_data"
-                    elif  data[eo+8:eo+12] == "EBAR":
+                    elif data[eo+8:eo+12] == "EBAR":
                         current_block = "data_header"
-                        #entry_type = "data_header"
+                        # entry_type = "data_header"
                         location, = unpack('>I', data[eo+0x34:eo+0x38])
-                        #print "data_header location: %d" % location
+                        # print "data_header location: %d" % location
                     else:
                         current_block = "text_block"
                         if previous_block == 'empty_data':
@@ -106,7 +109,7 @@ class Bookmark(): # {{{
                     end_loc, = unpack('>I', data[eo+0x10:eo+0x14])
 
                     if end_loc in user_notes and \
-                       (user_notes[end_loc]['type'] == 'Highlight' or \
+                       (user_notes[end_loc]['type'] == 'Highlight' or
                         user_notes[end_loc]['type'] == 'Note'):
                         # Switch location to start (0x08:0x0c)
                         start, = unpack('>I', data[eo+8:eo+12])
@@ -144,14 +147,14 @@ class Bookmark(): # {{{
                 # Author is not matched
                 # This will find the first instance of a clipping only
                 book_fs = self.path.replace('.%s' % self.bookmark_extension,'.%s' % self.book_format)
-                with open(book_fs,'rb') as f2:
+                with lopen(book_fs,'rb') as f2:
                     stream = StringIO(f2.read())
                     mi = get_topaz_metadata(stream)
                 my_clippings = self.path
                 split = my_clippings.find('documents') + len('documents/')
                 my_clippings = my_clippings[:split] + "My Clippings.txt"
                 try:
-                    with open(my_clippings, 'r') as f2:
+                    with lopen(my_clippings, 'r') as f2:
                         marker_found = 0
                         text = ''
                         search_str1 = '%s' % (mi.title)
@@ -175,7 +178,7 @@ class Bookmark(): # {{{
 
             MAGIC_TOPAZ_CONSTANT = 33.33
             self.timestamp = os.path.getmtime(self.path)
-            with open(self.path,'rb') as f:
+            with lopen(self.path,'rb') as f:
                 stream = StringIO(f.read())
                 data = StreamSlicer(stream)
                 self.last_read = int(unpack('>I', data[5:9])[0])
@@ -216,7 +219,7 @@ class Bookmark(): # {{{
 
         elif self.bookmark_extension == 'pdr':
             self.timestamp = os.path.getmtime(self.path)
-            with open(self.path,'rb') as f:
+            with lopen(self.path,'rb') as f:
                 stream = StringIO(f.read())
                 data = StreamSlicer(stream)
                 self.last_read = int(unpack('>I', data[5:9])[0])
@@ -274,7 +277,7 @@ class Bookmark(): # {{{
                 self.last_read_location = self.last_read - self.pdf_page_offset
 
         else:
-            print "unsupported bookmark_extension: %s" % self.bookmark_extension
+            print("unsupported bookmark_extension: %s" % self.bookmark_extension)
         self.user_notes = user_notes
 
     def get_book_length(self):
@@ -285,7 +288,7 @@ class Bookmark(): # {{{
         if self.bookmark_extension == 'mbp':
             # Read the book len from the header
             try:
-                with open(book_fs,'rb') as f:
+                with lopen(book_fs,'rb') as f:
                     self.stream = StringIO(f.read())
                     self.data = StreamSlicer(self.stream)
                     self.nrecs, = unpack('>H', self.data[76:78])
@@ -297,7 +300,7 @@ class Bookmark(): # {{{
             # Read bookLength from metadata
             from calibre.ebooks.metadata.topaz import MetadataUpdater
             try:
-                with open(book_fs,'rb') as f:
+                with lopen(book_fs,'rb') as f:
                     mu = MetadataUpdater(f)
                     self.book_length = mu.book_length
             except:
@@ -310,6 +313,6 @@ class Bookmark(): # {{{
                 pass
 
         else:
-            print "unsupported bookmark_extension: %s" % self.bookmark_extension
+            print("unsupported bookmark_extension: %s" % self.bookmark_extension)
 
 # }}}

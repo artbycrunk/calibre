@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python2
 # vim:fileencoding=utf-8
 from __future__ import (unicode_literals, division, absolute_import,
                         print_function)
@@ -22,8 +22,10 @@ from calibre.utils.icu import sort_key
 from calibre.web.feeds.recipes.collection import get_builtin_recipe_collection, get_builtin_recipe_by_id
 from calibre.utils.localization import localize_user_manual_link
 
+
 def is_basic_recipe(src):
     return re.search(r'^class BasicUserRecipe', src, flags=re.MULTILINE) is not None
+
 
 class CustomRecipeModel(QAbstractListModel):  # {{{
 
@@ -111,6 +113,7 @@ class CustomRecipeModel(QAbstractListModel):  # {{{
         self.endResetModel()
 # }}}
 
+
 def py3_repr(x):
     ans = repr(x)
     if isinstance(x, bytes) and not ans.startswith('b'):
@@ -118,6 +121,7 @@ def py3_repr(x):
     if isinstance(x, unicode) and ans.startswith('u'):
         ans = ans[1:]
     return ans
+
 
 def options_to_recipe_source(title, oldest_article, max_articles_per_feed, feeds):
     classname = 'BasicUserRecipe%d' % int(time.time())
@@ -133,7 +137,7 @@ def options_to_recipe_source(title, oldest_article, max_articles_per_feed, feeds
     if feeds:
         feeds = 'feeds          = [\n%s\n    ]' % feeds
     src = textwrap.dedent('''\
-    #!/usr/bin/env python
+    #!/usr/bin/env python2
     # vim:fileencoding=utf-8
     from __future__ import unicode_literals, division, absolute_import, print_function
     from calibre.web.feeds.news import {base}
@@ -148,6 +152,7 @@ def options_to_recipe_source(title, oldest_article, max_articles_per_feed, feeds
             classname=classname, title=py3_repr(title), oldest_article=oldest_article, feeds=feeds,
             max_articles_per_feed=max_articles_per_feed, base='AutomaticNewsRecipe')
     return src
+
 
 class RecipeList(QWidget):  # {{{
 
@@ -253,6 +258,7 @@ class RecipeList(QWidget):  # {{{
         self.model.replace_many_by_title(script_map)
         self.select_row()
 # }}}
+
 
 class BasicRecipe(QWidget):  # {{{
 
@@ -384,7 +390,7 @@ class BasicRecipe(QWidget):  # {{{
             self.feed_title.clear()
             self.feed_url.clear()
             if src is None:
-                self.title.setText(_('My News Source'))
+                self.title.setText(_('My news source'))
                 self.oldest_article.setValue(7)
                 self.max_articles.setValue(100)
             else:
@@ -399,6 +405,7 @@ class BasicRecipe(QWidget):  # {{{
         return property(fget=fget, fset=fset)
 # }}}
 
+
 class AdvancedRecipe(QWidget):  # {{{
 
     def __init__(self, parent):
@@ -407,7 +414,7 @@ class AdvancedRecipe(QWidget):  # {{{
 
         self.la = la = QLabel(_(
             'For help with writing advanced news recipes, see the <a href="%s">User Manual</a>'
-        ) % localize_user_manual_link('http://manual.calibre-ebook.com/news.html'))
+        ) % localize_user_manual_link('https://manual.calibre-ebook.com/news.html'))
         l.addWidget(la)
 
         self.editor = TextEdit(self)
@@ -437,6 +444,7 @@ class AdvancedRecipe(QWidget):  # {{{
     def sizeHint(self):
         return QSize(800, 500)
 # }}}
+
 
 class CustomRecipes(Dialog):
 
@@ -486,7 +494,7 @@ class CustomRecipes(Dialog):
         else:
             bb.setStandardButtons(bb.Cancel | bb.Save)
             if self.stack.currentIndex() == 1:
-                text = _('S&witch to Advanced mode')
+                text = _('S&witch to advanced mode')
                 tooltip = _('Edit this recipe in advanced mode')
                 receiver = self.switch_to_advanced
                 b = bb.addButton(text, bb.ActionRole)
@@ -553,7 +561,7 @@ class CustomRecipes(Dialog):
         d.l = QVBoxLayout()
         d.setLayout(d.l)
         d.list = QListWidget(d)
-        d.list.doubleClicked.connect(lambda x: d.accept())
+        connect_lambda(d.list.doubleClicked, d, lambda d: d.accept())
         d.l.addWidget(d.list)
         d.bb = QDialogButtonBox(QDialogButtonBox.Ok|QDialogButtonBox.Cancel,
                 Qt.Horizontal, d)
@@ -596,7 +604,7 @@ class CustomRecipes(Dialog):
     def load_recipe(self):
         files = choose_files(self, 'recipe loader dialog',
             _('Choose a recipe file'),
-            filters=[(_('Recipes'), ['.py', '.recipe'])],
+            filters=[(_('Recipes'), ['py', 'recipe'])],
             all_files=False, select_only_single_file=True)
         if files:
             path = files[0]
@@ -652,6 +660,7 @@ class CustomRecipes(Dialog):
         src = src.replace('BasicUserRecipe', 'AdvancedUserRecipe')
         self.advanced_recipe.recipe_source = src
         self.stack.setCurrentIndex(2)
+
 
 if __name__ == '__main__':
     from calibre.gui2 import Application

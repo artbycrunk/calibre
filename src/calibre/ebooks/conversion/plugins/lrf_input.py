@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python2
 # vim:fileencoding=UTF-8:ts=4:sw=4:sta:et:sts=4:ai
 from __future__ import with_statement
 
@@ -9,12 +9,14 @@ __docformat__ = 'restructuredtext en'
 import os, sys
 from calibre.customize.conversion import InputFormatPlugin
 
+
 class LRFInput(InputFormatPlugin):
 
     name        = 'LRF Input'
     author      = 'Kovid Goyal'
     description = 'Convert LRF files to HTML'
-    file_types  = set(['lrf'])
+    file_types  = {'lrf'}
+    commit_name = 'lrf_input'
 
     def convert(self, stream, options, file_ext, log,
                 accelerators):
@@ -37,7 +39,6 @@ class LRFInput(InputFormatPlugin):
             parser = etree.XMLParser(no_network=True, huge_tree=True,
                     recover=True)
             doc = etree.fromstring(xml, parser=parser)
-
 
         char_button_map = {}
         for x in doc.xpath('//CharButton[@refobj]'):

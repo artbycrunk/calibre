@@ -18,6 +18,7 @@ from calibre.utils.cleantext import clean_ascii_chars
 
 HTML_TEMPLATE = u'<html><head><meta http-equiv="Content-Type" content="text/html; charset=utf-8"/><title>%s </title></head><body>\n%s\n</body></html>'
 
+
 def clean_txt(txt):
     '''
     Run transformations on the text to put it into
@@ -45,6 +46,7 @@ def clean_txt(txt):
 
     return txt
 
+
 def split_txt(txt, epub_split_size_kb=0):
     '''
     Ensure there are split points for converting
@@ -71,6 +73,7 @@ def split_txt(txt, epub_split_size_kb=0):
 
     return txt
 
+
 def convert_basic(txt, title='', epub_split_size_kb=0):
     '''
     Converts plain text to html by putting all paragraphs in
@@ -95,32 +98,79 @@ def convert_basic(txt, title='', epub_split_size_kb=0):
 
     return HTML_TEMPLATE % (title, u'\n'.join(lines))
 
-def convert_markdown(txt, title='', extensions=('footnotes', 'tables', 'toc')):
+
+DEFAULT_MD_EXTENSIONS = ('footnotes', 'tables', 'toc')
+
+
+def convert_markdown(txt, title='', extensions=DEFAULT_MD_EXTENSIONS):
     from calibre.ebooks.conversion.plugins.txt_input import MD_EXTENSIONS
     from calibre.ebooks.markdown import Markdown
-    extensions = [x.lower() for x in extensions if x.lower() in MD_EXTENSIONS]
-    md = Markdown(
-          extensions,
-          safe_mode=False)
+    extensions = ['calibre.ebooks.markdown.extensions.' + x.lower() for x in extensions if x.lower() in MD_EXTENSIONS]
+    md = Markdown(extensions=extensions)
     return HTML_TEMPLATE % (title, md.convert(txt))
+
+
+def convert_markdown_with_metadata(txt, title='', extensions=DEFAULT_MD_EXTENSIONS):
+    from calibre.ebooks.conversion.plugins.txt_input import MD_EXTENSIONS
+    from calibre.ebooks.markdown import Markdown
+    from calibre.ebooks.metadata.book.base import Metadata
+    from calibre.utils.date import parse_only_date
+    from calibre.db.write import get_series_values
+    extensions = ['calibre.ebooks.markdown.extensions.' + x.lower() for x in extensions if x.lower() in MD_EXTENSIONS]
+    meta_ext = 'calibre.ebooks.markdown.extensions.meta'
+    if meta_ext not in extensions:
+        extensions.append(meta_ext)
+    md = Markdown(extensions=extensions)
+    html = md.convert(txt)
+    mi = Metadata(title or _('Unknown'))
+    m = md.Meta
+    for k, v in {'date':'pubdate', 'summary':'comments'}.iteritems():
+        if v not in m and k in m:
+            m[v] = m.pop(k)
+    for k in 'title authors series tags pubdate comments publisher rating'.split():
+        val = m.get(k)
+        if val:
+            mf = mi.metadata_for_field(k)
+            if not mf.get('is_multiple'):
+                val = val[0]
+            if k == 'series':
+                val, si = get_series_values(val)
+                mi.series_index = 1 if si is None else si
+            if k == 'rating':
+                try:
+                    val = max(0, min(int(float(val)), 10))
+                except Exception:
+                    continue
+            if mf.get('datatype') == 'datetime':
+                try:
+                    val = parse_only_date(val, assume_utc=False)
+                except Exception:
+                    continue
+            setattr(mi, k, val)
+    return mi, HTML_TEMPLATE % (mi.title, html)
+
 
 def convert_textile(txt, title=''):
     from calibre.ebooks.textile import textile
     html = textile(txt, encoding='utf-8')
     return HTML_TEMPLATE % (title, html)
 
+
 def normalize_line_endings(txt):
     txt = txt.replace('\r\n', '\n')
     txt = txt.replace('\r', '\n')
     return txt
 
+
 def separate_paragraphs_single_line(txt):
     txt = txt.replace('\n', '\n\n')
     return txt
 
+
 def separate_paragraphs_print_formatted(txt):
     txt = re.sub(u'(?miu)^(?P<indent>\t+|[ ]{2,})(?=.)', lambda mo: '\n%s' % mo.group('indent'), txt)
     return txt
+
 
 def separate_hard_scene_breaks(txt):
     def sep_break(line):
@@ -131,9 +181,11 @@ def separate_hard_scene_breaks(txt):
     txt = re.sub(u'(?miu)^[ \t-=~\/_]+$', lambda mo: sep_break(mo.group()), txt)
     return txt
 
+
 def block_to_single_line(txt):
     txt = re.sub(r'(?<=.)\n(?=.)', ' ', txt)
     return txt
+
 
 def preserve_spaces(txt):
     '''
@@ -143,6 +195,7 @@ def preserve_spaces(txt):
     txt = txt.replace('\t', '&nbsp;&nbsp;&nbsp;&nbsp;')
     return txt
 
+
 def remove_indents(txt):
     '''
     Remove whitespace at the beginning of each line.
@@ -150,12 +203,14 @@ def remove_indents(txt):
     txt = re.sub('(?miu)^\s+', '', txt)
     return txt
 
+
 def opf_writer(path, opf_name, manifest, spine, mi):
     opf = OPFCreator(path, mi)
     opf.create_manifest(manifest)
     opf.create_spine(spine)
     with open(os.path.join(path, opf_name), 'wb') as opffile:
         opf.render(opffile)
+
 
 def split_string_separator(txt, size):
     '''
@@ -166,6 +221,7 @@ def split_string_separator(txt, size):
             txt[i:i+size], 1) for i in
             xrange(0, len(txt), size)])
     return txt
+
 
 def detect_paragraph_type(txt):
     '''

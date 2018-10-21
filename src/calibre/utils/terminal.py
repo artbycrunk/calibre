@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python2
 # vim:fileencoding=UTF-8:ts=4:sw=4:sta:et:sts=4:fdm=marker:ai
 from __future__ import (unicode_literals, division, absolute_import,
                         print_function)
@@ -12,8 +12,22 @@ from itertools import izip
 
 from calibre.constants import iswindows
 
+if iswindows:
+    import ctypes.wintypes
+
+    class CONSOLE_SCREEN_BUFFER_INFO(ctypes.Structure):
+        _fields_ = [
+            ('dwSize', ctypes.wintypes._COORD),
+            ('dwCursorPosition', ctypes.wintypes._COORD),
+            ('wAttributes', ctypes.wintypes.WORD),
+            ('srWindow', ctypes.wintypes._SMALL_RECT),
+            ('dwMaximumWindowSize', ctypes.wintypes._COORD)
+        ]
+
+
 def fmt(code):
     return ('\033[%dm'%code).encode('ascii')
+
 
 RATTRIBUTES = dict(
         izip(xrange(1, 9), (
@@ -73,6 +87,7 @@ if iswindows:
             val |= (WCOLORS[bg] << 4)
         return val
 
+
 def colored(text, fg=None, bg=None, bold=False):
     prefix = []
     if fg is not None:
@@ -87,6 +102,7 @@ def colored(text, fg=None, bg=None, bold=False):
         prefix = prefix.decode('ascii')
         suffix = suffix.decode('ascii')
     return prefix + text + suffix
+
 
 class Detect(object):
 
@@ -104,18 +120,23 @@ class Detect(object):
                 import msvcrt
                 self.msvcrt = msvcrt
                 self.file_handle = msvcrt.get_osfhandle(self.stream.fileno())
-                from ctypes import windll, wintypes, byref, c_wchar_p, c_size_t, POINTER, WinDLL
+                from ctypes import windll, wintypes, byref, POINTER, WinDLL
                 mode = wintypes.DWORD(0)
                 f = windll.kernel32.GetConsoleMode
                 f.argtypes, f.restype = [wintypes.HANDLE, POINTER(wintypes.DWORD)], wintypes.BOOL
                 if f(self.file_handle, byref(mode)):
                     # Stream is a console
                     self.set_console = windll.kernel32.SetConsoleTextAttribute
-                    self.wcslen = crt().wcslen
-                    self.wcslen.argtypes, self.wcslen.restype = [c_wchar_p], c_size_t
-                    self.write_console = WinDLL('kernel32', use_last_error=True).WriteConsoleW
+                    self.default_console_text_attributes = WCOLORS['white']
+                    kernel32 = WinDLL(b'kernel32', use_last_error=True)
+                    self.write_console = kernel32.WriteConsoleW
                     self.write_console.argtypes = [wintypes.HANDLE, wintypes.c_wchar_p, wintypes.DWORD, POINTER(wintypes.DWORD), wintypes.LPVOID]
                     self.write_console.restype = wintypes.BOOL
+                    kernel32.GetConsoleScreenBufferInfo.argtypes = [wintypes.HANDLE, ctypes.POINTER(CONSOLE_SCREEN_BUFFER_INFO)]
+                    kernel32.GetConsoleScreenBufferInfo.restype = wintypes.BOOL
+                    csbi = CONSOLE_SCREEN_BUFFER_INFO()
+                    if kernel32.GetConsoleScreenBufferInfo(self.file_handle, byref(csbi)):
+                        self.default_console_text_attributes = csbi.wAttributes
                     self.is_console = True
             except:
                 pass
@@ -125,14 +146,17 @@ class Detect(object):
         if self.is_console:
             from ctypes import wintypes, byref, c_wchar_p
             written = wintypes.DWORD(0)
+            text = text.replace('\0', '')
             chunk = len(text)
             while text:
                 t, text = text[:chunk], text[chunk:]
                 wt = c_wchar_p(t)
-                if not self.write_console(self.file_handle, wt, self.wcslen(wt), byref(written), None):
+                # Use the fact that len(t) == wcslen(wt) in python 2.7 on
+                # windows where the python unicode type uses UTF-16
+                if not self.write_console(self.file_handle, wt, len(t), byref(written), None):
                     # Older versions of windows can fail to write large strings
                     # to console with WriteConsoleW (seen it happen on Win XP)
-                    import ctypes, winerror
+                    import winerror
                     err = ctypes.get_last_error()
                     if err == winerror.ERROR_NOT_ENOUGH_MEMORY and chunk >= 128:
                         # Retry with a smaller chunk size (give up if chunk < 128)
@@ -153,23 +177,16 @@ class Detect(object):
                     if not ignore_errors:
                         raise ctypes.WinError(err)
 
-_crt = None
-def crt():
-    # We use the C runtime bundled with the calibre windows build
-    global _crt
-    if _crt is None:
-        import glob, ctypes
-        d = os.path.join(os.path.dirname(sys.executable), '*.CRT', 'msvcr*.dll')
-        _crt = ctypes.CDLL(glob.glob(d)[0])
-    return _crt
 
 class ColoredStream(Detect):
 
     def __init__(self, stream=None, fg=None, bg=None, bold=False):
-        super(ColoredStream, self).__init__(stream)
+        Detect.__init__(self, stream)
         self.fg, self.bg, self.bold = fg, bg, bold
         if self.set_console is not None:
             self.wval = to_flag(self.fg, self.bg, bold)
+            if not self.bg:
+                self.wval |= self.default_console_text_attributes & 0xF0
 
     def __enter__(self):
         if not self.isatty:
@@ -193,8 +210,10 @@ class ColoredStream(Detect):
             return
         if self.isansi:
             self.stream.write(RESET)
+            self.stream.flush()
         elif self.set_console is not None:
-            self.set_console(self.file_handle, WCOLORS['white'])
+            self.set_console(self.file_handle, self.default_console_text_attributes)
+
 
 class ANSIStream(Detect):
 
@@ -203,6 +222,7 @@ class ANSIStream(Detect):
     def __init__(self, stream=None):
         super(ANSIStream, self).__init__(stream)
         self.encoding = getattr(self.stream, 'encoding', 'utf-8') or 'utf-8'
+        self.last_state = (None, None, False)
 
     def write(self, text):
         if isinstance(text, type(u'')):
@@ -228,7 +248,6 @@ class ANSIStream(Detect):
         sequences from the text, and optionally converting them into win32
         calls.
         '''
-        self.last_state = (None, None, False)
         cursor = 0
         for match in self.ANSI_RE.finditer(text):
             start, end = match.span()
@@ -236,6 +255,7 @@ class ANSIStream(Detect):
             self.convert_ansi(*match.groups())
             cursor = end
         self.write_plain_text(text, cursor, len(text))
+        self.set_console(self.file_handle, self.default_console_text_attributes)
         self.stream.flush()
 
     def write_plain_text(self, text, start, end):
@@ -274,14 +294,17 @@ class ANSIStream(Detect):
             elif param == 1:
                 bold = True
             elif param == 0:
-                fg = 'white'
-                bg, bold =  None, False
+                fg, bg, bold = None, None, False
 
         self.last_state = (fg, bg, bold)
         if fg or bg or bold:
-            self.set_console(self.file_handle, to_flag(fg, bg, bold))
+            val = to_flag(fg, bg, bold)
+            if not bg:
+                val |= self.default_console_text_attributes & 0xF0
+            self.set_console(self.file_handle, val)
         else:
-            self.set_console(self.file_handle, WCOLORS['white'])
+            self.set_console(self.file_handle, self.default_console_text_attributes)
+
 
 def windows_terminfo():
     from ctypes import Structure, byref
@@ -325,23 +348,50 @@ def windows_terminfo():
         raise Exception('stdout is not a console?')
     return csbi
 
+
+def get_term_geometry():
+    import fcntl, termios, struct
+
+    def ioctl_GWINSZ(fd):
+        try:
+            return struct.unpack(b'HHHH', fcntl.ioctl(fd, termios.TIOCGWINSZ, b'\0'*8))[:2]
+        except Exception:
+            return None, None
+
+    for f in (sys.stdin, sys.stdout, sys.stderr):
+        lines, cols = ioctl_GWINSZ(f.fileno())
+        if lines is not None:
+            return lines, cols
+    try:
+        fd = os.open(os.ctermid(), os.O_RDONLY)
+        try:
+            lines, cols = ioctl_GWINSZ(fd)
+            if lines is not None:
+                return lines, cols
+        finally:
+            os.close(fd)
+    except Exception:
+        pass
+    return None, None
+
+
 def geometry():
     if iswindows:
         try:
 
             ti = windows_terminfo()
-            return (ti.dwSize.X or 80, ti.dwSize.Y or 80)
+            return (ti.dwSize.X or 80, ti.dwSize.Y or 25)
         except:
-            return 80, 80
-    try:
-        import curses
-        curses.setupterm()
-    except:
-        return 80, 80
+            return 80, 25
     else:
-        width = curses.tigetnum('cols') or 80
-        height = curses.tigetnum('lines') or 80
-        return width, height
+        try:
+            lines, cols = get_term_geometry()
+            if lines is not None:
+                return cols, lines
+        except Exception:
+            pass
+        return 80, 25
+
 
 def test():
     s = ANSIStream()
@@ -353,4 +403,3 @@ def test():
     print()
     s.write_unicode_text(u)
     print()
-

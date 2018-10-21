@@ -8,12 +8,14 @@ import os
 
 from calibre.customize.conversion import InputFormatPlugin
 
+
 class PDBInput(InputFormatPlugin):
 
     name        = 'PDB Input'
     author      = 'John Schember'
     description = 'Convert PDB to HTML'
-    file_types  = set(['pdb', 'updb'])
+    file_types  = {'pdb', 'updb'}
+    commit_name = 'pdb_input'
 
     def convert(self, stream, options, file_ext, log,
                 accelerators):
@@ -24,7 +26,8 @@ class PDBInput(InputFormatPlugin):
         Reader = get_reader(header.ident)
 
         if Reader is None:
-            raise PDBError('No reader available for format within container.\n Identity is %s. Book type is %s' % (header.ident, IDENTITY_TO_NAME.get(header.ident, _('Unknown'))))
+            raise PDBError('No reader available for format within container.\n Identity is %s. Book type is %s' %
+                           (header.ident, IDENTITY_TO_NAME.get(header.ident, _('Unknown'))))
 
         log.debug('Detected ebook format as: %s with identity: %s' % (IDENTITY_TO_NAME[header.ident], header.ident))
 

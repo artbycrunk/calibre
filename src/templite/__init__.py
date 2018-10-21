@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python2
 #
 #       Templite+
 #       A light-weight, fully functional, general purpose templating engine
@@ -84,4 +84,4 @@ class Templite(object):
 
     def write(self, *args):
         for a in args:
-            self.__output.append(str(a))
+            self.__output.append(unicode(a))

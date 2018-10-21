@@ -1,4 +1,5 @@
 from __future__ import with_statement
+from __future__ import print_function
 __license__ = 'GPL 3'
 __copyright__ = '2010, Greg Riker <griker@hotmail.com>'
 __docformat__ = 'restructuredtext en'
@@ -9,6 +10,7 @@ from struct import pack
 
 from calibre.ebooks.metadata import MetaInformation
 from calibre import force_unicode
+
 
 class StreamSlicer(object):
 
@@ -77,7 +79,9 @@ class StreamSlicer(object):
     def truncate(self, value):
         self._stream.truncate(value)
 
+
 class MetadataUpdater(object):
+
     def __init__(self, stream):
         self.stream = stream
         self.data = StreamSlicer(stream)
@@ -92,7 +96,7 @@ class MetadataUpdater(object):
         self.topaz_headers, self.th_seq = self.get_headers(offset)
 
         # First integrity test - metadata header
-        if not 'metadata' in self.topaz_headers:
+        if 'metadata' not in self.topaz_headers:
             raise ValueError("'%s': Invalid Topaz format - no metadata record" % getattr(stream, 'name', 'Unnamed stream'))
 
         # Second integrity test - metadata body
@@ -120,35 +124,37 @@ class MetadataUpdater(object):
             b &= 0x7F
             val <<= 7
             val |= b
-            if done: break
+            if done:
+                break
         return val, pos
 
     def dump_headers(self):
         ''' Diagnostic '''
-        print "\ndump_headers():"
+        print("\ndump_headers():")
         for tag in self.topaz_headers:
-            print "%s: " % (tag)
+            print("%s: " % (tag))
             num_recs = len(self.topaz_headers[tag]['blocks'])
-            print " num_recs: %d" % num_recs
+            print(" num_recs: %d" % num_recs)
             if num_recs:
-                print " starting offset: 0x%x" % self.topaz_headers[tag]['blocks'][0]['offset']
+                print(" starting offset: 0x%x" % self.topaz_headers[tag]['blocks'][0]['offset'])
 
     def dump_hex(self, src, length=16):
         ''' Diagnostic '''
         FILTER=''.join([(len(repr(chr(x)))==3) and chr(x) or '.' for x in range(256)])
-        N=0; result=''
+        N=0
+        result=''
         while src:
-           s,src = src[:length],src[length:]
-           hexa = ' '.join(["%02X"%ord(x) for x in s])
-           s = s.translate(FILTER)
-           result += "%04X   %-*s   %s\n" % (N, length*3, hexa, s)
-           N+=length
-        print result
+            s,src = src[:length],src[length:]
+            hexa = ' '.join(["%02X"%ord(x) for x in s])
+            s = s.translate(FILTER)
+            result += "%04X   %-*s   %s\n" % (N, length*3, hexa, s)
+            N+=length
+        print(result)
 
     def dump_metadata(self):
         ''' Diagnostic '''
         for tag in self.metadata:
-            print '%s: %s' % (tag, repr(self.metadata[tag]))
+            print('%s: %s' % (tag, repr(self.metadata[tag])))
 
     def encode_vwi(self,value):
         bytes = []
@@ -234,7 +240,7 @@ class MetadataUpdater(object):
         ms.write(chr(len(self.metadata)))
 
         # Add the metadata fields.
-        #for tag in self.metadata:
+        # for tag in self.metadata:
         for tag in self.md_seq:
             ms.write(self.encode_vwi(len(tag)).encode('iso-8859-1'))
             ms.write(tag)
@@ -261,7 +267,7 @@ class MetadataUpdater(object):
         offset += 1
         self.md_header['num_recs'] = ord(self.data[offset])
         offset += 1
-        #print "self.md_header: %s" % self.md_header
+        # print "self.md_header: %s" % self.md_header
 
         self.metadata = {}
         self.md_seq = []
@@ -318,9 +324,9 @@ class MetadataUpdater(object):
         self.get_original_metadata()
 
         try:
-             from calibre.ebooks.conversion.config import load_defaults
-             prefs = load_defaults('mobi_output')
-             pas = prefs.get('prefer_author_sort', False)
+            from calibre.ebooks.conversion.config import load_defaults
+            prefs = load_defaults('mobi_output')
+            pas = prefs.get('prefer_author_sort', False)
         except:
             pas = False
 
@@ -353,19 +359,22 @@ class MetadataUpdater(object):
         self.stream.write(updated_metadata)
         self.stream.write(chunk2)
 
+
 def get_metadata(stream):
     mu = MetadataUpdater(stream)
     return mu.get_metadata()
+
 
 def set_metadata(stream, mi):
     mu = MetadataUpdater(stream)
     mu.update(mi)
     return
 
+
 if __name__ == '__main__':
     if False:
         # Test get_metadata()
-        print get_metadata(open(sys.argv[1], 'rb'))
+        print(get_metadata(open(sys.argv[1], 'rb')))
     else:
         # Test set_metadata()
         import cStringIO
@@ -380,4 +389,3 @@ if __name__ == '__main__':
         updated_data = open(tokens[0]+'-updated' + '.' + tokens[2],'wb')
         updated_data.write(stream.getvalue())
         updated_data.close()
-

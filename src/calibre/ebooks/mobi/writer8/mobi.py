@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python2
 # vim:fileencoding=UTF-8:ts=4:sw=4:sta:et:sts=4:ai
 from __future__ import (unicode_literals, division, absolute_import,
                         print_function)
@@ -20,12 +20,14 @@ from calibre.utils.filenames import ascii_filename
 NULL_INDEX = 0xffffffff
 FLIS = b'FLIS\0\0\0\x08\0\x41\0\0\0\0\0\0\xff\xff\xff\xff\0\x01\0\x03\0\0\0\x03\0\0\0\x01'+ b'\xff'*4
 
+
 def fcis(text_length):
     fcis = b'FCIS\x00\x00\x00\x14\x00\x00\x00\x10\x00\x00\x00\x02\x00\x00\x00\x00'
     fcis += pack(b'>L', text_length)
     fcis += b'\x00\x00\x00\x00\x00\x00\x00\x28\x00\x00\x00\x00\x00\x00\x00'
     fcis += b'\x28\x00\x00\x00\x08\x00\x01\x00\x01\x00\x00\x00\x00'
     return fcis
+
 
 class MOBIHeader(Header):  # {{{
 
@@ -207,6 +209,7 @@ class MOBIHeader(Header):  # {{{
 
 # }}}
 
+
 HEADER_FIELDS = {'compression', 'text_length', 'last_text_record', 'book_type',
                     'first_non_text_record', 'title_length', 'language_code',
                     'first_resource_record', 'exth_flags', 'fdst_record',
@@ -214,12 +217,18 @@ HEADER_FIELDS = {'compression', 'text_length', 'last_text_record', 'book_type',
                     'guide_index', 'exth', 'full_title', 'extra_data_flags',
                     'flis_record', 'fcis_record', 'uid'}
 
+
 class KF8Book(object):
 
     def __init__(self, writer, for_joint=False):
         self.build_records(writer, for_joint)
         self.used_images = writer.used_images
         self.page_progression_direction = writer.oeb.spine.page_progression_direction
+        self.primary_writing_mode = writer.oeb.metadata.primary_writing_mode
+        if self.page_progression_direction == 'rtl' and not self.primary_writing_mode:
+            # Without this the Kindle renderer does not respect
+            # page_progression_direction
+            self.primary_writing_mode = 'horizontal-rl'
 
     def build_records(self, writer, for_joint):
         metadata = writer.oeb.metadata
@@ -308,7 +317,8 @@ class KF8Book(object):
             num_of_resources=self.num_of_resources,
             kf8_unknown_count=self.kuc, be_kindlegen2=True,
             start_offset=self.start_offset, mobi_doctype=self.book_type,
-            page_progression_direction=self.page_progression_direction
+            page_progression_direction=self.page_progression_direction,
+            primary_writing_mode=self.primary_writing_mode
         )
 
         kwargs = {field:getattr(self, field) for field in HEADER_FIELDS}
@@ -339,4 +349,3 @@ class KF8Book(object):
 
             for rec in records:
                 f.write(rec)
-
